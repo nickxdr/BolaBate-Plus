@@ -116,7 +116,7 @@ export const INITIAL_PLAYERS = [
     goals: 7,
     assists: 11,
     selecao: 2,
-    puskas: 0,
+    puskas: 1,
     craque: 0,
     bagre: 0,
     participacao: 6,

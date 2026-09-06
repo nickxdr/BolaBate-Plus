@@ -315,6 +315,21 @@ body {
   transform: scale(0.98);
 }
 
+.team-count-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-team-count {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.25;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, #10B981, #059669);
   color: #FFFFFF;
@@ -1196,6 +1211,9 @@ body {
   .card {
     padding: 16px;
     border-radius: 14px;
+  }
+  .team-count-grid {
+    grid-template-columns: 1fr 1fr;
   }
   .teams-grid {
     grid-template-columns: 1fr;

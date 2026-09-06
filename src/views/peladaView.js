@@ -54,9 +54,9 @@ function renderPeladaConfig(container, onNavigate) {
         <h2 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px;">
           1. Quantos times vão jogar hoje? (Times de 5 jogadores)
         </h2>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+        <div class="team-count-grid">
           ${[3, 4, 5, 6].map(num => `
-            <button class="btn ${teamCount === num ? 'btn-primary' : 'btn-secondary'} btn-team-count" data-count="${num}" style="flex: 1; min-width: 90px;">
+            <button class="btn ${teamCount === num ? 'btn-primary' : 'btn-secondary'} btn-team-count" data-count="${num}">
               ${num} Times<br>
               <span style="font-size: 0.75rem; opacity: 0.85;">(${num * 5} jogadores)</span>
             </button>
