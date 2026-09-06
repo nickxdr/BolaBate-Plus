@@ -1,9 +1,9 @@
-import { store } from '../state/store.js';
-import { showToast } from './rankingView.js';
+import { store } from "../state/store.js";
+import { showToast } from "./rankingView.js";
 
 export function renderSettingsView() {
-  const container = document.createElement('div');
-  container.className = 'view-container';
+  const container = document.createElement("div");
+  container.className = "view-container";
 
   function render() {
     container.innerHTML = `
@@ -26,13 +26,13 @@ export function renderSettingsView() {
         </p>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div id="theme-dark-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === 'dark' ? 'var(--pitch-green)' : 'var(--border-color)'}; background: #0F172A; color: #F8FAFC; text-align: center; margin-bottom: 0;">
+          <div id="theme-dark-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === "dark" ? "var(--pitch-green)" : "var(--border-color)"}; background: #0F172A; color: #F8FAFC; text-align: center; margin-bottom: 0;">
             <div style="font-size: 1.5rem; margin-bottom: 6px;">🌙</div>
             <strong style="font-size: 0.95rem;">Tema Escuro</strong>
             <div style="font-size: 0.75rem; color: #94A3B8; margin-top: 2px;">(Padrão Estádio)</div>
           </div>
 
-          <div id="theme-light-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === 'light' ? 'var(--pitch-green)' : 'var(--border-color)'}; background: #FFFFFF; color: #0F172A; text-align: center; margin-bottom: 0;">
+          <div id="theme-light-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === "light" ? "var(--pitch-green)" : "var(--border-color)"}; background: #FFFFFF; color: #0F172A; text-align: center; margin-bottom: 0;">
             <div style="font-size: 1.5rem; margin-bottom: 6px;">☀️</div>
             <strong style="font-size: 0.95rem;">Tema Claro</strong>
             <div style="font-size: 0.75rem; color: #64748B; margin-top: 2px;">(Alto Contraste)</div>
@@ -69,7 +69,7 @@ export function renderSettingsView() {
           🔄 Restaurar Dados Padrão
         </h2>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-          Restaura a tabela com os 22 jogadores originais e pontuações da planilha inicial do grupo.
+          Restaura a tabela com os dados originais do app.
         </p>
 
         <button id="btn-reset-default" class="btn btn-danger btn-sm">
@@ -89,35 +89,39 @@ export function renderSettingsView() {
     `;
 
     // Bind Theme
-    container.querySelector('#theme-dark-btn').addEventListener('click', () => {
-      store.setTheme('dark');
+    container.querySelector("#theme-dark-btn").addEventListener("click", () => {
+      store.setTheme("dark");
       render();
     });
 
-    container.querySelector('#theme-light-btn').addEventListener('click', () => {
-      store.setTheme('light');
-      render();
-    });
+    container
+      .querySelector("#theme-light-btn")
+      .addEventListener("click", () => {
+        store.setTheme("light");
+        render();
+      });
 
     // Bind Export
-    container.querySelector('#btn-export-json').addEventListener('click', () => {
-      const json = store.exportToJson();
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const dateStr = new Date().toISOString().split('T')[0];
-      a.href = url;
-      a.download = `bolabate-backup-${dateStr}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast('Backup JSON exportado com sucesso!');
-    });
+    container
+      .querySelector("#btn-export-json")
+      .addEventListener("click", () => {
+        const json = store.exportToJson();
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const dateStr = new Date().toISOString().split("T")[0];
+        a.href = url;
+        a.download = `bolabate-backup-${dateStr}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast("Backup JSON exportado com sucesso!");
+      });
 
     // Bind Import
-    const importInput = container.querySelector('#input-import-json');
-    importInput.addEventListener('change', (e) => {
+    const importInput = container.querySelector("#input-import-json");
+    importInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
@@ -127,26 +131,34 @@ export function renderSettingsView() {
         const result = store.importFromJson(content);
         if (result.success) {
           const historyMsg = result.historyCount
-            ? ` e ${result.historyCount} ${result.historyCount === 1 ? 'pelada' : 'peladas'}`
-            : '';
-          showToast(`Sucesso! ${result.count} jogadores${historyMsg} importados.`);
+            ? ` e ${result.historyCount} ${result.historyCount === 1 ? "pelada" : "peladas"}`
+            : "";
+          showToast(
+            `Sucesso! ${result.count} jogadores${historyMsg} importados.`,
+          );
           render();
         } else {
-          alert('Erro ao importar arquivo: ' + result.error);
+          alert("Erro ao importar arquivo: " + result.error);
         }
       };
       reader.readAsText(file);
-      importInput.value = '';
+      importInput.value = "";
     });
 
     // Bind Reset
-    container.querySelector('#btn-reset-default').addEventListener('click', () => {
-      if (confirm('Atenção: deseja realmente restaurar os 22 jogadores originais e pontuações da planilha? Dados adicionados serão substituídos.')) {
-        store.resetToDefaults();
-        showToast('Dados restaurados para a planilha original!');
-        render();
-      }
-    });
+    container
+      .querySelector("#btn-reset-default")
+      .addEventListener("click", () => {
+        if (
+          confirm(
+            "Atenção: deseja realmente restaurar os dados originais? Dados adicionados serão substituídos.",
+          )
+        ) {
+          store.resetToDefaults();
+          showToast("Dados restaurados para a planilha original!");
+          render();
+        }
+      });
   }
 
   render();
