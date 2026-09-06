@@ -1,0 +1,9 @@
+{
+  "appId": "com.bolabate.app",
+  "appName": "BolaBate+",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
