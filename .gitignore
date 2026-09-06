@@ -8,6 +8,10 @@ dist/
 dist-ssr/
 *.local
 
+# context
+
+*.txt
+
 # Logs
 logs
 *.log

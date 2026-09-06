@@ -23,7 +23,7 @@ const officialStars = {
   'SOLDADO': 3.5,
   'NETO': 4.5,
   'BRUNO B': 4.0,
-  'ARTHUR N': 4.0,
+  'ARTHUR NT': 4.0,
   'TIBURCIO': 5.0,
   'FATHER': 3.5,
   'ELIAS': 1.5,
