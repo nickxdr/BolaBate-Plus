@@ -1,15 +1,36 @@
 import { store } from '../state/store.js';
-import { calculatePoints } from '../data/seedData.js';
+import { calculatePoints, calculatePointsFromStats } from '../data/seedData.js';
 
 export function renderRankingView() {
   const container = document.createElement('div');
   container.className = 'view-container';
+  // Period selection defaults
+  const now = new Date();
+  const selYear = (store.selectedPeriodKey && store.selectedPeriodKey.split('-')[0]) || String(now.getFullYear());
+  const selMonth = (store.selectedPeriodKey && Number(store.selectedPeriodKey.split('-')[1])) || (now.getMonth() + 1);
 
-  // Calculate sorted rankings
-  const rankedPlayers = [...store.players].map(p => ({
-    ...p,
-    totalPoints: calculatePoints(p)
-  })).sort((a, b) => {
+  // Build period selector UI
+  const years = store.getAvailableYears();
+  const months = store.getMonthsForYear(Number(selYear));
+
+  // Determine current snapshot for selected period
+  const snapshot = store.getPeriodSnapshot(Number(selYear), Number(selMonth));
+
+  // Calculate sorted rankings from period snapshot (fallback to zeros)
+  const rankedPlayers = [...store.players].map(p => {
+    const stats = (snapshot && snapshot.players && snapshot.players[p.id]) || { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0 };
+    return {
+      ...p,
+      goals: stats.goals || 0,
+      assists: stats.assists || 0,
+      selecao: stats.selecao || 0,
+      puskas: stats.puskas || 0,
+      craque: stats.craque || 0,
+      bagre: stats.bagre || 0,
+      participacao: stats.participacao || 0,
+      totalPoints: calculatePointsFromStats(stats)
+    };
+  }).sort((a, b) => {
     if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
     if (b.goals !== a.goals) return b.goals - a.goals;
     if (b.craque !== a.craque) return b.craque - a.craque;
@@ -25,16 +46,22 @@ export function renderRankingView() {
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
       <div>
         <h1 style="font-size: 1.6rem; font-weight: 800; display: flex; align-items: center; gap: 8px;">
-          🏆 Tabela da Liga
+          🏆 Estatísticas
         </h1>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Pontuação oficial da liga com G4 e Z4 atualizados em tempo real.
+          Selecione Ano e Mês para ver as estatísticas daquele período.
         </p>
       </div>
-
-      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <button id="btn-share-whatsapp" class="btn btn-secondary btn-sm" title="Copiar ranking formatado para WhatsApp">
-          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.699c.974.532 1.777.82 2.796.82 3.18 0 5.767-2.587 5.768-5.766.001-3.181-2.585-5.766-5.768-5.766zm4.183 8.358c-.173.486-.87.893-1.428.983-.382.062-.876.108-2.548-.584-2.14-.886-3.52-3.076-3.626-3.217-.107-.142-.864-1.15-.864-2.193 0-1.042.547-1.554.743-1.768.196-.214.426-.268.568-.268.143 0 .285.002.409.008.131.006.307-.05.479.366.179.431.609 1.488.662 1.597.054.108.09.234.018.376-.072.143-.108.232-.215.358-.107.125-.226.28-.323.376-.107.107-.22.223-.095.438.125.214.557.917 1.196 1.487.822.732 1.517.96 1.731 1.066.214.107.34.09.464-.054.125-.143.535-.625.678-.839.143-.214.286-.179.482-.107.196.071 1.249.589 1.464.696.214.107.357.161.41.25.054.089.054.518-.119 1.004zM12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.98-1.306A9.957 9.957 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/></svg>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <label style="font-size:0.85rem; color:var(--text-muted); margin-right:6px;">Ano</label>
+        <select id="period-year" class="input-field" style="width:110px; margin-right:8px;">
+          ${years.map(y => `<option value="${y}" ${String(y) === String(selYear) ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>
+        <label style="font-size:0.85rem; color:var(--text-muted); margin-right:6px; margin-left:6px;">Mês</label>
+        <select id="period-month" class="input-field" style="width:140px;">
+          ${months.map(m => `<option value="${m}" ${Number(m) === Number(selMonth) ? 'selected' : ''}>${new Date(0, m-1).toLocaleString('pt-BR', { month: 'long' })}</option>`).join('')}
+        </select>
+        <button id="btn-share-whatsapp" class="btn btn-secondary btn-sm" title="Copiar ranking formatado para WhatsApp" style="margin-left:8px;">
           Compartilhar
         </button>
       </div>
@@ -53,6 +80,7 @@ export function renderRankingView() {
     </div>
 
     <!-- Table Container -->
+    <div style="margin: 10px 0 6px 0; font-weight:700;">${new Date(Number(selYear), Number(selMonth)-1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}</div>
     <div class="table-responsive">
       <table class="ranking-table">
         <thead>
@@ -125,6 +153,18 @@ export function renderRankingView() {
   });
 
   // Attach event handlers
+  const yearSelect = container.querySelector('#period-year');
+  const monthSelect = container.querySelector('#period-month');
+  function onPeriodChange() {
+    const y = Number(yearSelect.value);
+    const m = Number(monthSelect.value);
+    store.setSelectedPeriod(y, m);
+    // re-render by replacing container contents
+    const newNode = renderRankingView();
+    container.replaceWith(newNode);
+  }
+  yearSelect.addEventListener('change', onPeriodChange);
+  monthSelect.addEventListener('change', onPeriodChange);
   container.querySelectorAll('.edit-player-stat-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const pid = e.currentTarget.getAttribute('data-id');

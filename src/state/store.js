@@ -1,4 +1,5 @@
 import { INITIAL_PLAYERS, calculatePoints } from '../data/seedData.js';
+import { aggregateHistoryToMonthly, periodKey, parseDateToPeriod, emptyPlayerStats } from '../services/periodStats.js';
 
 const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1';
@@ -10,6 +11,12 @@ class Store {
     this.players = this.loadPlayers();
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
+    this.monthlyStats = this.loadMonthlyStats();
+    this.selectedPeriodKey = this.loadSelectedPeriod();
+    // If no monthly stats exist yet, build from history to preserve past data
+    if (!this.monthlyStats || Object.keys(this.monthlyStats).length === 0) {
+      this.rebuildMonthlyStatsFromHistory();
+    }
     this.applyTheme(this.theme);
   }
 
@@ -82,11 +89,31 @@ class Store {
       localStorage.setItem(STORAGE_KEY + '_players', JSON.stringify(this.players));
       localStorage.setItem(STORAGE_KEY + '_pelada', JSON.stringify(this.activePelada));
       localStorage.setItem(STORAGE_KEY + '_history', JSON.stringify(this.history));
+      localStorage.setItem(STORAGE_KEY + '_monthly', JSON.stringify(this.monthlyStats || {}));
+      localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey || '');
       localStorage.setItem(THEME_KEY, this.theme);
     } catch (e) {
       console.error('Error saving state:', e);
     }
     this.notify();
+  }
+
+  loadMonthlyStats() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEY + '_monthly');
+      if (data) return JSON.parse(data);
+    } catch (e) {
+      console.error('Error loading monthly stats:', e);
+    }
+    return {};
+  }
+
+  loadSelectedPeriod() {
+    try {
+      return localStorage.getItem(STORAGE_KEY + '_selected_period') || '';
+    } catch (e) {
+      return '';
+    }
   }
 
   subscribe(fn) {
@@ -152,6 +179,29 @@ class Store {
     if (updates.craque !== undefined) player.craque = Math.max(0, Number(updates.craque));
     if (updates.bagre !== undefined) player.bagre = Math.max(0, Number(updates.bagre));
     if (updates.participacao !== undefined) player.participacao = Math.max(0, Number(updates.participacao));
+
+    // Also update monthlyStats for the currently selected period so UI reflects edits
+    try {
+      const statFields = ['goals','assists','selecao','puskas','craque','bagre','participacao'];
+      const hasStatUpdate = statFields.some(f => updates[f] !== undefined);
+      // determine period key: prefer selectedPeriodKey, fallback to current month
+      const periodKey = this.selectedPeriodKey || parseDateToPeriod(new Date().toISOString()) || periodKey;
+      if (hasStatUpdate) {
+        if (!this.monthlyStats) this.monthlyStats = {};
+        if (!this.monthlyStats[periodKey]) {
+          this.monthlyStats[periodKey] = { players: {}, matchIds: [], generatedAt: new Date().toISOString() };
+        }
+        if (!this.monthlyStats[periodKey].players[id]) {
+          this.monthlyStats[periodKey].players[id] = emptyPlayerStats();
+        }
+        const target = this.monthlyStats[periodKey].players[id];
+        statFields.forEach(f => {
+          if (updates[f] !== undefined) target[f] = Math.max(0, Number(updates[f]));
+        });
+      }
+    } catch (e) {
+      console.error('Error updating monthly stats on player update:', e);
+    }
 
     this.save();
     return true;
@@ -389,6 +439,13 @@ class Store {
       },
     }));
 
+    // Rebuild monthly stats from history to include this new pelada
+    try {
+      this.rebuildMonthlyStatsFromHistory();
+    } catch (e) {
+      console.error('Error rebuilding monthly stats:', e);
+    }
+
     // Reset active pelada
     this.activePelada = {
       status: 'idle',
@@ -402,6 +459,67 @@ class Store {
     };
 
     this.save();
+  }
+
+  // --- Monthly / Period helpers ---
+  rebuildMonthlyStatsFromHistory() {
+    try {
+      this.monthlyStats = aggregateHistoryToMonthly(this.history || []);
+      // ensure generatedAt exists
+      Object.keys(this.monthlyStats).forEach(k => {
+        if (!this.monthlyStats[k].generatedAt) this.monthlyStats[k].generatedAt = new Date().toISOString();
+      });
+      this.save();
+    } catch (e) {
+      console.error('Failed to rebuild monthly stats:', e);
+    }
+  }
+
+  getAvailableYears() {
+    const years = new Set();
+    // include years from history dates
+    (this.history || []).forEach(h => {
+      const d = new Date(h.dateISO || h.date);
+      if (!isNaN(d.getTime())) years.add(d.getFullYear());
+    });
+    const now = new Date();
+    years.add(now.getFullYear());
+    // return sorted descending
+    return Array.from(years).sort((a, b) => b - a);
+  }
+
+  getMonthsForYear(year) {
+    // always return 1..12 for selector
+    return Array.from({ length: 12 }, (_, i) => i + 1);
+  }
+
+  getPeriodKey(year, month) {
+    return periodKey(year, month);
+  }
+
+  getPeriodSnapshot(year, month) {
+    const key = this.getPeriodKey(year, month);
+    const empty = { players: {}, matchIds: [], generatedAt: null };
+    const period = (this.monthlyStats && this.monthlyStats[key]) ? this.monthlyStats[key] : empty;
+    return period;
+  }
+
+  ensurePeriodExists(year, month) {
+    const key = this.getPeriodKey(year, month);
+    if (!this.monthlyStats) this.monthlyStats = {};
+    if (!this.monthlyStats[key]) {
+      this.monthlyStats[key] = { players: {}, matchIds: [], generatedAt: new Date().toISOString() };
+      this.save();
+    }
+    return this.monthlyStats[key];
+  }
+
+  setSelectedPeriod(year, month) {
+    this.selectedPeriodKey = this.getPeriodKey(year, month);
+    try {
+      localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey);
+    } catch (e) {}
+    this.notify();
   }
 
   getHistoryEntry(historyId) {

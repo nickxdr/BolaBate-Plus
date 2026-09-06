@@ -323,6 +323,17 @@ export function calculatePoints(player) {
   const c = Number(player.craque) || 0;
   const b = Number(player.bagre) || 0;
   const p = Number(player.participacao) || 0;
+  return g * 3 + a * 2 + s * 4 + pus * 3 + c * 5 - b * 3 + p * 1;
+}
 
+// Reusable helper that calculates points from a stats object (used for monthly snapshots)
+export function calculatePointsFromStats(stats = {}) {
+  const g = Number(stats.goals) || 0;
+  const a = Number(stats.assists) || 0;
+  const s = Number(stats.selecao) || 0;
+  const pus = Number(stats.puskas) || 0;
+  const c = Number(stats.craque) || 0;
+  const b = Number(stats.bagre) || 0;
+  const p = Number(stats.participacao) || 0;
   return g * 3 + a * 2 + s * 4 + pus * 3 + c * 5 - b * 3 + p * 1;
 }
