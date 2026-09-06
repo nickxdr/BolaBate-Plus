@@ -2,6 +2,7 @@ import { store } from "./state/store.js";
 import { renderPeladaView } from "./views/peladaView.js";
 import { renderPlayersView } from "./views/playersView.js";
 import { renderRankingView } from "./views/rankingView.js";
+import { renderHistoryView } from "./views/historyView.js";
 import { renderSettingsView } from "./views/settingsView.js";
 
 let currentTab = "pelada"; // default to Pelada tab as requested!
@@ -64,6 +65,13 @@ function initApp() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
           </svg>
           <span>Ranking</span>
+        </button>
+
+        <button class="nav-item ${currentTab === "history" ? "active" : ""}" data-tab="history">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>Histórico</span>
         </button>
 
         <button class="nav-item ${currentTab === "settings" ? "active" : ""}" data-tab="settings">
@@ -139,6 +147,8 @@ function initApp() {
         viewNode = renderPlayersView();
       } else if (currentTab === "ranking") {
         viewNode = renderRankingView();
+      } else if (currentTab === "history") {
+        viewNode = renderHistoryView();
       } else if (currentTab === "settings") {
         viewNode = renderSettingsView();
       }

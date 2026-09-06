@@ -46,7 +46,7 @@ export function renderSettingsView() {
           💾 Backup & Sincronização (JSON)
         </h2>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-          Exporte todos os seus jogadores, pontuações, notas de estrelas e histórico para transferir para outro celular ou computador.
+          Exporte jogadores, pontuações, estrelas e o histórico completo de peladas (gols, assistências e votações) para transferir para outro celular ou computador.
         </p>
 
         <div style="display: flex; flex-direction: column; gap: 12px;">
@@ -126,7 +126,10 @@ export function renderSettingsView() {
         const content = event.target.result;
         const result = store.importFromJson(content);
         if (result.success) {
-          showToast(`Sucesso! ${result.count} jogadores importados.`);
+          const historyMsg = result.historyCount
+            ? ` e ${result.historyCount} ${result.historyCount === 1 ? 'pelada' : 'peladas'}`
+            : '';
+          showToast(`Sucesso! ${result.count} jogadores${historyMsg} importados.`);
           render();
         } else {
           alert('Erro ao importar arquivo: ' + result.error);

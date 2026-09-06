@@ -253,20 +253,20 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 600;
-  padding: 8px 0;
+  padding: 8px 2px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .nav-item svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   transition: transform 0.2s ease;
 }
 
@@ -862,6 +862,332 @@ body {
   to { transform: translate(-50%, 0); opacity: 1; }
 }
 
+/* History Tab */
+.history-view {
+  padding-bottom: 24px;
+}
+
+.history-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.history-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.history-subtitle {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  max-width: 560px;
+}
+
+.history-count-badge {
+  flex-shrink: 0;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-empty {
+  text-align: center;
+  padding: 36px 20px;
+}
+
+.history-empty-icon {
+  font-size: 2.4rem;
+  margin-bottom: 10px;
+}
+
+.history-empty h2 {
+  font-size: 1.05rem;
+  margin-bottom: 8px;
+}
+
+.history-empty p {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.history-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.history-card-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.history-date-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.history-date-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.history-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.history-stat-pill {
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+}
+
+.history-stat-pill.goals {
+  color: var(--pitch-green);
+}
+
+.history-stat-pill.assists {
+  color: var(--accent-blue);
+}
+
+.history-card-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.history-award-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.history-award-badge.craque {
+  background: var(--accent-gold-bg);
+  color: var(--accent-gold);
+}
+
+.history-award-badge.selecao {
+  background: var(--pitch-green-glow);
+  color: var(--pitch-green);
+}
+
+.history-award-badge.puskas {
+  background: var(--accent-gold-bg);
+  color: var(--accent-gold);
+}
+
+.history-award-badge.bagre {
+  background: var(--accent-red-bg);
+  color: var(--accent-red);
+}
+
+.history-award-badge.pending {
+  background: var(--bg-card-subtle);
+  color: var(--text-dim);
+  border: 1px dashed var(--border-color);
+}
+
+.history-chevron {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.history-card-body {
+  border-top: 1px solid var(--border-color);
+  padding: 16px;
+  background: var(--bg-card-subtle);
+}
+
+.history-teams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.history-team-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.history-team-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.history-team-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team-color, var(--pitch-green));
+  flex-shrink: 0;
+}
+
+.history-team-header h4 {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.history-team-players {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.history-player-row:last-child {
+  border-bottom: none;
+}
+
+.history-player-row.active {
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.history-player-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.history-player-stats {
+  display: flex;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.history-player-stat.goals {
+  color: var(--pitch-green);
+}
+
+.history-player-stat.assists {
+  color: var(--accent-blue);
+}
+
+.history-team-empty {
+  padding: 12px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.history-awards-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.history-awards-panel h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.history-awards-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+
+.history-awards-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.history-award-field label {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.history-field-hint {
+  font-weight: 500;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+
+.history-selecao-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--bg-app);
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.history-selecao-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.history-save-btn {
+  width: 100%;
+}
+
 /* Responsiveness */
 @media (max-width: 640px) {
   .view-container {
@@ -872,6 +1198,19 @@ body {
     border-radius: 14px;
   }
   .teams-grid {
+    grid-template-columns: 1fr;
+  }
+  .history-card-toggle {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .history-card-badges {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .history-teams-grid {
     grid-template-columns: 1fr;
   }
 }

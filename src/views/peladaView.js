@@ -960,57 +960,10 @@ function openFinishPeladaModal(onNavigate) {
         </div>
 
         <form id="finish-pelada-form">
-          <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px;">
-            Votações da Pelada (Opcionais):
-          </h3>
-
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
-            <div>
-              <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--accent-gold);">
-                ⭐ Craque da Pelada (+5 pontos)
-              </label>
-              <select name="craqueId" class="input-field">
-                <option value="">Nenhum</option>
-                ${players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-              </select>
-            </div>
-
-            <div>
-              <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--pitch-green);">
-                🏆 Seleção da Pelada (+4 pontos cada - até 5 atletas)
-              </label>
-              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; max-height: 120px; overflow-y: auto; background: var(--bg-app); padding: 8px; border-radius: 8px; border: 1px solid var(--border-color);">
-                ${players.map(p => `
-                  <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" name="selecaoIds" value="${p.id}" />
-                    ${escapeHtml(p.name)}
-                  </label>
-                `).join('')}
-              </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-              <div>
-                <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--pitch-green);">
-                  🎯 Puskas / Gol Mais Bonito (+3 pts)
-                </label>
-                <select name="puskasId" class="input-field">
-                  <option value="">Nenhum</option>
-                  ${players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-                </select>
-              </div>
-
-              <div>
-                <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--accent-red);">
-                  🐟 Bagre da Pelada (-3 pontos)
-                </label>
-                <select name="bagreId" class="input-field">
-                  <option value="">Nenhum</option>
-                  ${players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-                </select>
-              </div>
-            </div>
-          </div>
+          <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 18px; line-height: 1.5;">
+            Gols, assistências e participações serão salvos no ranking agora.
+            ⭐ Craque, 🏆 Seleção, 🎯 Puskas e 🐟 Bagre podem ser definidos depois na aba <strong>Histórico</strong>, quando a votação do WhatsApp fechar.
+          </p>
 
           <div style="display: flex; gap: 10px; justify-content: flex-end;">
             <button type="button" class="btn btn-secondary" id="finish-modal-cancel">Cancelar</button>
@@ -1031,21 +984,8 @@ function openFinishPeladaModal(onNavigate) {
 
   modalContainer.querySelector('#finish-pelada-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const form = e.target;
-    const craqueId = form.craqueId.value || null;
-    const puskasId = form.puskasId.value || null;
-    const bagreId = form.bagreId.value || null;
 
-    const selecaoCheckboxes = form.querySelectorAll('input[name="selecaoIds"]:checked');
-    const selecaoIds = Array.from(selecaoCheckboxes).map(cb => cb.value);
-
-    // Save and commit to store
-    store.finishPelada({
-      craqueId,
-      puskasId,
-      bagreId,
-      selecaoIds
-    });
+    store.finishPelada();
 
     close();
 

@@ -1,0 +1,274 @@
+import { store } from '../state/store.js';
+import { showToast } from './rankingView.js';
+
+export function renderHistoryView() {
+  const container = document.createElement('div');
+  container.className = 'view-container history-view';
+
+  const entries = [...store.history].sort((a, b) => {
+    const dateA = a.dateISO ? new Date(a.dateISO).getTime() : 0;
+    const dateB = b.dateISO ? new Date(b.dateISO).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  container.innerHTML = `
+    <div class="history-header">
+      <div>
+        <h1 class="history-title">📅 Histórico de Peladas</h1>
+        <p class="history-subtitle">
+          Gols e assistências de cada rodada. Defina Craque, Seleção, Puskas e Bagre quando a votação do WhatsApp fechar.
+        </p>
+      </div>
+      <div class="history-count-badge">${entries.length} ${entries.length === 1 ? 'pelada' : 'peladas'}</div>
+    </div>
+
+    <div id="history-list" class="history-list">
+      ${entries.length === 0 ? `
+        <div class="history-empty card">
+          <div class="history-empty-icon">⚽</div>
+          <h2>Nenhuma pelada registrada ainda</h2>
+          <p>Encerre uma pelada na aba Pelada para ver o histórico aqui com gols, assistências e votações.</p>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  if (entries.length === 0) {
+    return container;
+  }
+
+  const list = container.querySelector('#history-list');
+
+  entries.forEach((entry, index) => {
+    store.ensureHistoryAwardsSynced(entry);
+
+    const players = store.getHistoryParticipatingPlayers(entry);
+    const matchStats = getMatchTotals(entry);
+    const awards = entry.awards || {};
+    const hasCraque = !!awards.craqueId;
+    const hasPuskas = !!awards.puskasId;
+    const hasBagre = !!awards.bagreId;
+    const hasSelecao = Array.isArray(awards.selecaoIds) && awards.selecaoIds.length > 0;
+    const isExpanded = index === 0;
+
+    const card = document.createElement('article');
+    card.className = `history-card card${isExpanded ? ' expanded' : ''}`;
+    card.dataset.historyId = entry.id;
+
+    card.innerHTML = `
+      <button type="button" class="history-card-toggle" aria-expanded="${isExpanded}">
+        <div class="history-card-main">
+          <div class="history-date-block">
+            <span class="history-date-label">Data da pelada</span>
+            <strong class="history-date-value">${escapeHtml(entry.date || '—')}</strong>
+          </div>
+          <div class="history-card-stats">
+            <span class="history-stat-pill goals">⚽ ${matchStats.goals} gols</span>
+            <span class="history-stat-pill assists">👟 ${matchStats.assists} assists</span>
+            <span class="history-stat-pill teams">${(entry.teams || []).length} times</span>
+          </div>
+        </div>
+        <div class="history-card-badges">
+          ${renderAwardBadges({ hasCraque, hasPuskas, hasBagre, hasSelecao, selecaoCount: hasSelecao ? awards.selecaoIds.length : 0 })}
+          <span class="history-chevron">${isExpanded ? '▾' : '▸'}</span>
+        </div>
+      </button>
+
+      <div class="history-card-body"${isExpanded ? '' : ' hidden'}>
+        <div class="history-teams-grid">
+          ${renderTeamsSection(entry)}
+        </div>
+
+        <div class="history-awards-panel">
+          <h3>Votações desta pelada</h3>
+          <p class="history-awards-note">
+            Craque (+5 pts), Seleção (+4 pts cada), Puskas (+3 pts) e Bagre (-3 pts) atualizam o ranking oficial ao salvar.
+          </p>
+
+          <form class="history-awards-form" data-history-id="${entry.id}">
+            <div class="history-award-field">
+              <label for="craque-${entry.id}">⭐ Craque da Pelada</label>
+              <select id="craque-${entry.id}" name="craqueId" class="input-field">
+                <option value="">Aguardando votação...</option>
+                ${players.map(p => `
+                  <option value="${p.id}" ${awards.craqueId === p.id ? 'selected' : ''}>
+                    ${escapeHtml(p.name)}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div class="history-award-field">
+              <label for="puskas-${entry.id}">🎯 Puskas / Gol Mais Bonito</label>
+              <select id="puskas-${entry.id}" name="puskasId" class="input-field">
+                <option value="">Aguardando votação...</option>
+                ${players.map(p => `
+                  <option value="${p.id}" ${awards.puskasId === p.id ? 'selected' : ''}>
+                    ${escapeHtml(p.name)}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div class="history-award-field">
+              <label for="bagre-${entry.id}">🐟 Bagre da Pelada</label>
+              <select id="bagre-${entry.id}" name="bagreId" class="input-field">
+                <option value="">Aguardando votação...</option>
+                ${players.map(p => `
+                  <option value="${p.id}" ${awards.bagreId === p.id ? 'selected' : ''}>
+                    ${escapeHtml(p.name)}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div class="history-award-field">
+              <label>🏆 Seleção da Pelada <span class="history-field-hint">(até 5 atletas)</span></label>
+              <div class="history-selecao-grid">
+                ${players.map(p => `
+                  <label class="history-selecao-option">
+                    <input
+                      type="checkbox"
+                      name="selecaoIds"
+                      value="${p.id}"
+                      ${Array.isArray(awards.selecaoIds) && awards.selecaoIds.includes(p.id) ? 'checked' : ''}
+                    />
+                    <span>${escapeHtml(p.name)}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary history-save-btn">
+              Salvar Votações
+            </button>
+          </form>
+        </div>
+      </div>
+    `;
+
+    list.appendChild(card);
+
+    const toggle = card.querySelector('.history-card-toggle');
+    const body = card.querySelector('.history-card-body');
+    const chevron = card.querySelector('.history-chevron');
+
+    toggle.addEventListener('click', () => {
+      const expanded = card.classList.toggle('expanded');
+      body.hidden = !expanded;
+      toggle.setAttribute('aria-expanded', String(expanded));
+      chevron.textContent = expanded ? '▾' : '▸';
+    });
+
+    card.querySelector('.history-awards-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const craqueId = form.craqueId.value || null;
+      const puskasId = form.puskasId.value || null;
+      const bagreId = form.bagreId.value || null;
+      const selecaoCheckboxes = form.querySelectorAll('input[name="selecaoIds"]:checked');
+      const selecaoIds = Array.from(selecaoCheckboxes).map(cb => cb.value);
+
+      if (selecaoIds.length > 5) {
+        showToast('Selecione no máximo 5 atletas para a Seleção.');
+        return;
+      }
+
+      const result = store.updateHistoryAwards(entry.id, { craqueId, puskasId, bagreId, selecaoIds });
+      if (!result.success) {
+        showToast(result.error || 'Não foi possível salvar as votações.');
+        return;
+      }
+
+      showToast('Votações salvas! Ranking atualizado.');
+      refreshCardBadges(card, entry.id);
+    });
+  });
+
+  return container;
+}
+
+function renderTeamsSection(entry) {
+  return (entry.teams || []).map(team => {
+    const rows = (team.playerIds || []).map(pid => {
+      const player = store.getPlayer(pid);
+      if (!player) return '';
+
+      const stats = entry.stats?.[pid] || {};
+      const goals = Number(stats.goals) || 0;
+      const assists = Number(stats.assists) || 0;
+      const hasActivity = goals > 0 || assists > 0;
+
+      return `
+        <div class="history-player-row${hasActivity ? ' active' : ''}">
+          <span class="history-player-name">${escapeHtml(player.name)}</span>
+          <span class="history-player-stats">
+            <span class="history-player-stat goals">⚽ ${goals}</span>
+            <span class="history-player-stat assists">👟 ${assists}</span>
+          </span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <section class="history-team-card" style="--team-color: ${team.color || 'var(--pitch-green)'}">
+        <header class="history-team-header">
+          <span class="history-team-dot"></span>
+          <h4>${escapeHtml(team.name || 'Time')}</h4>
+        </header>
+        <div class="history-team-players">
+          ${rows || '<p class="history-team-empty">Nenhum jogador registrado.</p>'}
+        </div>
+      </section>
+    `;
+  }).join('');
+}
+
+function getMatchTotals(entry) {
+  let goals = 0;
+  let assists = 0;
+
+  Object.values(entry.stats || {}).forEach(stat => {
+    goals += Number(stat.goals) || 0;
+    assists += Number(stat.assists) || 0;
+  });
+
+  return { goals, assists };
+}
+
+function renderAwardBadges({ hasCraque, hasPuskas, hasBagre, hasSelecao, selecaoCount }) {
+  return `
+    ${hasCraque ? '<span class="history-award-badge craque">⭐ Craque</span>' : '<span class="history-award-badge pending">Craque pendente</span>'}
+    ${hasPuskas ? '<span class="history-award-badge puskas">🎯 Puskas</span>' : '<span class="history-award-badge pending">Puskas pendente</span>'}
+    ${hasBagre ? '<span class="history-award-badge bagre">🐟 Bagre</span>' : '<span class="history-award-badge pending">Bagre pendente</span>'}
+    ${hasSelecao ? `<span class="history-award-badge selecao">🏆 Seleção (${selecaoCount})</span>` : '<span class="history-award-badge pending">Seleção pendente</span>'}
+  `;
+}
+
+function refreshCardBadges(card, historyId) {
+  const entry = store.getHistoryEntry(historyId);
+  if (!entry) return;
+
+  store.ensureHistoryAwardsSynced(entry);
+  const awards = entry.awards || {};
+  const hasCraque = !!awards.craqueId;
+  const hasPuskas = !!awards.puskasId;
+  const hasBagre = !!awards.bagreId;
+  const hasSelecao = Array.isArray(awards.selecaoIds) && awards.selecaoIds.length > 0;
+  const badges = card.querySelector('.history-card-badges');
+
+  badges.innerHTML = `
+    ${renderAwardBadges({
+      hasCraque,
+      hasPuskas,
+      hasBagre,
+      hasSelecao,
+      selecaoCount: hasSelecao ? awards.selecaoIds.length : 0,
+    })}
+    <span class="history-chevron">${card.classList.contains('expanded') ? '▾' : '▸'}</span>
+  `;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}

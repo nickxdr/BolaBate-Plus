@@ -343,8 +343,7 @@ class Store {
   }
 
   // End Pelada & Apply to Ranking
-  finishPelada(awards = {}) {
-    // awards: { craqueId, bagreId, puskasId, selecaoIds: [] }
+  finishPelada() {
     const participatingPlayerIds = new Set();
 
     // 1. All original team players count as participating (+1)
@@ -352,44 +351,43 @@ class Store {
       team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
     });
 
-    // 2. Update players table
+    // 2. Update players table (goals, assists, participação only)
     participatingPlayerIds.forEach(pid => {
       const player = this.getPlayer(pid);
       if (player) {
-        // Increment participation
         player.participacao = (Number(player.participacao) || 0) + 1;
 
-        // Valid goals and assists ONLY (guest goals & assists DO NOT count)
         const pStats = this.activePelada.stats[pid];
         if (pStats) {
           player.goals = (Number(player.goals) || 0) + (Number(pStats.goals) || 0);
           player.assists = (Number(player.assists) || 0) + (Number(pStats.assists) || 0);
         }
-
-        // Check awards
-        if (awards.craqueId === pid) {
-          player.craque = (Number(player.craque) || 0) + 1;
-        }
-        if (awards.bagreId === pid) {
-          player.bagre = (Number(player.bagre) || 0) + 1;
-        }
-        if (awards.puskasId === pid) {
-          player.puskas = (Number(player.puskas) || 0) + 1;
-        }
-        if (Array.isArray(awards.selecaoIds) && awards.selecaoIds.includes(pid)) {
-          player.selecao = (Number(player.selecao) || 0) + 1;
-        }
       }
     });
 
-    // Save summary to history
-    this.history.unshift({
-      id: 'pelada_' + Date.now(),
-      date: new Date().toLocaleDateString('pt-BR'),
-      teams: this.activePelada.teams,
-      stats: this.activePelada.stats,
-      awards: awards
-    });
+    const now = new Date();
+
+    // Save summary to history — all votações filled in later via Histórico tab
+    this.history.unshift(this.normalizeHistoryEntry({
+      id: 'pelada_' + now.getTime(),
+      date: now.toLocaleDateString('pt-BR'),
+      dateISO: now.toISOString(),
+      teamCount: this.activePelada.teamCount,
+      teams: JSON.parse(JSON.stringify(this.activePelada.teams)),
+      stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
+      awards: {
+        craqueId: null,
+        selecaoIds: [],
+        puskasId: null,
+        bagreId: null,
+      },
+      awardsSynced: {
+        craque: false,
+        selecao: false,
+        puskas: false,
+        bagre: false,
+      },
+    }));
 
     // Reset active pelada
     this.activePelada = {
@@ -404,6 +402,168 @@ class Store {
     };
 
     this.save();
+  }
+
+  getHistoryEntry(historyId) {
+    return this.history.find(h => h.id === historyId) || null;
+  }
+
+  getHistoryParticipatingPlayers(entry) {
+    const ids = new Set();
+    (entry.teams || []).forEach(team => {
+      (team.playerIds || []).forEach(pid => ids.add(pid));
+    });
+    return Array.from(ids).map(id => this.getPlayer(id)).filter(Boolean);
+  }
+
+  ensureHistoryAwardsSynced(entry) {
+    if (!entry.awards) {
+      entry.awards = { craqueId: null, selecaoIds: [], puskasId: null, bagreId: null };
+    }
+    if (!entry.awardsSynced) {
+      entry.awardsSynced = {
+        craque: !!entry.awards.craqueId,
+        selecao: Array.isArray(entry.awards.selecaoIds) && entry.awards.selecaoIds.length > 0,
+        puskas: !!entry.awards.puskasId,
+        bagre: !!entry.awards.bagreId,
+      };
+    }
+    ['puskas', 'bagre'].forEach(key => {
+      if (entry.awardsSynced[key] === undefined) {
+        const awardKey = key === 'puskas' ? 'puskasId' : 'bagreId';
+        entry.awardsSynced[key] = !!entry.awards[awardKey];
+      }
+    });
+    if (!Array.isArray(entry.awards.selecaoIds)) {
+      entry.awards.selecaoIds = [];
+    }
+  }
+
+  normalizeHistoryEntry(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+
+    const awards = entry.awards || {};
+    const normalized = {
+      id: entry.id || 'pelada_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      date: entry.date || new Date().toLocaleDateString('pt-BR'),
+      dateISO: entry.dateISO || new Date().toISOString(),
+      teamCount: Number(entry.teamCount) || (Array.isArray(entry.teams) ? entry.teams.length : 0),
+      teams: Array.isArray(entry.teams)
+        ? entry.teams.map((team, index) => ({
+          id: team.id || `team-${index + 1}`,
+          name: team.name || `Time ${index + 1}`,
+          color: team.color || this.getTeamColor(index),
+          playerIds: Array.isArray(team.playerIds) ? [...team.playerIds] : [],
+        }))
+        : [],
+      stats: entry.stats && typeof entry.stats === 'object' ? entry.stats : {},
+      awards: {
+        craqueId: awards.craqueId || null,
+        selecaoIds: Array.isArray(awards.selecaoIds) ? [...awards.selecaoIds] : [],
+        puskasId: awards.puskasId || null,
+        bagreId: awards.bagreId || null,
+      },
+      awardsSynced: entry.awardsSynced
+        ? { ...entry.awardsSynced }
+        : {
+          craque: !!awards.craqueId,
+          selecao: Array.isArray(awards.selecaoIds) && awards.selecaoIds.length > 0,
+          puskas: !!awards.puskasId,
+          bagre: !!awards.bagreId,
+        },
+    };
+
+    this.ensureHistoryAwardsSynced(normalized);
+    return normalized;
+  }
+
+  updateHistoryAwards(historyId, { craqueId = null, selecaoIds = [], puskasId = null, bagreId = null } = {}) {
+    const entry = this.getHistoryEntry(historyId);
+    if (!entry) return { success: false, error: 'Pelada não encontrada no histórico.' };
+
+    this.ensureHistoryAwardsSynced(entry);
+
+    const nextCraqueId = craqueId || null;
+    const nextPuskasId = puskasId || null;
+    const nextBagreId = bagreId || null;
+    const nextSelecaoIds = Array.isArray(selecaoIds) ? selecaoIds.slice(0, 5) : [];
+
+    const oldCraqueId = entry.awardsSynced.craque ? entry.awards.craqueId : null;
+    const oldPuskasId = entry.awardsSynced.puskas ? entry.awards.puskasId : null;
+    const oldBagreId = entry.awardsSynced.bagre ? entry.awards.bagreId : null;
+    const oldSelecaoIds = entry.awardsSynced.selecao ? [...entry.awards.selecaoIds] : [];
+
+    if (oldCraqueId && oldCraqueId !== nextCraqueId) {
+      const oldPlayer = this.getPlayer(oldCraqueId);
+      if (oldPlayer) {
+        oldPlayer.craque = Math.max(0, (Number(oldPlayer.craque) || 0) - 1);
+      }
+    }
+
+    if (oldPuskasId && oldPuskasId !== nextPuskasId) {
+      const oldPlayer = this.getPlayer(oldPuskasId);
+      if (oldPlayer) {
+        oldPlayer.puskas = Math.max(0, (Number(oldPlayer.puskas) || 0) - 1);
+      }
+    }
+
+    if (oldBagreId && oldBagreId !== nextBagreId) {
+      const oldPlayer = this.getPlayer(oldBagreId);
+      if (oldPlayer) {
+        oldPlayer.bagre = Math.max(0, (Number(oldPlayer.bagre) || 0) - 1);
+      }
+    }
+
+    oldSelecaoIds.forEach(pid => {
+      if (!nextSelecaoIds.includes(pid)) {
+        const oldPlayer = this.getPlayer(pid);
+        if (oldPlayer) {
+          oldPlayer.selecao = Math.max(0, (Number(oldPlayer.selecao) || 0) - 1);
+        }
+      }
+    });
+
+    if (nextCraqueId && nextCraqueId !== oldCraqueId) {
+      const newPlayer = this.getPlayer(nextCraqueId);
+      if (newPlayer) {
+        newPlayer.craque = (Number(newPlayer.craque) || 0) + 1;
+      }
+    }
+
+    if (nextPuskasId && nextPuskasId !== oldPuskasId) {
+      const newPlayer = this.getPlayer(nextPuskasId);
+      if (newPlayer) {
+        newPlayer.puskas = (Number(newPlayer.puskas) || 0) + 1;
+      }
+    }
+
+    if (nextBagreId && nextBagreId !== oldBagreId) {
+      const newPlayer = this.getPlayer(nextBagreId);
+      if (newPlayer) {
+        newPlayer.bagre = (Number(newPlayer.bagre) || 0) + 1;
+      }
+    }
+
+    nextSelecaoIds.forEach(pid => {
+      if (!oldSelecaoIds.includes(pid)) {
+        const newPlayer = this.getPlayer(pid);
+        if (newPlayer) {
+          newPlayer.selecao = (Number(newPlayer.selecao) || 0) + 1;
+        }
+      }
+    });
+
+    entry.awards.craqueId = nextCraqueId;
+    entry.awards.puskasId = nextPuskasId;
+    entry.awards.bagreId = nextBagreId;
+    entry.awards.selecaoIds = nextSelecaoIds;
+    entry.awardsSynced.craque = !!nextCraqueId;
+    entry.awardsSynced.puskas = !!nextPuskasId;
+    entry.awardsSynced.bagre = !!nextBagreId;
+    entry.awardsSynced.selecao = nextSelecaoIds.length > 0;
+
+    this.save();
+    return { success: true };
   }
 
   cancelPelada() {
@@ -424,11 +584,11 @@ class Store {
   exportToJson() {
     const data = {
       appName: 'BolaBate+',
-      version: '1.0.0',
+      version: '1.1.0',
       exportedAt: new Date().toISOString(),
       theme: this.theme,
       players: this.players,
-      history: this.history
+      history: this.history.map(entry => this.normalizeHistoryEntry(entry)).filter(Boolean),
     };
     return JSON.stringify(data, null, 2);
   }
@@ -454,7 +614,11 @@ class Store {
       }));
 
       if (Array.isArray(data.history)) {
-        this.history = data.history;
+        this.history = data.history
+          .map(entry => this.normalizeHistoryEntry(entry))
+          .filter(Boolean);
+      } else {
+        this.history = [];
       }
 
       if (data.theme) {
@@ -462,7 +626,11 @@ class Store {
       }
 
       this.save();
-      return { success: true, count: this.players.length };
+      return {
+        success: true,
+        count: this.players.length,
+        historyCount: this.history.length,
+      };
     } catch (err) {
       return { success: false, error: err.message };
     }
