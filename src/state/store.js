@@ -1,5 +1,13 @@
-import { INITIAL_PLAYERS, calculatePoints } from '../data/seedData.js';
-import { aggregateHistoryToMonthly, periodKey, parseDateToPeriod, emptyPlayerStats } from '../services/periodStats.js';
+import { INITIAL_PLAYERS, INITIAL_MONTHLY_STATS } from '../data/seedData.js';
+import {
+  aggregateHistoryToMonthly,
+  applyHistoryEntryToPeriod,
+  periodKey,
+  parseDateToPeriod,
+  emptyPlayerStats,
+  createEmptyPeriod,
+  STAT_FIELDS,
+} from '../services/periodStats.js';
 
 const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1';
@@ -13,11 +21,11 @@ class Store {
     this.history = this.loadHistory();
     this.monthlyStats = this.loadMonthlyStats();
     this.selectedPeriodKey = this.loadSelectedPeriod();
-    // If no monthly stats exist yet, build from history to preserve past data
-    if (!this.monthlyStats || Object.keys(this.monthlyStats).length === 0) {
-      this.rebuildMonthlyStatsFromHistory();
-    }
+    this.hydrateMonthlyStats();
+    this.syncCareerStatsFromMonthly({ silent: true });
+    if (!this.selectedPeriodKey) this.selectedPeriodKey = this.currentPeriodKey();
     this.applyTheme(this.theme);
+    this.save();
   }
 
   loadPlayers() {
@@ -172,35 +180,19 @@ class Store {
 
     if (updates.name !== undefined) player.name = updates.name.trim();
     if (updates.stars !== undefined) player.stars = Math.max(0.5, Math.min(5.0, Number(updates.stars)));
-    if (updates.goals !== undefined) player.goals = Math.max(0, Number(updates.goals));
-    if (updates.assists !== undefined) player.assists = Math.max(0, Number(updates.assists));
-    if (updates.selecao !== undefined) player.selecao = Math.max(0, Number(updates.selecao));
-    if (updates.puskas !== undefined) player.puskas = Math.max(0, Number(updates.puskas));
-    if (updates.craque !== undefined) player.craque = Math.max(0, Number(updates.craque));
-    if (updates.bagre !== undefined) player.bagre = Math.max(0, Number(updates.bagre));
-    if (updates.participacao !== undefined) player.participacao = Math.max(0, Number(updates.participacao));
 
-    // Also update monthlyStats for the currently selected period so UI reflects edits
-    try {
-      const statFields = ['goals','assists','selecao','puskas','craque','bagre','participacao'];
-      const hasStatUpdate = statFields.some(f => updates[f] !== undefined);
-      // determine period key: prefer selectedPeriodKey, fallback to current month
-      const periodKey = this.selectedPeriodKey || parseDateToPeriod(new Date().toISOString()) || periodKey;
-      if (hasStatUpdate) {
-        if (!this.monthlyStats) this.monthlyStats = {};
-        if (!this.monthlyStats[periodKey]) {
-          this.monthlyStats[periodKey] = { players: {}, matchIds: [], generatedAt: new Date().toISOString() };
-        }
-        if (!this.monthlyStats[periodKey].players[id]) {
-          this.monthlyStats[periodKey].players[id] = emptyPlayerStats();
-        }
-        const target = this.monthlyStats[periodKey].players[id];
-        statFields.forEach(f => {
-          if (updates[f] !== undefined) target[f] = Math.max(0, Number(updates[f]));
-        });
+    const hasStatUpdate = STAT_FIELDS.some(f => updates[f] !== undefined);
+    if (hasStatUpdate) {
+      const key = this.selectedPeriodKey || parseDateToPeriod(new Date().toISOString());
+      this.ensurePeriodByKey(key);
+      if (!this.monthlyStats[key].players[id]) {
+        this.monthlyStats[key].players[id] = emptyPlayerStats();
       }
-    } catch (e) {
-      console.error('Error updating monthly stats on player update:', e);
+      const target = this.monthlyStats[key].players[id];
+      STAT_FIELDS.forEach(f => {
+        if (updates[f] !== undefined) target[f] = Math.max(0, Number(updates[f]));
+      });
+      this.syncCareerStatsFromMonthly({ silent: true });
     }
 
     this.save();
@@ -395,30 +387,12 @@ class Store {
   // End Pelada & Apply to Ranking
   finishPelada() {
     const participatingPlayerIds = new Set();
-
-    // 1. All original team players count as participating (+1)
     this.activePelada.teams.forEach(team => {
       team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
     });
 
-    // 2. Update players table (goals, assists, participação only)
-    participatingPlayerIds.forEach(pid => {
-      const player = this.getPlayer(pid);
-      if (player) {
-        player.participacao = (Number(player.participacao) || 0) + 1;
-
-        const pStats = this.activePelada.stats[pid];
-        if (pStats) {
-          player.goals = (Number(player.goals) || 0) + (Number(pStats.goals) || 0);
-          player.assists = (Number(player.assists) || 0) + (Number(pStats.assists) || 0);
-        }
-      }
-    });
-
     const now = new Date();
-
-    // Save summary to history — all votações filled in later via Histórico tab
-    this.history.unshift(this.normalizeHistoryEntry({
+    const historyEntry = this.normalizeHistoryEntry({
       id: 'pelada_' + now.getTime(),
       date: now.toLocaleDateString('pt-BR'),
       dateISO: now.toISOString(),
@@ -437,16 +411,28 @@ class Store {
         puskas: false,
         bagre: false,
       },
-    }));
+    });
 
-    // Rebuild monthly stats from history to include this new pelada
-    try {
-      this.rebuildMonthlyStatsFromHistory();
-    } catch (e) {
-      console.error('Error rebuilding monthly stats:', e);
+    const key = parseDateToPeriod(historyEntry.dateISO) || this.currentPeriodKey();
+    this.ensurePeriodByKey(key);
+
+    participatingPlayerIds.forEach(pid => {
+      const pStats = this.activePelada.stats[pid];
+      const periodStats = this.getOrCreatePeriodPlayer(key, pid);
+      periodStats.participacao += 1;
+      if (pStats) {
+        periodStats.goals += Number(pStats.goals) || 0;
+        periodStats.assists += Number(pStats.assists) || 0;
+      }
+    });
+
+    if (historyEntry.id && !this.monthlyStats[key].matchIds.includes(historyEntry.id)) {
+      this.monthlyStats[key].matchIds.push(historyEntry.id);
     }
 
-    // Reset active pelada
+    this.history.unshift(historyEntry);
+    this.syncCareerStatsFromMonthly({ silent: true });
+
     this.activePelada = {
       status: 'idle',
       teamCount: 4,
@@ -462,13 +448,89 @@ class Store {
   }
 
   // --- Monthly / Period helpers ---
+  currentPeriodKey() {
+    const now = new Date();
+    return periodKey(now.getFullYear(), now.getMonth() + 1);
+  }
+
+  hydrateMonthlyStats() {
+    if (!this.monthlyStats || typeof this.monthlyStats !== 'object') {
+      this.monthlyStats = {};
+    }
+
+    const seed = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+    Object.entries(seed).forEach(([key, period]) => {
+      const existing = this.monthlyStats[key];
+      const hasPlayers = existing && existing.players && Object.keys(existing.players).length > 0;
+      if (!hasPlayers) {
+        this.monthlyStats[key] = period;
+      }
+    });
+
+    this.mergeHistoryIntoMonthly();
+  }
+
+  mergeHistoryIntoMonthly() {
+    (this.history || []).forEach(entry => {
+      const key = parseDateToPeriod(entry.dateISO || entry.date);
+      if (!key) return;
+      this.ensurePeriodByKey(key);
+      if (entry.id && this.monthlyStats[key].matchIds.includes(entry.id)) return;
+      applyHistoryEntryToPeriod(this.monthlyStats[key], entry);
+    });
+  }
+
+  ensurePeriodByKey(key) {
+    if (!this.monthlyStats) this.monthlyStats = {};
+    if (!this.monthlyStats[key]) {
+      this.monthlyStats[key] = createEmptyPeriod();
+    }
+    if (!this.monthlyStats[key].players) this.monthlyStats[key].players = {};
+    if (!Array.isArray(this.monthlyStats[key].matchIds)) this.monthlyStats[key].matchIds = [];
+    return this.monthlyStats[key];
+  }
+
+  getOrCreatePeriodPlayer(key, playerId) {
+    const period = this.ensurePeriodByKey(key);
+    if (!period.players[playerId]) period.players[playerId] = emptyPlayerStats();
+    return period.players[playerId];
+  }
+
+  getPeriodPlayerStats(playerId, key = this.selectedPeriodKey || this.currentPeriodKey()) {
+    return this.monthlyStats?.[key]?.players?.[playerId] || emptyPlayerStats();
+  }
+
+  syncCareerStatsFromMonthly({ silent = false } = {}) {
+    this.players.forEach(player => {
+      const totals = emptyPlayerStats();
+      Object.values(this.monthlyStats || {}).forEach(period => {
+        const stats = period?.players?.[player.id];
+        if (!stats) return;
+        STAT_FIELDS.forEach(field => {
+          totals[field] += Number(stats[field]) || 0;
+        });
+      });
+      STAT_FIELDS.forEach(field => {
+        player[field] = totals[field];
+      });
+    });
+    if (!silent) this.save();
+  }
+
   rebuildMonthlyStatsFromHistory() {
     try {
-      this.monthlyStats = aggregateHistoryToMonthly(this.history || []);
-      // ensure generatedAt exists
-      Object.keys(this.monthlyStats).forEach(k => {
-        if (!this.monthlyStats[k].generatedAt) this.monthlyStats[k].generatedAt = new Date().toISOString();
+      const seeded = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+      const fromHistory = aggregateHistoryToMonthly(this.history || []);
+      this.monthlyStats = { ...seeded, ...fromHistory };
+
+      Object.entries(seeded).forEach(([key, period]) => {
+        const existing = this.monthlyStats[key];
+        const hasPlayers = existing && existing.players && Object.keys(existing.players).length > 0;
+        if (!hasPlayers) this.monthlyStats[key] = period;
       });
+
+      this.mergeHistoryIntoMonthly();
+      this.syncCareerStatsFromMonthly({ silent: true });
       this.save();
     } catch (e) {
       console.error('Failed to rebuild monthly stats:', e);
@@ -477,14 +539,15 @@ class Store {
 
   getAvailableYears() {
     const years = new Set();
-    // include years from history dates
-    (this.history || []).forEach(h => {
-      const d = new Date(h.dateISO || h.date);
-      if (!isNaN(d.getTime())) years.add(d.getFullYear());
+    Object.keys(this.monthlyStats || {}).forEach(key => {
+      const year = Number(String(key).split('-')[0]);
+      if (year) years.add(year);
     });
-    const now = new Date();
-    years.add(now.getFullYear());
-    // return sorted descending
+    (this.history || []).forEach(h => {
+      const period = parseDateToPeriod(h.dateISO || h.date);
+      if (period) years.add(Number(period.split('-')[0]));
+    });
+    years.add(new Date().getFullYear());
     return Array.from(years).sort((a, b) => b - a);
   }
 
@@ -611,63 +674,34 @@ class Store {
     const oldBagreId = entry.awardsSynced.bagre ? entry.awards.bagreId : null;
     const oldSelecaoIds = entry.awardsSynced.selecao ? [...entry.awards.selecaoIds] : [];
 
-    if (oldCraqueId && oldCraqueId !== nextCraqueId) {
-      const oldPlayer = this.getPlayer(oldCraqueId);
-      if (oldPlayer) {
-        oldPlayer.craque = Math.max(0, (Number(oldPlayer.craque) || 0) - 1);
-      }
-    }
+    const key = parseDateToPeriod(entry.dateISO || entry.date) || this.currentPeriodKey();
+    this.ensurePeriodByKey(key);
 
-    if (oldPuskasId && oldPuskasId !== nextPuskasId) {
-      const oldPlayer = this.getPlayer(oldPuskasId);
-      if (oldPlayer) {
-        oldPlayer.puskas = Math.max(0, (Number(oldPlayer.puskas) || 0) - 1);
+    const adjustAward = (oldId, nextId, field) => {
+      if (oldId && oldId !== nextId) {
+        const stats = this.getOrCreatePeriodPlayer(key, oldId);
+        stats[field] = Math.max(0, (Number(stats[field]) || 0) - 1);
       }
-    }
+      if (nextId && nextId !== oldId) {
+        const stats = this.getOrCreatePeriodPlayer(key, nextId);
+        stats[field] = (Number(stats[field]) || 0) + 1;
+      }
+    };
 
-    if (oldBagreId && oldBagreId !== nextBagreId) {
-      const oldPlayer = this.getPlayer(oldBagreId);
-      if (oldPlayer) {
-        oldPlayer.bagre = Math.max(0, (Number(oldPlayer.bagre) || 0) - 1);
-      }
-    }
+    adjustAward(oldCraqueId, nextCraqueId, 'craque');
+    adjustAward(oldPuskasId, nextPuskasId, 'puskas');
+    adjustAward(oldBagreId, nextBagreId, 'bagre');
 
     oldSelecaoIds.forEach(pid => {
       if (!nextSelecaoIds.includes(pid)) {
-        const oldPlayer = this.getPlayer(pid);
-        if (oldPlayer) {
-          oldPlayer.selecao = Math.max(0, (Number(oldPlayer.selecao) || 0) - 1);
-        }
+        const stats = this.getOrCreatePeriodPlayer(key, pid);
+        stats.selecao = Math.max(0, (Number(stats.selecao) || 0) - 1);
       }
     });
-
-    if (nextCraqueId && nextCraqueId !== oldCraqueId) {
-      const newPlayer = this.getPlayer(nextCraqueId);
-      if (newPlayer) {
-        newPlayer.craque = (Number(newPlayer.craque) || 0) + 1;
-      }
-    }
-
-    if (nextPuskasId && nextPuskasId !== oldPuskasId) {
-      const newPlayer = this.getPlayer(nextPuskasId);
-      if (newPlayer) {
-        newPlayer.puskas = (Number(newPlayer.puskas) || 0) + 1;
-      }
-    }
-
-    if (nextBagreId && nextBagreId !== oldBagreId) {
-      const newPlayer = this.getPlayer(nextBagreId);
-      if (newPlayer) {
-        newPlayer.bagre = (Number(newPlayer.bagre) || 0) + 1;
-      }
-    }
-
     nextSelecaoIds.forEach(pid => {
       if (!oldSelecaoIds.includes(pid)) {
-        const newPlayer = this.getPlayer(pid);
-        if (newPlayer) {
-          newPlayer.selecao = (Number(newPlayer.selecao) || 0) + 1;
-        }
+        const stats = this.getOrCreatePeriodPlayer(key, pid);
+        stats.selecao = (Number(stats.selecao) || 0) + 1;
       }
     });
 
@@ -680,6 +714,7 @@ class Store {
     entry.awardsSynced.bagre = !!nextBagreId;
     entry.awardsSynced.selecao = nextSelecaoIds.length > 0;
 
+    this.syncCareerStatsFromMonthly({ silent: true });
     this.save();
     return { success: true };
   }
@@ -707,6 +742,7 @@ class Store {
       theme: this.theme,
       players: this.players,
       history: this.history.map(entry => this.normalizeHistoryEntry(entry)).filter(Boolean),
+      monthlyStats: this.monthlyStats,
     };
     return JSON.stringify(data, null, 2);
   }
@@ -739,6 +775,14 @@ class Store {
         this.history = [];
       }
 
+      if (data.monthlyStats && typeof data.monthlyStats === 'object') {
+        this.monthlyStats = data.monthlyStats;
+      } else {
+        this.monthlyStats = {};
+      }
+      this.hydrateMonthlyStats();
+      this.syncCareerStatsFromMonthly({ silent: true });
+
       if (data.theme) {
         this.setTheme(data.theme);
       }
@@ -757,6 +801,9 @@ class Store {
   resetToDefaults() {
     this.players = JSON.parse(JSON.stringify(INITIAL_PLAYERS));
     this.history = [];
+    this.monthlyStats = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+    this.selectedPeriodKey = this.currentPeriodKey();
+    this.syncCareerStatsFromMonthly({ silent: true });
     this.activePelada = {
       status: 'idle',
       teamCount: 4,

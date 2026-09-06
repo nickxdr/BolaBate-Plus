@@ -1,5 +1,4 @@
 import { store } from '../state/store.js';
-import { calculatePoints } from '../data/seedData.js';
 import { showToast } from './rankingView.js';
 
 export function renderPlayersView() {
@@ -30,7 +29,7 @@ export function renderPlayersView() {
             👥 Gestão de Jogadores
           </h1>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
-            Cadastre jogadores, altere notas de estrelas e edite gols, assistências e estatísticas da liga.
+            Cadastre jogadores e altere apenas o nome e as estrelas. As estatísticas (gols, assistências, votos) são editadas na aba Ranking.
           </p>
         </div>
 
@@ -60,7 +59,6 @@ export function renderPlayersView() {
       <!-- Players Cards Grid -->
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;" id="players-grid">
         ${players.map(player => {
-          const pts = calculatePoints(player);
           return `
           <div class="card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0;">
             <div style="display: flex; align-items: center; gap: 12px;">
@@ -68,27 +66,19 @@ export function renderPlayersView() {
                 ${player.name.charAt(0).toUpperCase()}
               </div>
               <div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 2px;">
-                    ${escapeHtml(player.name)}
-                  </h3>
-                  <span style="font-size: 0.78rem; font-weight: 800; color: var(--pitch-green);">
-                    (${pts} pts)
-                  </span>
-                </div>
+                <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 2px;">
+                  ${escapeHtml(player.name)}
+                </h3>
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <span class="star-badge" style="cursor: pointer;" data-edit-stars="${player.id}" title="Clique para editar estatísticas e estrelas">
+                  <span class="star-badge" style="cursor: pointer;" data-edit-stars="${player.id}" title="Clique para editar nome e estrelas">
                     ★ ${player.stars.toFixed(1)}
-                  </span>
-                  <span style="font-size: 0.78rem; color: var(--text-muted);">
-                    ⚽ ${player.goals} | 👟 ${player.assists} | 🎟️ ${player.participacao}
                   </span>
                 </div>
               </div>
             </div>
 
             <div style="display: flex; gap: 6px;">
-              <button class="btn btn-secondary btn-sm btn-edit-player" data-id="${player.id}" title="Editar dados e estatísticas">
+              <button class="btn btn-secondary btn-sm btn-edit-player" data-id="${player.id}" title="Editar nome e estrelas">
                 ✏️
               </button>
               <button class="btn btn-secondary btn-sm btn-delete-player" data-id="${player.id}" style="color: var(--accent-red);" title="Excluir jogador">
@@ -238,12 +228,10 @@ export function renderPlayersView() {
       <div class="modal-overlay" id="edit-modal-overlay">
         <div class="modal-content" style="max-width: 520px;">
           <div class="modal-header">
-            <div>
-              <h2 class="modal-title">Editar Jogador</h2>
-              <span id="edit-live-points" style="font-size: 0.85rem; font-weight: 800; color: var(--pitch-green);">
-                Total: ${calculatePoints(player)} pontos
+            <h2 class="modal-title">Editar Jogador</h2>
+              <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                ✏️ Aqui você só edita o nome e as estrelas. As estatísticas (gols, assistências, votos) são editadas na aba Ranking.
               </span>
-            </div>
             <button class="modal-close" id="edit-modal-close">&times;</button>
           </div>
 
@@ -264,57 +252,6 @@ export function renderPlayersView() {
                 <span id="edit-star-label" class="star-badge" style="font-size: 1rem; min-width: 60px; justify-content: center;">
                   ${player.stars.toFixed(1)} ★
                 </span>
-              </div>
-            </div>
-
-            <!-- Stats Grid -->
-            <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-bottom: 16px;">
-              <h3 style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); margin-bottom: 10px;">
-                📊 Estatísticas Oficiais do Jogador:
-              </h3>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <div>
-                  <label style="font-size: 0.78rem; color: var(--pitch-green); font-weight: 700; display: block; margin-bottom: 2px;">
-                    ⚽ Gols (+3 pts)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="goals" value="${player.goals}" min="0" />
-                </div>
-                <div>
-                  <label style="font-size: 0.78rem; color: var(--accent-blue); font-weight: 700; display: block; margin-bottom: 2px;">
-                    👟 Assistências (+2 pts)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="assists" value="${player.assists}" min="0" />
-                </div>
-                <div>
-                  <label style="font-size: 0.78rem; color: var(--accent-gold); font-weight: 700; display: block; margin-bottom: 2px;">
-                    ⭐ Craque (+5 pts)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="craque" value="${player.craque}" min="0" />
-                </div>
-                <div>
-                  <label style="font-size: 0.78rem; color: var(--pitch-green); font-weight: 700; display: block; margin-bottom: 2px;">
-                    🏆 Seleção (+4 pts)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="selecao" value="${player.selecao}" min="0" />
-                </div>
-                <div>
-                  <label style="font-size: 0.78rem; color: var(--accent-gold); font-weight: 700; display: block; margin-bottom: 2px;">
-                    🎯 Puskas (+3 pts)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="puskas" value="${player.puskas}" min="0" />
-                </div>
-                <div>
-                  <label style="font-size: 0.78rem; color: var(--accent-red); font-weight: 700; display: block; margin-bottom: 2px;">
-                    🐟 Bagre (-3 pts)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="bagre" value="${player.bagre}" min="0" />
-                </div>
-                <div style="grid-column: span 2;">
-                  <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; display: block; margin-bottom: 2px;">
-                    🎟️ Participações (+1 pt)
-                  </label>
-                  <input type="number" class="input-field stat-input" name="participacao" value="${player.participacao}" min="0" />
-                </div>
               </div>
             </div>
 
@@ -339,24 +276,7 @@ export function renderPlayersView() {
       starLabel.textContent = Number(e.target.value).toFixed(1) + ' ★';
     });
 
-    // Live points calculation preview
     const form = modalContainer.querySelector('#edit-player-form');
-    const pointsLabel = modalContainer.querySelector('#edit-live-points');
-    function updateLivePoints() {
-      const g = Number(form.goals.value) || 0;
-      const a = Number(form.assists.value) || 0;
-      const c = Number(form.craque.value) || 0;
-      const s = Number(form.selecao.value) || 0;
-      const pus = Number(form.puskas.value) || 0;
-      const b = Number(form.bagre.value) || 0;
-      const p = Number(form.participacao.value) || 0;
-      const total = (g * 3) + (a * 2) + (s * 4) + (pus * 3) + (c * 5) - (b * 3) + (p * 1);
-      pointsLabel.textContent = `Total: ${total} pontos`;
-    }
-
-    form.querySelectorAll('.stat-input').forEach(input => {
-      input.addEventListener('input', updateLivePoints);
-    });
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -364,17 +284,10 @@ export function renderPlayersView() {
       const newStars = parseFloat(starRange.value);
       store.updatePlayer(id, {
         name: newName,
-        stars: newStars,
-        goals: form.goals.value,
-        assists: form.assists.value,
-        craque: form.craque.value,
-        selecao: form.selecao.value,
-        puskas: form.puskas.value,
-        bagre: form.bagre.value,
-        participacao: form.participacao.value
+        stars: newStars
       });
       close();
-      showToast(`Jogador "${newName}" e estatísticas atualizados!`);
+      showToast(`Jogador "${newName}" atualizado!`);
       render();
     });
   }

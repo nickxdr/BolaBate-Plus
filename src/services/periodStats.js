@@ -1,16 +1,27 @@
 // Helpers to build and aggregate period (YYYY-MM) statistics from history entries
+export const STAT_FIELDS = ['goals', 'assists', 'selecao', 'puskas', 'craque', 'bagre', 'participacao'];
+
 export function pad(n) {
   return String(n).padStart(2, '0');
 }
 
 export function periodKey(year, month) {
-  // month: 1-12
   return `${year}-${pad(month)}`;
 }
 
-export function parseDateToPeriod(dateISO) {
+export function parseDateToPeriod(dateValue) {
+  if (!dateValue) return null;
+
+  if (typeof dateValue === 'string') {
+    const br = dateValue.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (br) return periodKey(Number(br[3]), Number(br[2]));
+
+    const iso = dateValue.trim().match(/^(\d{4})-(\d{2})/);
+    if (iso) return periodKey(Number(iso[1]), Number(iso[2]));
+  }
+
   try {
-    const d = new Date(dateISO);
+    const d = new Date(dateValue);
     if (isNaN(d.getTime())) return null;
     return periodKey(d.getFullYear(), d.getMonth() + 1);
   } catch (e) {
@@ -22,61 +33,74 @@ export function emptyPlayerStats() {
   return { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0 };
 }
 
+export function createEmptyPeriod() {
+  return { players: {}, matchIds: [], generatedAt: new Date().toISOString() };
+}
+
+export function statsHaveActivity(stats) {
+  if (!stats) return false;
+  return STAT_FIELDS.some(field => Number(stats[field]) > 0);
+}
+
+export function addPlayerStats(target, source, { includeGuest = false } = {}) {
+  const dest = target || emptyPlayerStats();
+  dest.goals += (Number(source.goals) || 0) + (includeGuest ? Number(source.guestGoals) || 0 : 0);
+  dest.assists += (Number(source.assists) || 0) + (includeGuest ? Number(source.guestAssists) || 0 : 0);
+  dest.selecao += Number(source.selecao) || 0;
+  dest.puskas += Number(source.puskas) || 0;
+  dest.craque += Number(source.craque) || 0;
+  dest.bagre += Number(source.bagre) || 0;
+  dest.participacao += Number(source.participacao) || 0;
+  return dest;
+}
+
+export function applyHistoryEntryToPeriod(period, entry) {
+  const participating = new Set();
+  (entry.teams || []).forEach(team => {
+    (team.playerIds || []).forEach(pid => participating.add(pid));
+  });
+
+  participating.forEach(pid => {
+    if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
+    const stats = (entry.stats && entry.stats[pid]) || {};
+    period.players[pid].goals += Number(stats.goals) || 0;
+    period.players[pid].assists += Number(stats.assists) || 0;
+    period.players[pid].participacao += 1;
+  });
+
+  const awards = entry.awards || {};
+  if (awards.craqueId) {
+    if (!period.players[awards.craqueId]) period.players[awards.craqueId] = emptyPlayerStats();
+    period.players[awards.craqueId].craque += 1;
+  }
+  if (awards.puskasId) {
+    if (!period.players[awards.puskasId]) period.players[awards.puskasId] = emptyPlayerStats();
+    period.players[awards.puskasId].puskas += 1;
+  }
+  if (awards.bagreId) {
+    if (!period.players[awards.bagreId]) period.players[awards.bagreId] = emptyPlayerStats();
+    period.players[awards.bagreId].bagre += 1;
+  }
+  if (Array.isArray(awards.selecaoIds)) {
+    awards.selecaoIds.forEach(pid => {
+      if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
+      period.players[pid].selecao += 1;
+    });
+  }
+
+  if (entry.id && !period.matchIds.includes(entry.id)) {
+    period.matchIds.push(entry.id);
+  }
+}
+
 export function aggregateHistoryToMonthly(history = []) {
   const monthly = {};
 
   history.forEach(entry => {
     const key = parseDateToPeriod(entry.dateISO || entry.date);
     if (!key) return;
-    if (!monthly[key]) {
-      monthly[key] = { players: {}, matchIds: [], generatedAt: new Date().toISOString() };
-    }
-
-    const period = monthly[key];
-
-    // mark match id
-    if (entry.id && !period.matchIds.includes(entry.id)) period.matchIds.push(entry.id);
-
-    // participating players from teams
-    const participating = new Set();
-    (entry.teams || []).forEach(team => {
-      (team.playerIds || []).forEach(pid => participating.add(pid));
-    });
-
-    participating.forEach(pid => {
-      if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
-      const p = period.players[pid];
-      const s = (entry.stats && entry.stats[pid]) || {};
-      const goals = (Number(s.goals) || 0) + (Number(s.guestGoals) || 0);
-      const assists = (Number(s.assists) || 0) + (Number(s.guestAssists) || 0);
-      p.goals += goals;
-      p.assists += assists;
-      p.participacao += 1;
-    });
-
-    // awards
-    const awards = entry.awards || {};
-    if (awards.craqueId) {
-      const pid = awards.craqueId;
-      if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
-      period.players[pid].craque += 1;
-    }
-    if (awards.puskasId) {
-      const pid = awards.puskasId;
-      if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
-      period.players[pid].puskas += 1;
-    }
-    if (awards.bagreId) {
-      const pid = awards.bagreId;
-      if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
-      period.players[pid].bagre += 1;
-    }
-    if (Array.isArray(awards.selecaoIds)) {
-      awards.selecaoIds.forEach(pid => {
-        if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
-        period.players[pid].selecao += 1;
-      });
-    }
+    if (!monthly[key]) monthly[key] = createEmptyPeriod();
+    applyHistoryEntryToPeriod(monthly[key], entry);
   });
 
   return monthly;

@@ -1,5 +1,6 @@
 import { store } from '../state/store.js';
-import { calculatePoints, calculatePointsFromStats } from '../data/seedData.js';
+import { calculatePointsFromStats } from '../data/seedData.js';
+import { emptyPlayerStats, statsHaveActivity } from '../services/periodStats.js';
 
 export function renderRankingView() {
   const container = document.createElement('div');
@@ -18,7 +19,7 @@ export function renderRankingView() {
 
   // Calculate sorted rankings from period snapshot (fallback to zeros)
   const rankedPlayers = [...store.players].map(p => {
-    const stats = (snapshot && snapshot.players && snapshot.players[p.id]) || { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0 };
+    const stats = (snapshot && snapshot.players && snapshot.players[p.id]) || emptyPlayerStats();
     return {
       ...p,
       goals: stats.goals || 0,
@@ -30,7 +31,7 @@ export function renderRankingView() {
       participacao: stats.participacao || 0,
       totalPoints: calculatePointsFromStats(stats)
     };
-  }).sort((a, b) => {
+  }).filter(p => statsHaveActivity(p)).sort((a, b) => {
     if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
     if (b.goals !== a.goals) return b.goals - a.goals;
     if (b.craque !== a.craque) return b.craque - a.craque;
@@ -46,10 +47,10 @@ export function renderRankingView() {
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
       <div>
         <h1 style="font-size: 1.6rem; font-weight: 800; display: flex; align-items: center; gap: 8px;">
-          🏆 Estatísticas
+          🏆 Tabela da Liga
         </h1>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Selecione Ano e Mês para ver as estatísticas daquele período.
+          Ranking mensal oficial. Escolha o mês e o ano para ver a tabela daquele período.
         </p>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -80,7 +81,18 @@ export function renderRankingView() {
     </div>
 
     <!-- Table Container -->
-    <div style="margin: 10px 0 6px 0; font-weight:700;">${new Date(Number(selYear), Number(selMonth)-1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}</div>
+    <div style="margin: 10px 0 6px 0; font-weight:700; text-transform: capitalize;">
+      ${new Date(Number(selYear), Number(selMonth)-1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+    </div>
+    ${rankedPlayers.length === 0 ? `
+      <div class="card" style="text-align:center; padding: 36px 16px;">
+        <div style="font-size: 2rem; margin-bottom: 8px;">📅</div>
+        <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Nenhuma estatística neste mês</h2>
+        <p style="color: var(--text-muted); font-size: 0.88rem;">
+          Encerre uma pelada ou escolha outro mês para ver a tabela.
+        </p>
+      </div>
+    ` : `
     <div class="table-responsive">
       <table class="ranking-table">
         <thead>
@@ -103,9 +115,11 @@ export function renderRankingView() {
         </tbody>
       </table>
     </div>
+    `}
   `;
 
   const tbody = container.querySelector('#ranking-tbody');
+  if (tbody) {
   rankedPlayers.forEach((player, idx) => {
     const pos = idx + 1;
     const isTop1 = pos === 1;
@@ -151,6 +165,7 @@ export function renderRankingView() {
 
     tbody.appendChild(tr);
   });
+  }
 
   // Attach event handlers
   const yearSelect = container.querySelector('#period-year');
@@ -159,9 +174,6 @@ export function renderRankingView() {
     const y = Number(yearSelect.value);
     const m = Number(monthSelect.value);
     store.setSelectedPeriod(y, m);
-    // re-render by replacing container contents
-    const newNode = renderRankingView();
-    container.replaceWith(newNode);
   }
   yearSelect.addEventListener('change', onPeriodChange);
   monthSelect.addEventListener('change', onPeriodChange);
@@ -173,16 +185,24 @@ export function renderRankingView() {
   });
 
   container.querySelector('#btn-share-whatsapp').addEventListener('click', () => {
-    shareRankingWhatsApp(rankedPlayers);
+    shareRankingWhatsApp(
+      rankedPlayers,
+      new Date(Number(selYear), Number(selMonth) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })
+    );
   });
 
   return container;
 }
 
-function shareRankingWhatsApp(rankedPlayers) {
-  let text = `⚽ *TABELA OFICIAL - BOLABATE+* ⚽\n\n`;
-  text += `👑 *LÍDER:* ${rankedPlayers[0].name} (${rankedPlayers[0].totalPoints} pts)\n\n`;
-  text += `*--- CLASSIFICAÇÃO ---*\n`;
+function shareRankingWhatsApp(rankedPlayers, periodLabel = '') {
+  let text = `⚽ *TABELA OFICIAL - BOLABATE+* ⚽\n`;
+  if (periodLabel) text += `📅 *${periodLabel}*\n`;
+  text += `\n`;
+  if (!rankedPlayers.length) {
+    text += `_Sem estatísticas neste mês._\n\n_Gerado por BolaBate+ ⚽🔥_`;
+  } else {
+    text += `👑 *LÍDER:* ${rankedPlayers[0].name} (${rankedPlayers[0].totalPoints} pts)\n\n`;
+    text += `*--- CLASSIFICAÇÃO ---*\n`;
 
   rankedPlayers.forEach((p, i) => {
     const pos = i + 1;
@@ -194,7 +214,8 @@ function shareRankingWhatsApp(rankedPlayers) {
     text += `${pos}º ${p.name} - ${p.totalPoints} pts (⚽ ${p.goals} | 👟 ${p.assists} | ⭐ ${p.craque} | 🐟 ${p.bagre}) ${badge}\n`;
   });
 
-  text += `\n_Gerado por BolaBate+ ⚽🔥_`;
+    text += `\n_Gerado por BolaBate+ ⚽🔥_`;
+  }
 
   navigator.clipboard.writeText(text).then(() => {
     showToast('Tabela copiada para o WhatsApp! Cole no grupo.');
@@ -213,6 +234,7 @@ function shareRankingWhatsApp(rankedPlayers) {
 function openEditPlayerModal(playerId) {
   const player = store.getPlayer(playerId);
   if (!player) return;
+  const stats = store.getPeriodPlayerStats(playerId);
 
   const modalContainer = document.getElementById('modal-container');
   modalContainer.innerHTML = `
@@ -224,34 +246,37 @@ function openEditPlayerModal(playerId) {
         </div>
 
         <form id="edit-player-stats-form">
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px;">
+            As alterações valem só para o mês selecionado no ranking.
+          </p>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
             <div>
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Gols (+3 pts)</label>
-              <input type="number" class="input-field" name="goals" value="${player.goals}" min="0" />
+              <input type="number" class="input-field" name="goals" value="${stats.goals || 0}" min="0" />
             </div>
             <div>
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Assists (+2 pts)</label>
-              <input type="number" class="input-field" name="assists" value="${player.assists}" min="0" />
+              <input type="number" class="input-field" name="assists" value="${stats.assists || 0}" min="0" />
             </div>
             <div>
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Craque (+5 pts)</label>
-              <input type="number" class="input-field" name="craque" value="${player.craque}" min="0" />
+              <input type="number" class="input-field" name="craque" value="${stats.craque || 0}" min="0" />
             </div>
             <div>
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Seleção (+4 pts)</label>
-              <input type="number" class="input-field" name="selecao" value="${player.selecao}" min="0" />
+              <input type="number" class="input-field" name="selecao" value="${stats.selecao || 0}" min="0" />
             </div>
             <div>
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Puskas (+3 pts)</label>
-              <input type="number" class="input-field" name="puskas" value="${player.puskas}" min="0" />
+              <input type="number" class="input-field" name="puskas" value="${stats.puskas || 0}" min="0" />
             </div>
             <div>
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Bagre (-3 pts)</label>
-              <input type="number" class="input-field" name="bagre" value="${player.bagre}" min="0" />
+              <input type="number" class="input-field" name="bagre" value="${stats.bagre || 0}" min="0" />
             </div>
             <div style="grid-column: span 2;">
               <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Participações (+1 pt)</label>
-              <input type="number" class="input-field" name="participacao" value="${player.participacao}" min="0" />
+              <input type="number" class="input-field" name="participacao" value="${stats.participacao || 0}" min="0" />
             </div>
           </div>
 

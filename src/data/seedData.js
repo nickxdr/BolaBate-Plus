@@ -337,3 +337,59 @@ export function calculatePointsFromStats(stats = {}) {
   const p = Number(stats.participacao) || 0;
   return g * 3 + a * 2 + s * 4 + pus * 3 + c * 5 - b * 3 + p * 1;
 }
+
+function monthStats(goals, assists, selecao, puskas, craque, bagre, participacao) {
+  return { goals, assists, selecao, puskas, craque, bagre, participacao };
+}
+
+// Official monthly ranking snapshots. Ranking UI reads from here, not from career totals.
+export const INITIAL_MONTHLY_STATS = {
+  "2026-08": {
+    generatedAt: "2026-08-29T12:00:00.000Z",
+    matchIds: ["seed-august-2026"],
+    players: {
+      p1: monthStats(11, 14, 4, 0, 1, 0, 5),
+      p2: monthStats(36, 6, 3, 0, 2, 0, 4),
+      p3: monthStats(18, 14, 3, 0, 1, 0, 5),
+      p4: monthStats(23, 16, 4, 2, 2, 0, 4),
+      p5: monthStats(12, 4, 2, 0, 0, 0, 5),
+      p6: monthStats(7, 11, 2, 0, 0, 1, 4),
+      p7: monthStats(14, 4, 2, 0, 0, 0, 6),
+      p8: monthStats(7, 10, 3, 0, 0, 1, 5),
+      p9: monthStats(7, 2, 1, 1, 0, 0, 3),
+      p10: monthStats(4, 9, 1, 0, 0, 0, 5),
+      p11: monthStats(6, 4, 1, 0, 0, 0, 5),
+      p12: monthStats(5, 4, 1, 0, 0, 0, 2),
+      p13: monthStats(9, 6, 0, 1, 0, 0, 5),
+      p14: monthStats(9, 9, 0, 0, 0, 0, 3),
+      p15: monthStats(0, 3, 0, 0, 0, 0, 3),
+      p16: monthStats(6, 9, 1, 0, 0, 0, 4),
+      p17: monthStats(2, 4, 0, 0, 0, 0, 2),
+      p18: monthStats(6, 4, 1, 0, 0, 0, 3),
+      p19: monthStats(8, 5, 1, 0, 0, 0, 3),
+      p20: monthStats(0, 1, 0, 0, 0, 0, 6),
+      p21: monthStats(1, 4, 0, 0, 0, 0, 3),
+      p22: monthStats(1, 0, 0, 0, 0, 0, 1),
+    },
+  },
+  "2026-09": {
+    generatedAt: "2026-09-05T12:00:00.000Z",
+    matchIds: ["seed-september-2026"],
+    players: {
+      p3: monthStats(1, 1, 0, 0, 0, 0, 1),
+      p4: monthStats(11, 5, 1, 0, 1, 0, 1),
+      p5: monthStats(1, 0, 0, 0, 0, 0, 1),
+      p6: monthStats(2, 4, 1, 0, 0, 0, 1),
+      p7: monthStats(0, 2, 0, 0, 0, 0, 1),
+      p10: monthStats(3, 2, 1, 1, 0, 0, 1),
+      p11: monthStats(1, 4, 0, 0, 0, 0, 1),
+      p12: monthStats(2, 0, 0, 0, 0, 0, 1),
+      p14: monthStats(3, 1, 0, 0, 0, 0, 1),
+      p16: monthStats(2, 3, 1, 0, 0, 0, 1),
+      p18: monthStats(1, 2, 0, 0, 0, 0, 1),
+      p19: monthStats(2, 3, 0, 0, 0, 0, 1),
+      p24: monthStats(0, 1, 0, 0, 0, 0, 1),
+      p26: monthStats(3, 10, 1, 0, 0, 0, 1),
+    },
+  },
+};
