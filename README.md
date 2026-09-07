@@ -15,7 +15,7 @@ App **mobile-first** (PWA instalável) para organizar peladas de futebol 5v5, eq
 ### 🏆 Tabela da Liga (Ranking)
 
 - Reprodução fiel da planilha oficial:
-  - **1º Lugar**: Coroa dourada (👑 1º Breno - 64 pts).
+  - **1º Lugar**: Coroa dourada.
   - **Zona G4**: Top 4 posições em verde com badge G4.
   - **Zona Z4**: Últimas 4 posições em vermelho com badge Z4.
 - **Fórmula oficial de pontos**:
