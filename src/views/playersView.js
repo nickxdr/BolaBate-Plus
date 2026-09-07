@@ -78,6 +78,9 @@ export function renderPlayersView() {
             </div>
 
             <div style="display: flex; gap: 6px;">
+              <button class="btn btn-secondary btn-sm btn-profile-player" data-id="${player.id}" title="Ver perfil e evolução">
+                📊
+              </button>
               <button class="btn btn-secondary btn-sm btn-edit-player" data-id="${player.id}" title="Editar nome e estrelas">
                 ✏️
               </button>
@@ -126,6 +129,12 @@ export function renderPlayersView() {
       btn.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         openEditPlayerModal(id);
+      });
+    });
+
+    container.querySelectorAll('.btn-profile-player').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        openPlayerProfileModal(e.currentTarget.getAttribute('data-id'));
       });
     });
 
@@ -290,6 +299,91 @@ export function renderPlayersView() {
       showToast(`Jogador "${newName}" atualizado!`);
       render();
     });
+  }
+
+  function openPlayerProfileModal(id) {
+    const player = store.getPlayer(id);
+    if (!player) return;
+
+    const modalContainer = document.getElementById('modal-container');
+    const now = new Date();
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      return {
+        key,
+        label: date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''),
+        stats: store.getPeriodSnapshot(date.getFullYear(), date.getMonth() + 1).players?.[id] || {},
+      };
+    });
+    const totals = ['goals', 'assists', 'participacao', 'selecao', 'puskas', 'craque', 'bagre']
+      .reduce((result, field) => {
+        result[field] = months.reduce((sum, month) => sum + (Number(month.stats[field]) || 0), 0);
+        return result;
+      }, {});
+
+    modalContainer.innerHTML = `
+      <div class="modal-overlay" id="profile-modal-overlay">
+        <div class="modal-content player-profile-modal">
+          <div class="modal-header">
+            <div>
+              <span class="profile-eyebrow">Perfil individual</span>
+              <h2 class="modal-title">${escapeHtml(player.name)}</h2>
+            </div>
+            <button class="modal-close" id="profile-modal-close" aria-label="Fechar perfil">&times;</button>
+          </div>
+
+          <div class="profile-summary-grid">
+            ${profileMetric('⚽', 'Gols', totals.goals, 'goals')}
+            ${profileMetric('👟', 'Assistências', totals.assists, 'assists')}
+            ${profileMetric('📅', 'Participações', totals.participacao, 'matches')}
+            ${profileMetric('🏆', 'Prêmios', totals.selecao + totals.puskas + totals.craque + totals.bagre, 'awards')}
+          </div>
+
+          <div class="profile-section-heading">
+            <div>
+              <h3>Evolução mensal</h3>
+              <p>Últimos 12 meses registrados</p>
+            </div>
+            <span class="star-badge">★ ${Number(player.stars).toFixed(1)}</span>
+          </div>
+
+          <div class="profile-table-wrap">
+            <table class="profile-table">
+              <thead><tr><th>Mês</th><th>Gols</th><th>Assist.</th><th>Part.</th><th>Prêmios</th></tr></thead>
+              <tbody>
+                ${months.map(month => {
+                  const stats = month.stats;
+                  const awards = (Number(stats.selecao) || 0) + (Number(stats.puskas) || 0) + (Number(stats.craque) || 0) + (Number(stats.bagre) || 0);
+                  return `<tr>
+                    <th scope="row">${month.label}</th>
+                    <td class="profile-goals">${Number(stats.goals) || 0}</td>
+                    <td class="profile-assists">${Number(stats.assists) || 0}</td>
+                    <td>${Number(stats.participacao) || 0}</td>
+                    <td>${awards}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <p class="profile-awards-note">Prêmios: ${totals.craque} Craque, ${totals.selecao} Seleção, ${totals.puskas} Puskas e ${totals.bagre} Bagre.</p>
+        </div>
+      </div>
+    `;
+
+    const close = () => { modalContainer.innerHTML = ''; };
+    modalContainer.querySelector('#profile-modal-close').addEventListener('click', close);
+    modalContainer.querySelector('#profile-modal-overlay').addEventListener('click', (event) => {
+      if (event.target.id === 'profile-modal-overlay') close();
+    });
+  }
+
+  function profileMetric(icon, label, value, tone) {
+    return `<div class="profile-metric ${tone}">
+      <span class="profile-metric-icon">${icon}</span>
+      <span class="profile-metric-value">${value}</span>
+      <span class="profile-metric-label">${label}</span>
+    </div>`;
   }
 
   render();
