@@ -2,6 +2,7 @@ import { INITIAL_PLAYERS, INITIAL_MONTHLY_STATS } from '../data/seedData.js';
 import {
   aggregateHistoryToMonthly,
   applyHistoryEntryToPeriod,
+  addPlayerStats,
   periodKey,
   parseDateToPeriod,
   emptyPlayerStats,
@@ -20,10 +21,9 @@ class Store {
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
     this.monthlyStats = this.loadMonthlyStats();
-    this.selectedPeriodKey = this.loadSelectedPeriod();
+    this.selectedPeriodKey = this.currentPeriodKey(); // default to current device month/year
     this.hydrateMonthlyStats();
     this.syncCareerStatsFromMonthly({ silent: true });
-    if (!this.selectedPeriodKey) this.selectedPeriodKey = this.currentPeriodKey();
     this.applyTheme(this.theme);
     this.save();
   }
@@ -182,7 +182,7 @@ class Store {
     if (updates.stars !== undefined) player.stars = Math.max(0.5, Math.min(5.0, Number(updates.stars)));
 
     const hasStatUpdate = STAT_FIELDS.some(f => updates[f] !== undefined);
-    if (hasStatUpdate) {
+    if (hasStatUpdate && !this.isAnnualSelected()) {
       const key = this.selectedPeriodKey || parseDateToPeriod(new Date().toISOString());
       this.ensurePeriodByKey(key);
       if (!this.monthlyStats[key].players[id]) {
@@ -497,7 +497,30 @@ class Store {
   }
 
   getPeriodPlayerStats(playerId, key = this.selectedPeriodKey || this.currentPeriodKey()) {
+    if (key && String(key).split('-')[1] === 'anual') {
+      const year = Number(String(key).split('-')[0]);
+      const agg = this.getYearSnapshot(year);
+      return agg.players?.[playerId] || emptyPlayerStats();
+    }
     return this.monthlyStats?.[key]?.players?.[playerId] || emptyPlayerStats();
+  }
+
+  isAnnualSelected() {
+    return !!this.selectedPeriodKey && String(this.selectedPeriodKey).split('-')[1] === 'anual';
+  }
+
+  // Aggregates all periods of a given year into a single yearly snapshot
+  getYearSnapshot(year) {
+    const agg = {};
+    Object.keys(this.monthlyStats || {}).forEach(key => {
+      if (Number(String(key).split('-')[0]) !== Number(year)) return;
+      const period = this.monthlyStats[key];
+      Object.entries(period?.players || {}).forEach(([pid, stats]) => {
+        if (!agg[pid]) agg[pid] = emptyPlayerStats();
+        addPlayerStats(agg[pid], stats);
+      });
+    });
+    return { players: agg, matchIds: [], generatedAt: null };
   }
 
   syncCareerStatsFromMonthly({ silent = false } = {}) {
@@ -547,8 +570,18 @@ class Store {
       const period = parseDateToPeriod(h.dateISO || h.date);
       if (period) years.add(Number(period.split('-')[0]));
     });
-    years.add(new Date().getFullYear());
-    return Array.from(years).sort((a, b) => b - a);
+    const currentYear = new Date().getFullYear();
+    years.add(currentYear);
+
+    // Show a rolling window of recent years (current-4 .. current),
+    // plus any older years that actually have data.
+    let min = currentYear - 4;
+    const dataMin = years.size ? Math.min(...Array.from(years)) : currentYear;
+    if (dataMin < min) min = dataMin;
+
+    const list = [];
+    for (let y = currentYear; y >= min; y--) list.push(y);
+    return list;
   }
 
   getMonthsForYear(year) {
@@ -578,7 +611,11 @@ class Store {
   }
 
   setSelectedPeriod(year, month) {
-    this.selectedPeriodKey = this.getPeriodKey(year, month);
+    if (String(month) === 'anual') {
+      this.selectedPeriodKey = `${Number(year)}-anual`;
+    } else {
+      this.selectedPeriodKey = this.getPeriodKey(year, month);
+    }
     try {
       localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey);
     } catch (e) {}

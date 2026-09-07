@@ -2,20 +2,28 @@ import { store } from '../state/store.js';
 import { calculatePointsFromStats } from '../data/seedData.js';
 import { emptyPlayerStats, statsHaveActivity } from '../services/periodStats.js';
 
+function capitalizeMonth(str) {
+  return str ? String(str).charAt(0).toUpperCase() + String(str).slice(1) : str;
+}
+
 export function renderRankingView() {
   const container = document.createElement('div');
   container.className = 'view-container';
   // Period selection defaults
   const now = new Date();
-  const selYear = (store.selectedPeriodKey && store.selectedPeriodKey.split('-')[0]) || String(now.getFullYear());
-  const selMonth = (store.selectedPeriodKey && Number(store.selectedPeriodKey.split('-')[1])) || (now.getMonth() + 1);
+  const selKey = store.selectedPeriodKey || store.currentPeriodKey();
+  const isAnnual = store.isAnnualSelected();
+  const selYear = Number(String(selKey).split('-')[0]) || now.getFullYear();
+  const selMonth = isAnnual ? 'anual' : (Number(String(selKey).split('-')[1]) || (now.getMonth() + 1));
 
   // Build period selector UI
   const years = store.getAvailableYears();
   const months = store.getMonthsForYear(Number(selYear));
 
-  // Determine current snapshot for selected period
-  const snapshot = store.getPeriodSnapshot(Number(selYear), Number(selMonth));
+  // Determine current snapshot for selected period (monthly or annual)
+  const snapshot = isAnnual
+    ? store.getYearSnapshot(selYear)
+    : store.getPeriodSnapshot(Number(selYear), Number(selMonth));
 
   // Calculate sorted rankings from period snapshot (fallback to zeros)
   const rankedPlayers = [...store.players].map(p => {
@@ -50,7 +58,7 @@ export function renderRankingView() {
           🏆 Tabela da Liga
         </h1>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Ranking mensal oficial. Escolha o mês e o ano para ver a tabela daquele período.
+          Ranking oficial. Escolha o mês (ou Anual) e o ano para ver a tabela daquele período.
         </p>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -60,7 +68,8 @@ export function renderRankingView() {
         </select>
         <label style="font-size:0.85rem; color:var(--text-muted); margin-right:6px; margin-left:6px;">Mês</label>
         <select id="period-month" class="input-field" style="width:140px;">
-          ${months.map(m => `<option value="${m}" ${Number(m) === Number(selMonth) ? 'selected' : ''}>${new Date(0, m-1).toLocaleString('pt-BR', { month: 'long' })}</option>`).join('')}
+          <option value="anual" ${isAnnual ? 'selected' : ''}>Anual</option>
+          ${months.map(m => `<option value="${m}" ${(!isAnnual && Number(m) === Number(selMonth)) ? 'selected' : ''}>${capitalizeMonth(new Date(0, m-1).toLocaleString('pt-BR', { month: 'long' }))}</option>`).join('')}
         </select>
         <button id="btn-share-whatsapp" class="btn btn-secondary btn-sm" title="Copiar ranking formatado para WhatsApp" style="margin-left:8px;">
           Compartilhar
@@ -82,14 +91,16 @@ export function renderRankingView() {
 
     <!-- Table Container -->
     <div style="margin: 10px 0 6px 0; font-weight:700; text-transform: capitalize;">
-      ${new Date(Number(selYear), Number(selMonth)-1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+      ${isAnnual
+        ? `Anual • ${selYear}`
+        : capitalizeMonth(new Date(Number(selYear), Number(selMonth)-1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' }))}
     </div>
     ${rankedPlayers.length === 0 ? `
       <div class="card" style="text-align:center; padding: 36px 16px;">
         <div style="font-size: 2rem; margin-bottom: 8px;">📅</div>
-        <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Nenhuma estatística neste mês</h2>
+        <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Nenhuma estatística neste período</h2>
         <p style="color: var(--text-muted); font-size: 0.88rem;">
-          Encerre uma pelada ou escolha outro mês para ver a tabela.
+          Encerre uma pelada ou escolha outro período para ver a tabela.
         </p>
       </div>
     ` : `
@@ -107,7 +118,7 @@ export function renderRankingView() {
             <th>Craque (+5)</th>
             <th>Bagre (-3)</th>
             <th>Part. (+1)</th>
-            <th style="width: 40px;">Ação</th>
+            ${isAnnual ? '' : '<th style="width: 40px;">Ação</th>'}
           </tr>
         </thead>
         <tbody id="ranking-tbody">
@@ -157,9 +168,10 @@ export function renderRankingView() {
       <td>${player.bagre}</td>
       <td>${player.participacao}</td>
       <td>
+        ${isAnnual ? '' : `
         <button class="btn btn-secondary btn-sm edit-player-stat-btn" data-id="${player.id}" style="padding: 3px 7px;" title="Editar dados">
           ✏️
-        </button>
+        </button>`}
       </td>
     `;
 
@@ -172,7 +184,7 @@ export function renderRankingView() {
   const monthSelect = container.querySelector('#period-month');
   function onPeriodChange() {
     const y = Number(yearSelect.value);
-    const m = Number(monthSelect.value);
+    const m = monthSelect.value === 'anual' ? 'anual' : Number(monthSelect.value);
     store.setSelectedPeriod(y, m);
   }
   yearSelect.addEventListener('change', onPeriodChange);
@@ -185,10 +197,10 @@ export function renderRankingView() {
   });
 
   container.querySelector('#btn-share-whatsapp').addEventListener('click', () => {
-    shareRankingWhatsApp(
-      rankedPlayers,
-      new Date(Number(selYear), Number(selMonth) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })
-    );
+    const shareLabel = isAnnual
+      ? `Anual • ${selYear}`
+      : capitalizeMonth(new Date(Number(selYear), Number(selMonth) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' }));
+    shareRankingWhatsApp(rankedPlayers, shareLabel);
   });
 
   return container;
@@ -199,7 +211,7 @@ function shareRankingWhatsApp(rankedPlayers, periodLabel = '') {
   if (periodLabel) text += `📅 *${periodLabel}*\n`;
   text += `\n`;
   if (!rankedPlayers.length) {
-    text += `_Sem estatísticas neste mês._\n\n_Gerado por BolaBate+ ⚽🔥_`;
+    text += `_Sem estatísticas neste período._\n\n_Gerado por BolaBate+ ⚽🔥_`;
   } else {
     text += `👑 *LÍDER:* ${rankedPlayers[0].name} (${rankedPlayers[0].totalPoints} pts)\n\n`;
     text += `*--- CLASSIFICAÇÃO ---*\n`;
