@@ -4,6 +4,7 @@ import { renderPlayersView } from "./views/playersView.js";
 import { renderRankingView } from "./views/rankingView.js";
 import { renderHistoryView } from "./views/historyView.js";
 import { renderSettingsView } from "./views/settingsView.js";
+import {renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
 
 let currentTab = "pelada"; // default to Pelada tab as requested!
 
@@ -82,8 +83,12 @@ function initApp() {
           <span>Ajustes</span>
         </button>
       </nav>
-    `;
 
+        ${renderBolaBotView()}
+    `;
+    
+    initBolaBotView();
+    
     // Bind Navigation items
     app.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", (e) => {
