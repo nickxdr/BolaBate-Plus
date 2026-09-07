@@ -426,17 +426,6 @@ export function askBolaBot(question) {
     return answerStats(mentionedPlayer.name);
   }
 
-  // Players Joke
-  for (const joke of PLAYER_JOKES) {
-    if (
-      joke.triggers.some((trigger) =>
-        text.includes(normalizeText(trigger))
-      )
-    ) {
-      return joke.response;
-    }
-  }
-
   // Best player 
   if (
     text.includes("melhor jogador") ||
@@ -517,29 +506,3 @@ Tenta perguntar:
 Estou aprendendo novas funções ainda. 🤖`;
 
 }
-
-const PLAYER_JOKES = [
-  {
-    triggers: ["djavan", "djava"],
-    response:
-      "KKKKKKKK, esse é o maior miserável que temos. 🤣 Ninguém quer jogar junto com esse homem. Djavan, faz um favor pra rapaziada: fica em casa hoje. 🫡⚽"
-  },
-
-  {
-    triggers: ["aguiar"],
-    response:
-      "KKKKKKKK, o Aguiar é simplesmente PICUDO. 🗿🍆 O homem não perdoa ninguém. Respeita o homem! 🫡⚽"
-  },
-
-  {
-    triggers: ["barbeiro"],
-    response:
-      "KKKKKKKK, o Barbeiro é o famoso cortador de pentelho da galera. ✂️🤣 Habilidoido!. 🫡⚽"
-  },
-
-  {
-    triggers: ["felipe"],
-    response:
-      "KKKKKKKK, o Felipe é SUSPEITO demais. 🐔🤣 No ranking ele tá sempre de 4... lá ele! 💀⚽"
-  }
-];
