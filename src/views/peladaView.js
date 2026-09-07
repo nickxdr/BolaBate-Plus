@@ -230,11 +230,16 @@ function renderSetupTeams(container, onNavigate) {
           <button id="btn-rebalance" class="btn btn-secondary" title="Recalcular times equilibrando a pontuação de estrelas">
             🔄 Equilibrar Automaticamente
           </button>
+          <button id="btn-randomize" class="btn btn-secondary" title="Remisturar os times aleatoriamente, sem considerar as estrelas">
+            🔀 Randomizar
+          </button>
           <button id="btn-cancel-setup" class="btn btn-secondary btn-sm" style="color: var(--text-dim);">
             Voltar
           </button>
         </div>
       </div>
+
+        
 
       <!-- Instruction Tip Pill -->
       <div style="background: rgba(16, 185, 129, 0.08); border: 1px dashed var(--pitch-green); border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-main);">
@@ -369,6 +374,34 @@ function renderSetupTeams(container, onNavigate) {
       showToast('Times equilibrados automaticamente!');
       render();
     });
+
+    // Bind randomize button
+container.querySelector('#btn-randomize').addEventListener('click', () => {
+  // Get all players currently assigned to the existing teams
+  const currentPlayerIds = pelada.teams.flatMap(team => team.playerIds || []);
+
+  // Shuffle the players randomly using Fisher-Yates
+  for (let i = currentPlayerIds.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [currentPlayerIds[i], currentPlayerIds[j]] = [
+      currentPlayerIds[j],
+      currentPlayerIds[i]
+    ];
+  }
+
+  // Redistribute the same players across the existing teams
+  pelada.teams = pelada.teams.map((team, teamIndex) => ({
+    ...team,
+    playerIds: currentPlayerIds.slice(
+      teamIndex * 5,
+      (teamIndex + 1) * 5
+    )
+  }));
+
+  store.updatePeladaTeams(pelada.teams);
+  showToast('Times randomizados!');
+  render();
+});
 
     // Bind back / cancel
     container.querySelector('#btn-cancel-setup').addEventListener('click', () => {

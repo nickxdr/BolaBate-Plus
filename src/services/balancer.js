@@ -10,9 +10,22 @@ export function autoBalanceTeams(players, teamCount = 4) {
   const k = Math.max(3, Math.min(6, teamCount));
   const totalSlotsNeeded = k * 5;
 
-  // Clone and sort players descending by stars
-  const pool = [...players].sort((a, b) => b.stars - a.stars).slice(0, totalSlotsNeeded);
+    // Clone and shuffle players before sorting by stars.
+  // This randomizes the order of players with equal star ratings.
+  const pool = [...players];
 
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  // Sort players descending by stars.
+  // Players with equal stars keep their randomized order.
+  pool.sort((a, b) => b.stars - a.stars);
+
+  // Only keep enough players to fill all available team slots.
+  pool.splice(totalSlotsNeeded);
+ 
   // Initialize K teams
   const teams = Array.from({ length: k }, (_, i) => ({
     teamIndex: i,
