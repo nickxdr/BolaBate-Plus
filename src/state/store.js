@@ -10,13 +10,31 @@ import {
   STAT_FIELDS,
 } from '../services/periodStats.js';
 
+import { initCloudSync, scheduleCloudPush } from '../services/cloudSync.js';
+
 const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1';
+
+// Store methods that mutate league data — reserved for the admin account.
+// Everyone else gets read-only access (also enforced by Firestore Security Rules).
+const ADMIN_ONLY_METHODS = [
+  'addPlayer', 'updatePlayer', 'deletePlayer',
+  'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
+  'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist',
+  'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
+  'finishPelada', 'updateHistoryAwards', 'cancelPelada',
+  'importFromJson', 'resetToDefaults',
+];
 
 class Store {
   constructor() {
     this.listeners = new Set();
     this.theme = localStorage.getItem(THEME_KEY) || 'dark';
+    this.isAdmin = false;         // true only for the admin Firebase UID
+    this.cloudUserType = null;    // 'admin' | 'anon' | null
+    this.cloudStatus = 'connecting';
+    this.onBlocked = null;        // set by main.js → shows a toast
+    this.onCloudStatus = null;    // set by main.js → UI status updates
     this.players = this.loadPlayers();
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
@@ -26,6 +44,18 @@ class Store {
     this.syncCareerStatsFromMonthly({ silent: true });
     this.applyTheme(this.theme);
     this.save();
+
+    // Guard every mutating method: non-admins get a blocked toast instead
+    for (const name of ADMIN_ONLY_METHODS) {
+      const original = this[name].bind(this);
+      this[name] = (...args) => {
+        if (!this.isAdmin) {
+          if (this.onBlocked) this.onBlocked(name);
+          return undefined;
+        }
+        return original(...args);
+      };
+    }
   }
 
   loadPlayers() {
@@ -93,6 +123,14 @@ class Store {
   }
 
   save() {
+    this.persistLocal();
+    this.notify();
+    // Admins mirror every change to the cloud (debounced)
+    scheduleCloudPush(this);
+  }
+
+  /** Writes only to localStorage — used for offline cache & cloud snapshots. */
+  persistLocal() {
     try {
       localStorage.setItem(STORAGE_KEY + '_players', JSON.stringify(this.players));
       localStorage.setItem(STORAGE_KEY + '_pelada', JSON.stringify(this.activePelada));
@@ -103,6 +141,16 @@ class Store {
     } catch (e) {
       console.error('Error saving state:', e);
     }
+  }
+
+  /** Connects the store to Firebase (anonymous auth + live cloud subscription). */
+  initCloud() {
+    initCloudSync(this);
+  }
+
+  _setCloudStatus(status, detail) {
+    this.cloudStatus = status;
+    if (this.onCloudStatus) this.onCloudStatus(status, detail);
     this.notify();
   }
 

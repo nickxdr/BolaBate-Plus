@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// BolaBate+ — Firestore Security Rules
+// Paste this in: Firebase Console → Firestore Database → Rules → Publish
+//
+// Model: everyone signs in anonymously and can READ the league data.
+// Only the admin account (fixed UID) can WRITE. All writes from the app
+// go through the single document cloud/state.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // The whole league state lives in one document: cloud/state
+    match /cloud/state {
+      allow read: if request.auth != null;                 // any signed-in user (incl. anonymous)
+      allow write: if request.auth != null
+                   && request.auth.uid == "ArLRIkCZT7VNTa7nmvpjUOGpoWh2"; // admin only
+    }
+
+    // Deny everything else (users collection, future collections, etc.)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

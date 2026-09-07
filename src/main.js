@@ -5,6 +5,7 @@ import { renderRankingView } from "./views/rankingView.js";
 import { renderHistoryView } from "./views/historyView.js";
 import { renderSettingsView } from "./views/settingsView.js";
 import {renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
+import { showToast } from "./views/rankingView.js";
 
 let currentTab = "pelada"; // default to Pelada tab as requested!
 
@@ -12,6 +13,30 @@ let viewRendering = false;
 
 function initApp() {
   const app = document.getElementById("app");
+
+  // Cloud sync (Firebase): anonymous read-only by default, admin via login.
+  store.onBlocked = () => {
+    showToast("🔒 Apenas o administrador pode editar os dados da liga.");
+  };
+  store.onCloudStatus = (status) => {
+    const badge = document.getElementById("cloud-status-badge");
+    if (badge) {
+      const map = {
+        admin: ["🟢", "Admin conectado"],
+        online: ["🟢", "Sincronizado"],
+        connecting: ["🟡", "Conectando..."],
+        empty: ["🟡", "Nuvem vazia"],
+        error: ["🔴", "Offline"],
+      };
+      const [dot, label] = map[status] || ["⚪", status];
+      badge.textContent = `${dot} ${label}`;
+      badge.title =
+        status === "admin"
+          ? "Você está logado como admin — as alterações vão para a nuvem."
+          : "Modo somente leitura. Entre como admin na aba Ajustes para editar.";
+    }
+  };
+  store.initCloud();
 
   function renderShell() {
     app.innerHTML = `
@@ -38,6 +63,8 @@ function initApp() {
           <button id="quick-theme-toggle" class="btn btn-secondary btn-sm" style="border-radius: 50%; width: 34px; height: 34px; padding: 0;" title="Alternar tema">
             ${store.theme === "dark" ? "☀️" : "🌙"}
           </button>
+
+          <span id="cloud-status-badge" class="btn btn-secondary btn-sm" style="font-size: 0.68rem; padding: 4px 8px; cursor: default;">🟡 Conectando...</span>
         </div>
       </header>
 
@@ -118,6 +145,9 @@ function initApp() {
       renderShell();
       renderCurrentView();
     });
+
+    // Restore cloud status badge after shell re-render
+    if (store.onCloudStatus) store.onCloudStatus(store.cloudStatus);
 
     renderCurrentView();
   }

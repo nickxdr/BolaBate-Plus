@@ -1,5 +1,6 @@
 import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
+import { loginAdmin, logoutAdmin, pushStateNow } from "../services/cloudSync.js";
 
 export function renderSettingsView() {
   const container = document.createElement("div");
@@ -77,6 +78,42 @@ export function renderSettingsView() {
         </button>
       </div>
 
+      <!-- Cloud Sync & Admin Card -->
+      <div class="card">
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          ☁️ Nuvem & Administrador
+        </h2>
+
+        ${
+          store.isAdmin
+            ? `
+          <p style="font-size: 0.85rem; color: var(--pitch-green); margin-bottom: 12px;">
+            ✅ Logado como <strong>Administrador</strong> — suas alterações são sincronizadas automaticamente com a nuvem.
+          </p>
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <button id="btn-cloud-push" class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+              ⬆️ Enviar dados locais para a nuvem
+            </button>
+            <button id="btn-admin-logout" class="btn btn-secondary">
+              🚪 Sair do modo admin (voltar a somente leitura)
+            </button>
+          </div>
+        `
+            : `
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+            Você está no modo <strong>somente leitura</strong>. Entre como administrador para editar jogadores, estatísticas e peladas.
+          </p>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <input id="admin-email" type="email" placeholder="E-mail do admin" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+            <input id="admin-password" type="password" placeholder="Senha" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+            <button id="btn-admin-login" class="btn btn-primary">
+              🔑 Entrar como Administrador
+            </button>
+          </div>
+        `
+        }
+      </div>
+
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
@@ -144,6 +181,57 @@ export function renderSettingsView() {
       reader.readAsText(file);
       importInput.value = "";
     });
+
+    // Bind Cloud & Admin
+    const loginBtn = container.querySelector("#btn-admin-login");
+    if (loginBtn) {
+      loginBtn.addEventListener("click", async () => {
+        const email = container.querySelector("#admin-email").value.trim();
+        const password = container.querySelector("#admin-password").value;
+        if (!email || !password) {
+          showToast("⚠️ Preencha e-mail e senha do admin.");
+          return;
+        }
+        loginBtn.disabled = true;
+        loginBtn.textContent = "Entrando...";
+        try {
+          await loginAdmin(email, password);
+          showToast("👑 Bem-vindo, admin!");
+        } catch (err) {
+          showToast("❌ Login falhou: " + (err.code === "auth/invalid-credential" ? "e-mail ou senha incorretos." : err.message));
+          loginBtn.disabled = false;
+          loginBtn.textContent = "🔑 Entrar como Administrador";
+        }
+      });
+    }
+
+    const logoutBtn = container.querySelector("#btn-admin-logout");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        try {
+          await logoutAdmin();
+          showToast("Modo somente leitura ativado.");
+        } catch (err) {
+          showToast("❌ Erro ao sair: " + err.message);
+        }
+      });
+    }
+
+    const pushBtn = container.querySelector("#btn-cloud-push");
+    if (pushBtn) {
+      pushBtn.addEventListener("click", async () => {
+        pushBtn.disabled = true;
+        pushBtn.textContent = "Enviando...";
+        try {
+          await pushStateNow(store);
+          showToast("☁️ Dados enviados para a nuvem com sucesso!");
+        } catch (err) {
+          showToast("❌ Erro ao enviar: " + err.message);
+        }
+        pushBtn.disabled = false;
+        pushBtn.textContent = "⬆️ Enviar dados locais para a nuvem";
+      });
+    }
 
     // Bind Reset
     container
