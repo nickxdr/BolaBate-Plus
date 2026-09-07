@@ -166,6 +166,187 @@ function answerStats(playerName) {
 🙋 Participações: ${player.participacao || 0}`;
 }
 
+
+/**
+ * Get previous month from YYYY-MM.
+ */
+function getPreviousPeriodKey(key) {
+  const [year, month] = String(key).split("-").map(Number);
+
+  if (!year || !month) return null;
+
+  if (month === 1) {
+    return `${year - 1}-12`;
+  }
+
+  return `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
+/**
+ * Calculate ranking score using period statistics.
+ */
+function getPeriodRankingScore(stats) {
+  if (!stats) return 0;
+
+  return (
+    (Number(stats.goals) || 0) * RANKING_WEIGHTS.goals +
+    (Number(stats.assists) || 0) * RANKING_WEIGHTS.assists +
+    (Number(stats.selecao) || 0) * RANKING_WEIGHTS.selecao +
+    (Number(stats.puskas) || 0) * RANKING_WEIGHTS.puskas +
+    (Number(stats.craque) || 0) * RANKING_WEIGHTS.craque -
+    (Number(stats.bagre) || 0) * 3 +
+    (Number(stats.participacao) || 0)
+  );
+}
+
+/**
+ * Get evolution of all players between two periods.
+ */
+function getPlayersEvolution(currentKey, previousKey) {
+  const currentPeriod = store.monthlyStats?.[currentKey];
+  const previousPeriod = store.monthlyStats?.[previousKey];
+
+  if (!currentPeriod) return [];
+
+  const players = getPlayers();
+
+  return players.map((player) => {
+    const currentStats =
+      currentPeriod.players?.[player.id] || {};
+
+    const previousStats =
+      previousPeriod?.players?.[player.id] || {};
+
+    const currentScore =
+      getPeriodRankingScore(currentStats);
+
+    const previousScore =
+      getPeriodRankingScore(previousStats);
+
+    return {
+      player,
+      currentScore,
+      previousScore,
+      evolution: currentScore - previousScore
+    };
+  });
+}
+
+/**
+ * Find the player who evolved the most.
+ */
+function getMostImprovedPlayer() {
+  const currentKey = store.currentPeriodKey();
+  const previousKey = getPreviousPeriodKey(currentKey);
+
+  if (!previousKey) return null;
+
+  const evolution = getPlayersEvolution(
+    currentKey,
+    previousKey
+  );
+
+  if (!evolution.length) return null;
+
+  return [...evolution].sort(
+    (a, b) => b.evolution - a.evolution
+  )[0];
+}
+
+/**
+ * Answer who evolved the most this month.
+ */
+function answerEvolution() {
+  const currentKey = store.currentPeriodKey();
+  const previousKey = getPreviousPeriodKey(currentKey);
+
+  if (!previousKey) {
+    return "Ainda não consegui determinar o período anterior. 📈";
+  }
+
+  const currentPeriod = store.monthlyStats?.[currentKey];
+
+  if (!currentPeriod) {
+    return "Ainda não existem dados registrados para este mês. 📈";
+  }
+
+  const result = getMostImprovedPlayer();
+
+  if (!result) {
+    return "Ainda não tenho dados suficientes para analisar a evolução. 📈";
+  }
+
+  const {
+    player,
+    currentScore,
+    previousScore,
+    evolution
+  } = result;
+
+  if (evolution <= 0) {
+    return `📉 Até agora, nenhum jogador evoluiu em relação ao mês anterior.
+
+O melhor resultado foi de **${player.name}**, com ${currentScore} pontos neste mês contra ${previousScore} no mês anterior.`;
+  }
+
+  return `🚀 **${player.name}** foi quem mais evoluiu este mês!
+
+📊 Mês anterior: ${previousScore} pontos
+🔥 Este mês: ${currentScore} pontos
+📈 Evolução: **+${evolution} pontos**`;
+}
+
+/**
+ * Answer evolution of a specific player.
+ */
+function answerPlayerEvolution(player) {
+  const currentKey = store.currentPeriodKey();
+  const previousKey = getPreviousPeriodKey(currentKey);
+
+  if (!previousKey) {
+    return "Ainda não consegui determinar o período anterior. 📈";
+  }
+
+  const currentPeriod = store.monthlyStats?.[currentKey];
+  const previousPeriod = store.monthlyStats?.[previousKey];
+
+  const currentStats =
+    currentPeriod?.players?.[player.id] || {};
+
+  const previousStats =
+    previousPeriod?.players?.[player.id] || {};
+
+  const currentScore =
+    getPeriodRankingScore(currentStats);
+
+  const previousScore =
+    getPeriodRankingScore(previousStats);
+
+  const evolution =
+    currentScore - previousScore;
+
+  if (evolution > 0) {
+    return `📈 **${player.name}** evoluiu **+${evolution} pontos** este mês!
+
+📊 Mês anterior: ${previousScore} pontos
+🔥 Este mês: ${currentScore} pontos`;
+  }
+
+  if (evolution < 0) {
+    return `📉 **${player.name}** caiu **${Math.abs(
+      evolution
+    )} pontos** este mês.
+
+📊 Mês anterior: ${previousScore} pontos
+🔥 Este mês: ${currentScore} pontos`;
+  }
+
+  return `➡️ **${player.name}** manteve o mesmo desempenho.
+
+📊 Mês anterior: ${previousScore} pontos
+🔥 Este mês: ${currentScore} pontos`;
+}
+
 function answerHelp() {
   return `🤖 **Fala! Eu sou o BolaBot.**
 
@@ -176,6 +357,8 @@ Posso analisar os dados da BolaBate+ e responder coisas como:
 👑 Quem é o melhor jogador?
 📉 Quem está pior no ranking?
 📊 Mostre os dados de um jogador.
+📈 Quem mais evoluiu esse mês?
+🔥 Como o jogador X evoluiu?
 
 Em breve também vou conseguir montar times e analisar evolução dos jogadores.`;
 }
@@ -218,12 +401,26 @@ export function askBolaBot(question) {
   if (
     mentionedPlayer &&
     (
+      text.includes("evoluiu") ||
+      text.includes("evolucao") ||
+      text.includes("melhorou") ||
+      text.includes("desempenho esse mes") ||
+      text.includes("desempenho neste mes")
+    )
+  ) {
+    return answerPlayerEvolution(mentionedPlayer);
+  }
+
+  if (
+    mentionedPlayer &&
+    (
       text.includes("dados") ||
       text.includes("estatistica") ||
       text.includes("estatisticas") ||
       text.includes("como esta") ||
       text.includes("como ele esta") ||
-      text.includes("desempenho")
+      text.includes("desempenho") ||
+      text.includes("numeros")
     )
   ) {
     return answerStats(mentionedPlayer.name);
@@ -231,10 +428,14 @@ export function askBolaBot(question) {
 
   // Players Joke
   for (const joke of PLAYER_JOKES) {
-    if (joke.triggers.some(trigger => text.includes(trigger))) {
+    if (
+      joke.triggers.some((trigger) =>
+        text.includes(normalizeText(trigger))
+      )
+    ) {
       return joke.response;
+    }
   }
-}    
 
   // Best player 
   if (
@@ -274,37 +475,18 @@ export function askBolaBot(question) {
     return answerAssists();
   }
 
-  // Teams
-  if (
-    text.includes("monta dois times") ||
-    text.includes("montar dois times") ||
-    text.includes("times equilibrados") ||
-    text.includes("dois times equilibrados")
-  ) {
-    return `⚽ Posso montar os times equilibrados usando as estrelas dos jogadores.
-
-Essa parte vai ser conectada ao seu **balancer.js** no próximo passo.`;
-  }
-
-  // Best team
-  if (
-    text.includes("time ideal") ||
-    text.includes("melhor time")
-  ) {
-    return `🏆 Para montar o time ideal, vou analisar estrelas, desempenho e histórico dos jogadores.
-
-Essa função entra na próxima etapa do BolaBot.`;
-  }
-
   // Evolution
   if (
     text.includes("evoluiu") ||
     text.includes("evolucao") ||
-    text.includes("evoluiu mais")
+    text.includes("evoluiu mais") ||
+    text.includes("mais evoluiu") ||
+    text.includes("quem mais evoluiu") ||
+    text.includes("quem evoluiu mais") ||
+    text.includes("quem mais melhorou") ||
+    text.includes("quem melhorou mais")
   ) {
-    return `📈 Posso analisar a evolução mensal dos jogadores usando o histórico da BolaBate+.
-
-Vou conectar essa função ao **periodStats.js** na próxima etapa.`;
+    return answerEvolution();
   }
 
   // Greetings 
@@ -328,6 +510,8 @@ Tenta perguntar:
 • "Quem fez mais gols?"
 • "Quem deu mais assistências?"
 • "Quem está pior no ranking?"
+• "Quem mais evoluiu esse mês?"
+• "Como o Djavan evoluiu?"
 • "Mostre os dados do jogador"
 
 Estou aprendendo novas funções ainda. 🤖`;
