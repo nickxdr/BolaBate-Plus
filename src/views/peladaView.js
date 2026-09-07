@@ -1,5 +1,5 @@
 import { store } from '../state/store.js';
-import { autoBalanceTeams, getSmartSuggestions, getSubstituteSuggestions } from '../services/balancer.js';
+import { autoBalanceTeams, randomizeTeams, getSmartSuggestions, getSubstituteSuggestions } from '../services/balancer.js';
 import { showToast } from './rankingView.js';
 import confetti from 'canvas-confetti';
 
@@ -194,9 +194,9 @@ function renderSetupTeams(container, onNavigate) {
   // Track which player belongs to which team
   // Initialize if empty
   if (!pelada.teams || pelada.teams.length === 0 || pelada.teams.every(t => t.playerIds.length === 0)) {
-    // If not distributed, run initial auto-balance
-    const balanced = autoBalanceTeams(presentPlayers, pelada.teamCount);
-    pelada.teams = balanced.map((b, i) => ({
+    // If not distributed, split players randomly (user can still auto-balance later)
+    const randomized = randomizeTeams(presentPlayers, pelada.teamCount);
+    pelada.teams = randomized.map((b, i) => ({
       id: `team-${i + 1}`,
       name: `Time ${i + 1}`,
       color: store.getTeamColor(i),

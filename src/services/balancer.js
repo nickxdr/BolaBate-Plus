@@ -112,6 +112,41 @@ export function autoBalanceTeams(players, teamCount = 4) {
 }
 
 /**
+ * Distributes players into K teams of 5 purely at random (no star balancing).
+ * Used for the initial team assembly; users can still rebalance manually or
+ * with the "Equilibrar Automaticamente" button.
+ */
+export function randomizeTeams(players, teamCount = 4) {
+  const k = Math.max(3, Math.min(6, teamCount));
+  const totalSlotsNeeded = k * 5;
+
+  // Clone the pool and shuffle with Fisher–Yates
+  const pool = [...players].slice(0, totalSlotsNeeded);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  // Round-robin deal so every team gets a fair share of players
+  const teams = Array.from({ length: k }, (_, i) => ({
+    teamIndex: i,
+    players: [],
+    totalStars: 0
+  }));
+
+  pool.forEach((player, i) => {
+    const team = teams[i % k];
+    team.players.push(player);
+    team.totalStars += player.stars;
+  });
+
+  return teams.map(t => ({
+    playerIds: t.players.map(p => p.id),
+    totalStars: Number(t.totalStars.toFixed(1))
+  }));
+}
+
+/**
  * Gives smart player suggestions to fill remaining slots in a team to get as close as possible to 20 stars.
  *
  * @param {Array} currentTeamPlayers - Players currently in the team (1 to 4 players)
