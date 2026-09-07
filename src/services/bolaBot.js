@@ -2,9 +2,9 @@ import { store } from "../state/store.js";
 
 /**
  * BolaBot
- * Inteligência local do BolaBate+
+ * BolaBate local intelligence+
  *
- * Responde perguntas usando os dados reais do store.
+ * Answer questions using real data from store.
  */
 
 const RANKING_WEIGHTS = {
@@ -17,13 +17,6 @@ const RANKING_WEIGHTS = {
   participacao: 1
 };
 
-const PLAYER_JOKES = [
-  {
-    triggers: ["djavan", "djava"],
-    response:
-      "KKKKKKKK, esse é o maior miserável que temos. 🤣 Ninguém quer jogar junto com esse homem. Djavan, faz um favor pra rapaziada: fica em casa hoje. 🫡⚽"
-  }
-];
 
 function normalizeText(text) {
   return text
@@ -188,7 +181,7 @@ Em breve também vou conseguir montar times e analisar evolução dos jogadores.
 }
 
 /**
- * Tenta encontrar um jogador mencionado na pergunta.
+ * Try to find a player in question.
  */
 function findPlayerInQuestion(text) {
   const players = getPlayers();
@@ -199,7 +192,7 @@ function findPlayerInQuestion(text) {
 }
 
 /**
- * Função principal do BolaBot.
+ * BolaBot Main Function.
  */
 export function askBolaBot(question) {
   if (!question || !question.trim()) {
@@ -208,14 +201,8 @@ export function askBolaBot(question) {
 
   const text = normalizeText(question);
 
-  // Piadas internas dos jogadores
-for (const joke of PLAYER_JOKES) {
-  if (joke.triggers.some(trigger => text.includes(trigger))) {
-    return joke.response;
-  }
-}
 
-  // Ajuda
+  // Help
   if (
     text.includes("ajuda") ||
     text.includes("o que voce") ||
@@ -225,7 +212,7 @@ for (const joke of PLAYER_JOKES) {
     return answerHelp();
   }
 
-  // Pergunta sobre jogador específico
+  // Ask about specific player
   const mentionedPlayer = findPlayerInQuestion(text);
 
   if (
@@ -242,7 +229,14 @@ for (const joke of PLAYER_JOKES) {
     return answerStats(mentionedPlayer.name);
   }
 
-  // Melhor jogador
+  // Players Joke
+  for (const joke of PLAYER_JOKES) {
+    if (joke.triggers.some(trigger => text.includes(trigger))) {
+      return joke.response;
+  }
+}    
+
+  // Best player 
   if (
     text.includes("melhor jogador") ||
     text.includes("quem e o melhor") ||
@@ -251,7 +245,7 @@ for (const joke of PLAYER_JOKES) {
     return answerRanking();
   }
 
-  // Pior jogador
+  // Worst player 
   if (
     text.includes("pior jogador") ||
     text.includes("quem esta pior") ||
@@ -262,7 +256,7 @@ for (const joke of PLAYER_JOKES) {
     return answerWorstPlayer();
   }
 
-  // Gols
+  // Goals
   if (
     text.includes("mais gols") ||
     text.includes("maior artilheiro") ||
@@ -271,7 +265,7 @@ for (const joke of PLAYER_JOKES) {
     return answerGoals();
   }
 
-  // Assistências
+  // Assists
   if (
     text.includes("mais assistencias") ||
     text.includes("mais assistencia") ||
@@ -280,7 +274,7 @@ for (const joke of PLAYER_JOKES) {
     return answerAssists();
   }
 
-  // Times
+  // Teams
   if (
     text.includes("monta dois times") ||
     text.includes("montar dois times") ||
@@ -292,7 +286,7 @@ for (const joke of PLAYER_JOKES) {
 Essa parte vai ser conectada ao seu **balancer.js** no próximo passo.`;
   }
 
-  // Time ideal
+  // Best team
   if (
     text.includes("time ideal") ||
     text.includes("melhor time")
@@ -302,7 +296,7 @@ Essa parte vai ser conectada ao seu **balancer.js** no próximo passo.`;
 Essa função entra na próxima etapa do BolaBot.`;
   }
 
-  // Evolução
+  // Evolution
   if (
     text.includes("evoluiu") ||
     text.includes("evolucao") ||
@@ -313,7 +307,7 @@ Essa função entra na próxima etapa do BolaBot.`;
 Vou conectar essa função ao **periodStats.js** na próxima etapa.`;
   }
 
-  // Saudação
+  // Greetings 
   if (
     text === "oi" ||
     text === "ola" ||
@@ -339,3 +333,29 @@ Tenta perguntar:
 Estou aprendendo novas funções ainda. 🤖`;
 
 }
+
+const PLAYER_JOKES = [
+  {
+    triggers: ["djavan", "djava"],
+    response:
+      "KKKKKKKK, esse é o maior miserável que temos. 🤣 Ninguém quer jogar junto com esse homem. Djavan, faz um favor pra rapaziada: fica em casa hoje. 🫡⚽"
+  },
+
+  {
+    triggers: ["aguiar"],
+    response:
+      "KKKKKKKK, o Aguiar é simplesmente PICUDO. 🗿🍆 O homem não perdoa ninguém. Respeita o homem! 🫡⚽"
+  },
+
+  {
+    triggers: ["barbeiro"],
+    response:
+      "KKKKKKKK, o Barbeiro é o famoso cortador de pentelho da galera. ✂️🤣 Habilidoido!. 🫡⚽"
+  },
+
+  {
+    triggers: ["felipe"],
+    response:
+      "KKKKKKKK, o Felipe é SUSPEITO demais. 🐔🤣 No ranking ele tá sempre de 4... lá ele! 💀⚽"
+  }
+];
