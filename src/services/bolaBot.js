@@ -17,6 +17,14 @@ const RANKING_WEIGHTS = {
   participacao: 1
 };
 
+const PLAYER_JOKES = [
+  {
+    triggers: ["djavan", "djava"],
+    response:
+      "KKKKKKKK, esse é o maior miserável que temos. 🤣 Ninguém quer jogar junto com esse homem. Djavan, faz um favor pra rapaziada: fica em casa hoje. 🫡⚽"
+  }
+];
+
 function normalizeText(text) {
   return text
     .toLowerCase()
@@ -200,6 +208,13 @@ export function askBolaBot(question) {
 
   const text = normalizeText(question);
 
+  // Piadas internas dos jogadores
+for (const joke of PLAYER_JOKES) {
+  if (joke.triggers.some(trigger => text.includes(trigger))) {
+    return joke.response;
+  }
+}
+
   // Ajuda
   if (
     text.includes("ajuda") ||
@@ -322,4 +337,5 @@ Tenta perguntar:
 • "Mostre os dados do jogador"
 
 Estou aprendendo novas funções ainda. 🤖`;
+
 }
