@@ -38,6 +38,21 @@ App **mobile-first** (PWA instalável) para organizar peladas de futebol 5v5, eq
   - **Regra de convidado & diaristas**: Somam gols/assists cronologicamente na timeline, mas ficam **estritamente fora** do ranking oficial.
 - **🏁 Terminar pelada**: Resumo da partida, atualização automática da tabela (gols, assists e +1 participação), confetti e navegação ao ranking.
 
+### 🤖 BolaBot (Assistente inteligente)
+
+- **Chat flutuante** disponível em todas as telas: pergunte qualquer coisa sobre a liga em linguagem natural.
+- **Respostas com dados reais** (via `store`), sem APIs externas:
+  - 🏆 Melhor e pior jogador do ranking.
+  - ⚽ Artilheiro e 👟 maior assistente.
+  - 📊 Estatísticas completas de um jogador específico.
+- **Evolução mensal** (com base nas estatísticas por período):
+  - 📈 "Quem mais evoluiu esse mês?" — compara os pontos do mês atual com o anterior.
+  - 🔥 "Como o jogador X evoluiu?" — evolução individual (+/− pontos).
+- **Sugestões clicáveis** de perguntas e mensagem de ajuda com exemplos.
+
+
+- **🏁 Terminar pelada**: Resumo da partida, atualização automática da tabela (gols, assists e +1 participação), confetti e navegação ao ranking.
+
 ### 📅 Histórico
 
 - Registra cada pelada encerrada com **data**, **times**, **gols e assists por jogador**.
@@ -141,8 +156,9 @@ node test_suite.js   # executa testes de lógica
     ├── style.css           # Temas (escuro/claro) e estilos
     ├── data/seedData.js    # Jogadores iniciais e fórmula de pontos
     ├── services/balancer.js# Equilíbrio de times e sugestões
+    ├── services/bolaBot.js  # Assistente BolaBot (consultas e evolução mensal)
     ├── state/store.js      # Estado, persistência (localStorage) e lógica
-    └── views/              # Pelada, Jogadores, Ranking, Histórico, Ajustes
+    └── views/              # Pelada, Jogadores, Ranking, Histórico, Ajustes, BolaBot
 ```
 
 ---
