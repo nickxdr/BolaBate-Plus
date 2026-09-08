@@ -2,17 +2,8 @@
 // document (cloud/state). Admins push changes; everyone else subscribes and
 // receives live updates. Firestore's offline cache keeps the app usable with
 // bad signal, syncing automatically when the connection returns.
-import {
-  doc,
-  onSnapshot,
-  setDoc,
-  getDoc,
-} from "firebase/firestore";
-import {
-  auth,
-  db,
-  ADMIN_UID,
-} from "./firebase.js";
+import { doc, onSnapshot, setDoc, getDoc } from "firebase/firestore";
+import { auth, db, ADMIN_UID } from "./firebase.js";
 import {
   signInAnonymously,
   signInWithEmailAndPassword,
@@ -21,7 +12,7 @@ import {
 } from "firebase/auth";
 
 const CLOUD_DOC = doc(db, "cloud", "state");
-const PUSH_DEBOUNCE_MS = 1200;
+const PUSH_DEBOUNCE_MS = 600;
 
 let storeRef = null;
 let lastWriteId = null; // echoes of our own writes are ignored
@@ -93,7 +84,8 @@ function schedulePush(store) {
 }
 
 function setStatus(status, detail) {
-  if (storeRef && storeRef._setCloudStatus) storeRef._setCloudStatus(status, detail);
+  if (storeRef && storeRef._setCloudStatus)
+    storeRef._setCloudStatus(status, detail);
 }
 
 /** Debounced push hook — called from store.save() on every mutation. */
@@ -106,18 +98,23 @@ export function initCloudSync(store) {
   started = true;
   storeRef = store;
 
-  // Track auth state → sets store.isAdmin (admin UID) or anonymous (read-only)
+  // Track auth state → sets store.isAdmin (admin UID) or anonymous (read-only).
+  // Firebase persists the session automatically, so a returning admin stays
+  // logged in across page refreshes and app restarts. We only fall back to
+  // anonymous sign-in when there is NO restored session at all.
   onAuthStateChanged(auth, (user) => {
     store.isAdmin = !!user && user.uid === ADMIN_UID;
     store.cloudUserType = user ? (store.isAdmin ? "admin" : "anon") : null;
     setStatus(store.isAdmin ? "admin" : user ? "online" : "connecting");
     store.notify();
-  });
 
-  // Sign in anonymously (zero friction for regular players)
-  signInAnonymously(auth).catch((err) => {
-    console.error("[cloud] Anonymous sign-in failed:", err);
-    setStatus("error", err.message);
+    if (!user) {
+      // First visit or explicit logout → anonymous read-only access
+      signInAnonymously(auth).catch((err) => {
+        console.error("[cloud] Anonymous sign-in failed:", err);
+        setStatus("error", err.message);
+      });
+    }
   });
 
   // Live subscription — every signed-in device receives updates instantly
