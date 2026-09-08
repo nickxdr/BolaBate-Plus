@@ -151,8 +151,11 @@ class Store {
 
   _setCloudStatus(status, detail) {
     this.cloudStatus = status;
+    // NOTE: intentionally does NOT call notify() — status changes happen often
+    // (every snapshot / auth tick) and re-rendering the whole view for a badge
+    // update caused a visible screen flash. The badge is patched directly via
+    // the onCloudStatus callback in main.js instead.
     if (this.onCloudStatus) this.onCloudStatus(status, detail);
-    this.notify();
   }
 
   loadMonthlyStats() {

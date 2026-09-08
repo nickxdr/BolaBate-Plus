@@ -103,10 +103,17 @@ export function initCloudSync(store) {
   // logged in across page refreshes and app restarts. We only fall back to
   // anonymous sign-in when there is NO restored session at all.
   onAuthStateChanged(auth, (user) => {
-    store.isAdmin = !!user && user.uid === ADMIN_UID;
-    store.cloudUserType = user ? (store.isAdmin ? "admin" : "anon") : null;
-    setStatus(store.isAdmin ? "admin" : user ? "online" : "connecting");
-    store.notify();
+    const newIsAdmin = !!user && user.uid === ADMIN_UID;
+    const newUserType = user ? (newIsAdmin ? "admin" : "anon") : null;
+    const roleChanged = store.isAdmin !== newIsAdmin || store.cloudUserType !== newUserType;
+
+    store.isAdmin = newIsAdmin;
+    store.cloudUserType = newUserType;
+    setStatus(newIsAdmin ? "admin" : user ? "online" : "connecting");
+
+    // Only re-render the views when the role actually changed (login/logout).
+    // Re-rendering on every auth tick caused a visible screen flash.
+    if (roleChanged) store.notify();
 
     if (!user) {
       // First visit or explicit logout → anonymous read-only access
