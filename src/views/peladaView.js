@@ -11,6 +11,8 @@ export function renderPeladaView(onNavigate) {
 
   if (status === 'live') {
     renderLivePelada(container, onNavigate);
+  } else if (!store.isAdmin) {
+    renderWaitingForAdmin(container);
   } else if (status === 'setup') {
     renderSetupTeams(container, onNavigate);
   } else {
@@ -21,12 +23,28 @@ export function renderPeladaView(onNavigate) {
 }
 
 // ----------------------------------------------------
+// 0. Waiting Screen — shown to non-admins while there's no live pelada
+// ----------------------------------------------------
+function renderWaitingForAdmin(container) {
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; min-height: calc(100vh - var(--header-height) - var(--nav-height) - 32px);">
+      <div style="font-size: 3rem;">⏳</div>
+      <h1 style="font-size: 1.3rem; font-weight: 800;">Nenhuma pelada ativa no momento</h1>
+      <p style="color: var(--text-muted); font-size: 0.9rem; max-width: 340px;">
+        Espere o administrador iniciar a pelada para você poder acompanhar os times, gols e assistências em tempo real.
+      </p>
+    </div>
+  `;
+}
+
+// ----------------------------------------------------
 // 1. Pelada Initial Configuration: Team count & Attendance
 // ----------------------------------------------------
 function renderPeladaConfig(container, onNavigate) {
   let teamCount = Math.max(3, Math.min(6, store.activePelada.teamCount || 4));
   // Start with a completely clean list: NO pre-selected players
   let selectedIds = new Set();
+  let diaristaIds = new Set();
   store.activePelada.presentPlayerIds = [];
   let filterText = '';
 
@@ -92,19 +110,33 @@ function renderPeladaConfig(container, onNavigate) {
         <div class="player-chips-grid">
           ${players.map(p => {
             const isSelected = selectedIds.has(p.id);
+            const isDiarista = diaristaIds.has(p.id);
             return `
-              <div class="player-chip ${isSelected ? 'selected' : ''}" data-player-id="${p.id}">
+              <div class="player-chip ${isSelected ? 'selected' : ''} ${isDiarista ? 'diarista' : ''}" data-player-id="${p.id}">
                 <div>
                   <div class="name">${escapeHtml(p.name)}</div>
                   <div class="stars">★ ${p.stars.toFixed(1)}</div>
                 </div>
-                <div style="font-size: 1.1rem; color: ${isSelected ? 'var(--pitch-green)' : 'var(--text-dim)'};">
-                  ${isSelected ? '✓' : '+'}
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  ${isSelected ? `
+                    <button type="button" class="btn-toggle-diarista ${isDiarista ? 'active' : ''}" data-player-id="${p.id}" title="Marcar/desmarcar como Diarista (não pontua no ranking)">
+                      💰
+                    </button>
+                  ` : ''}
+                  <span style="font-size: 1.1rem; color: ${isSelected ? 'var(--pitch-green)' : 'var(--text-dim)'};">
+                    ${isSelected ? '✓' : '+'}
+                  </span>
                 </div>
               </div>
             `;
           }).join('')}
         </div>
+
+        ${diaristaIds.size > 0 ? `
+          <p style="font-size: 0.78rem; color: var(--diarista-yellow); margin-top: -4px; margin-bottom: 14px;">
+            💰 ${diaristaIds.size} jogador(es) marcado(s) como Diarista — não pontuam no ranking oficial.
+          </p>
+        ` : ''}
 
         <div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
           <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady || !store.isAdmin ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
@@ -143,6 +175,7 @@ function renderPeladaConfig(container, onNavigate) {
     // Bind quick fill
     container.querySelector('#btn-quick-fill').addEventListener('click', () => {
       selectedIds.clear();
+      diaristaIds.clear();
       const pool = [...store.players].slice(0, neededPlayers);
       pool.forEach(p => selectedIds.add(p.id));
       update();
@@ -151,6 +184,7 @@ function renderPeladaConfig(container, onNavigate) {
     // Bind clear
     container.querySelector('#btn-clear-selection').addEventListener('click', () => {
       selectedIds.clear();
+      diaristaIds.clear();
       update();
     });
 
@@ -160,6 +194,7 @@ function renderPeladaConfig(container, onNavigate) {
         const pid = e.currentTarget.getAttribute('data-player-id');
         if (selectedIds.has(pid)) {
           selectedIds.delete(pid);
+          diaristaIds.delete(pid);
         } else {
           if (selectedIds.size >= neededPlayers) {
             showToast(`Você já selecionou o limite de ${neededPlayers} jogadores!`);
@@ -171,11 +206,25 @@ function renderPeladaConfig(container, onNavigate) {
       });
     });
 
+    // Bind diarista toggle (doesn't trigger the chip's own select/deselect click)
+    container.querySelectorAll('.btn-toggle-diarista').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pid = e.currentTarget.getAttribute('data-player-id');
+        if (diaristaIds.has(pid)) {
+          diaristaIds.delete(pid);
+        } else {
+          diaristaIds.add(pid);
+        }
+        update();
+      });
+    });
+
     // Bind advance
     const advanceBtn = container.querySelector('#btn-advance-setup');
     if (isReady && store.isAdmin && advanceBtn) {
       advanceBtn.addEventListener('click', () => {
-        store.startPeladaSetup(teamCount, Array.from(selectedIds));
+        store.startPeladaSetup(teamCount, Array.from(selectedIds), Array.from(diaristaIds));
         renderSetupTeams(container, onNavigate);
       });
     }
@@ -214,6 +263,7 @@ function renderSetupTeams(container, onNavigate) {
   function render() {
     const assignedIds = getAssignedPlayerIds();
     const unassignedPlayers = presentPlayers.filter(p => !assignedIds.has(p.id));
+    const diaristaIds = new Set(pelada.diaristaPlayerIds || []);
 
     container.innerHTML = `
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
@@ -266,7 +316,7 @@ function renderSetupTeams(container, onNavigate) {
       ` : ''}
 
       <!-- Teams Grid -->
-      <div class="teams-grid">
+      <div class="teams-grid" data-team-count="${pelada.teams.length}">
         ${pelada.teams.map((team, tIdx) => {
           const teamPlayers = team.playerIds.map(id => store.getPlayer(id)).filter(Boolean);
           const totalStars = teamPlayers.reduce((sum, p) => sum + p.stars, 0);
@@ -300,15 +350,16 @@ function renderSetupTeams(container, onNavigate) {
 
               <div class="team-players-list drop-target-list" data-team-id="${team.id}">
                 ${teamPlayers.map(p => `
-                  <div class="team-player-row draggable"
+                  <div class="team-player-row draggable ${diaristaIds.has(p.id) ? 'diarista' : ''}"
                        draggable="true"
                        data-player-id="${p.id}"
                        data-team-id="${team.id}"
                        title="Arraste para outro time ou solte em cima de outro atleta para trocar">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <span style="font-weight: 700; font-size: 0.95rem;">${escapeHtml(p.name)}</span>
+                      <span class="name" style="font-weight: 700; font-size: 0.95rem;">${escapeHtml(p.name)}</span>
                       <span class="player-position-label">${escapeHtml(p.favoritePosition || 'Posição não definida')}</span>
                       <span class="star-badge" style="font-size: 0.75rem;">${p.stars.toFixed(1)}★</span>
+                      ${diaristaIds.has(p.id) ? '<span class="diarista-badge">💰 Diarista</span>' : ''}
                     </div>
 
                     <div style="display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 1.2rem; cursor: grab;" title="Arraste para mover">
@@ -608,9 +659,11 @@ function renderLivePelada(container, onNavigate) {
           </h1>
         </div>
 
-        <button id="btn-finish-pelada" class="btn btn-gold btn-lg" style="width: auto; padding: 12px 22px;">
-          🏁 Terminar Pelada
-        </button>
+        ${store.isAdmin ? `
+          <button id="btn-finish-pelada" class="btn btn-gold btn-lg" style="width: auto; padding: 12px 22px;">
+            🏁 Terminar Pelada
+          </button>
+        ` : ''}
       </div>
 
       <!-- Guest & Diaristas Scoring Notice Alert -->
@@ -622,8 +675,8 @@ function renderLivePelada(container, onNavigate) {
       </div>
 
       <!-- Teams Grid in Live Match -->
-      <div class="teams-grid">
-        ${pelada.teams.map(team => {
+      <div class="teams-grid" data-team-count="${pelada.teams.length}">
+        ${(() => { const diaristaIds = new Set(pelada.diaristaPlayerIds || []); return pelada.teams.map(team => {
           const teamPlayers = team.playerIds.map(id => store.getPlayer(id)).filter(Boolean);
           // Find guest substitutes filling in for this team
           const activeGuests = (pelada.guestSlots || []).filter(g => g.teamId === team.id);
@@ -641,17 +694,19 @@ function renderLivePelada(container, onNavigate) {
                 <!-- Original Team Players -->
                 ${teamPlayers.map(p => {
                   const isDeparted = (pelada.departedPlayerIds || []).includes(p.id);
+                  const isDiarista = diaristaIds.has(p.id);
                   const pStat = pelada.stats[p.id] || { goals: 0, assists: 0 };
 
                   return `
-                    <div class="team-player-row ${isDeparted ? 'departed' : ''}">
+                    <div class="team-player-row ${isDeparted ? 'departed' : ''} ${isDiarista ? 'diarista' : ''}">
                       <div style="display: flex; align-items: center; gap: 6px; min-width: 80px; flex: 1; overflow: hidden;">
-                        <span style="font-weight: 700; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(p.name)}">
+                        <span class="name" style="font-weight: 700; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(p.name)}">
                           ${escapeHtml(p.name)}
                         </span>
                         <span class="star-badge" style="font-size: 0.68rem; padding: 1px 5px; flex-shrink: 0;">
                           ${p.stars.toFixed(1)}★
                         </span>
+                        ${isDiarista ? '<span class="diarista-badge">💰</span>' : ''}
                       </div>
 
                       <div class="live-controls">
@@ -659,10 +714,12 @@ function renderLivePelada(container, onNavigate) {
                           <span style="font-size: 0.72rem; color: var(--accent-red); font-weight: 700; white-space: nowrap; margin-right: 2px;">
                             Saiu (${pStat.goals}G / ${pStat.assists}A)
                           </span>
-                          <button class="btn btn-primary btn-sm btn-revert-departure" data-id="${p.id}" data-team="${team.id}" title="Reverter saída e voltar ao jogo" style="padding: 3px 8px; font-size: 0.72rem; white-space: nowrap;">
-                            ↩️ Voltar
-                          </button>
-                        ` : `
+                          ${store.isAdmin ? `
+                            <button class="btn btn-primary btn-sm btn-revert-departure" data-id="${p.id}" data-team="${team.id}" title="Reverter saída e voltar ao jogo" style="padding: 3px 8px; font-size: 0.72rem; white-space: nowrap;">
+                              ↩️ Voltar
+                            </button>
+                          ` : ''}
+                        ` : store.isAdmin ? `
                           <!-- Goal Counter -->
                           <div class="stat-counter" title="Gols marcados">
                             <button class="stat-btn btn-goal btn-decrease-goal" data-id="${p.id}">-</button>
@@ -681,6 +738,11 @@ function renderLivePelada(container, onNavigate) {
                           <button class="btn btn-secondary btn-sm btn-mark-departure" data-id="${p.id}" data-team="${team.id}" title="Jogador foi embora mais cedo" style="padding: 3px 6px; font-size: 0.72rem; color: var(--accent-red); white-space: nowrap; flex-shrink: 0;">
                             🚪 Saiu
                           </button>
+                        ` : `
+                          <!-- Read-only stat display for non-admins -->
+                          <span style="font-size: 0.8rem; color: var(--text-main); white-space: nowrap;">
+                            ⚽ ${pStat.goals} &nbsp; 👟 ${pStat.assists}
+                          </span>
                         `}
                       </div>
                     </div>
@@ -708,19 +770,25 @@ function renderLivePelada(container, onNavigate) {
                       </div>
 
                       <div class="live-controls">
-                        <!-- Guest Goal Counter (Does not count in ranking) -->
-                        <div class="stat-counter" title="Gols do Convidado (não contam para ranking)">
-                          <button class="stat-btn btn-goal btn-decrease-guest-goal" data-id="${guestPlayer.id}">-</button>
-                          <span class="count">${pStat.guestGoals || 0}</span>
-                          <button class="stat-btn btn-goal btn-increase-guest-goal" data-id="${guestPlayer.id}" data-team="${team.id}">+⚽</button>
-                        </div>
+                        ${store.isAdmin ? `
+                          <!-- Guest Goal Counter (Does not count in ranking) -->
+                          <div class="stat-counter" title="Gols do Convidado (não contam para ranking)">
+                            <button class="stat-btn btn-goal btn-decrease-guest-goal" data-id="${guestPlayer.id}">-</button>
+                            <span class="count">${pStat.guestGoals || 0}</span>
+                            <button class="stat-btn btn-goal btn-increase-guest-goal" data-id="${guestPlayer.id}" data-team="${team.id}">+⚽</button>
+                          </div>
 
-                        <!-- Guest Assist Counter -->
-                        <div class="stat-counter" title="Assistências do Convidado (não contam para ranking)">
-                          <button class="stat-btn btn-assist btn-decrease-guest-assist" data-id="${guestPlayer.id}">-</button>
-                          <span class="count">${pStat.guestAssists || 0}</span>
-                          <button class="stat-btn btn-assist btn-increase-guest-assist" data-id="${guestPlayer.id}" data-team="${team.id}">+👟</button>
-                        </div>
+                          <!-- Guest Assist Counter -->
+                          <div class="stat-counter" title="Assistências do Convidado (não contam para ranking)">
+                            <button class="stat-btn btn-assist btn-decrease-guest-assist" data-id="${guestPlayer.id}">-</button>
+                            <span class="count">${pStat.guestAssists || 0}</span>
+                            <button class="stat-btn btn-assist btn-increase-guest-assist" data-id="${guestPlayer.id}" data-team="${team.id}">+👟</button>
+                          </div>
+                        ` : `
+                          <span style="font-size: 0.8rem; color: var(--text-main); white-space: nowrap;">
+                            ⚽ ${pStat.guestGoals || 0} &nbsp; 👟 ${pStat.guestAssists || 0}
+                          </span>
+                        `}
                       </div>
                     </div>
                   `;
@@ -728,7 +796,7 @@ function renderLivePelada(container, onNavigate) {
               </div>
             </div>
           `;
-        }).join('')}
+        }).join(''); })()}
       </div>
 
       <!-- Recent Timeline Events -->
@@ -846,10 +914,13 @@ function renderLivePelada(container, onNavigate) {
       });
     });
 
-    // Bind Finish Pelada
-    container.querySelector('#btn-finish-pelada').addEventListener('click', () => {
-      openFinishPeladaModal(onNavigate);
-    });
+    // Bind Finish Pelada (admin only — button isn't rendered for non-admins)
+    const finishBtn = container.querySelector('#btn-finish-pelada');
+    if (finishBtn) {
+      finishBtn.addEventListener('click', () => {
+        openFinishPeladaModal(onNavigate);
+      });
+    }
   }
 
   render();

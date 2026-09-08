@@ -55,9 +55,12 @@ export function addPlayerStats(target, source, { includeGuest = false } = {}) {
 }
 
 export function applyHistoryEntryToPeriod(period, entry) {
+  const diaristas = new Set(entry.diaristaPlayerIds || []);
   const participating = new Set();
   (entry.teams || []).forEach(team => {
-    (team.playerIds || []).forEach(pid => participating.add(pid));
+    (team.playerIds || []).forEach(pid => {
+      if (!diaristas.has(pid)) participating.add(pid);
+    });
   });
 
   participating.forEach(pid => {
@@ -95,9 +98,12 @@ export function applyHistoryEntryToPeriod(period, entry) {
 
 /** Exact inverse of applyHistoryEntryToPeriod — used when deleting a pelada. */
 export function removeHistoryEntryFromPeriod(period, entry) {
+  const diaristas = new Set(entry.diaristaPlayerIds || []);
   const participating = new Set();
   (entry.teams || []).forEach(team => {
-    (team.playerIds || []).forEach(pid => participating.add(pid));
+    (team.playerIds || []).forEach(pid => {
+      if (!diaristas.has(pid)) participating.add(pid);
+    });
   });
 
   participating.forEach(pid => {

@@ -283,6 +283,8 @@ function renderAwardsSummary(entry) {
 }
 
 function renderTeamsSection(entry) {
+  const diaristas = new Set(entry.diaristaPlayerIds || []);
+
   return (entry.teams || []).map(team => {
     const rows = (team.playerIds || []).map(pid => {
       const player = store.getPlayer(pid);
@@ -292,10 +294,11 @@ function renderTeamsSection(entry) {
       const goals = Number(stats.goals) || 0;
       const assists = Number(stats.assists) || 0;
       const hasActivity = goals > 0 || assists > 0;
+      const isDiarista = diaristas.has(pid);
 
       return `
-        <div class="history-player-row${hasActivity ? ' active' : ''}">
-          <span class="history-player-name">${escapeHtml(player.name)}</span>
+        <div class="history-player-row${hasActivity ? ' active' : ''}${isDiarista ? ' diarista' : ''}">
+          <span class="history-player-name">${escapeHtml(player.name)}${isDiarista ? ' <span class="diarista-badge">💰 Diarista</span>' : ''}</span>
           <span class="history-player-stats">
             <span class="history-player-stat goals">⚽ ${goals}</span>
             <span class="history-player-stat assists">👟 ${assists}</span>

@@ -94,6 +94,9 @@ class Store {
         if (parsed.status === 'idle') {
           parsed.presentPlayerIds = [];
         }
+        if (!Array.isArray(parsed.diaristaPlayerIds)) {
+          parsed.diaristaPlayerIds = [];
+        }
         return parsed;
       }
     } catch (e) {
@@ -103,6 +106,7 @@ class Store {
       status: 'idle', // 'idle' | 'setup' | 'live'
       teamCount: 4,
       presentPlayerIds: [],
+      diaristaPlayerIds: [], // IDs of players playing as day-rate "Diarista" — stats don't count toward the ranking
       teams: [], // [ { id: 'team-1', name: 'Time 1', playerIds: [], color: '#...' } ]
       stats: {
         // playerId -> { goals: number, assists: number, guestGoals: number, guestAssists: number }
@@ -268,11 +272,12 @@ class Store {
   }
 
   // --- Pelada Workflow ---
-  startPeladaSetup(teamCount = 4, selectedPlayerIds = []) {
+  startPeladaSetup(teamCount = 4, selectedPlayerIds = [], diaristaPlayerIds = []) {
     this.activePelada = {
       status: 'setup',
       teamCount: Math.max(3, Math.min(6, teamCount)),
       presentPlayerIds: selectedPlayerIds,
+      diaristaPlayerIds: diaristaPlayerIds.filter(id => selectedPlayerIds.includes(id)),
       teams: Array.from({ length: teamCount }, (_, i) => ({
         id: `team-${i + 1}`,
         name: `Time ${i + 1}`,
@@ -445,6 +450,8 @@ class Store {
       team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
     });
 
+    const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
+
     const now = new Date();
     const historyEntry = this.normalizeHistoryEntry({
       id: 'pelada_' + now.getTime(),
@@ -453,6 +460,7 @@ class Store {
       teamCount: this.activePelada.teamCount,
       teams: JSON.parse(JSON.stringify(this.activePelada.teams)),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
+      diaristaPlayerIds: Array.from(diaristaIds),
       awards: {
         craqueId: null,
         selecaoIds: [],
@@ -471,6 +479,7 @@ class Store {
     this.ensurePeriodByKey(key);
 
     participatingPlayerIds.forEach(pid => {
+      if (diaristaIds.has(pid)) return; // Diaristas don't count toward the ranking table
       const pStats = this.activePelada.stats[pid];
       const periodStats = this.getOrCreatePeriodPlayer(key, pid);
       periodStats.participacao += 1;
@@ -491,6 +500,7 @@ class Store {
       status: 'idle',
       teamCount: 4,
       presentPlayerIds: [],
+      diaristaPlayerIds: [],
       teams: [],
       stats: {},
       departedPlayerIds: [],
@@ -681,9 +691,12 @@ class Store {
   }
 
   getHistoryParticipatingPlayers(entry) {
+    const diaristas = new Set(entry.diaristaPlayerIds || []);
     const ids = new Set();
     (entry.teams || []).forEach(team => {
-      (team.playerIds || []).forEach(pid => ids.add(pid));
+      (team.playerIds || []).forEach(pid => {
+        if (!diaristas.has(pid)) ids.add(pid);
+      });
     });
     return Array.from(ids).map(id => this.getPlayer(id)).filter(Boolean);
   }
@@ -729,6 +742,7 @@ class Store {
         }))
         : [],
       stats: entry.stats && typeof entry.stats === 'object' ? entry.stats : {},
+      diaristaPlayerIds: Array.isArray(entry.diaristaPlayerIds) ? [...entry.diaristaPlayerIds] : [],
       awards: {
         craqueId: awards.craqueId || null,
         selecaoIds: Array.isArray(awards.selecaoIds) ? [...awards.selecaoIds] : [],
@@ -831,6 +845,7 @@ class Store {
       status: 'idle',
       teamCount: 4,
       presentPlayerIds: [],
+      diaristaPlayerIds: [],
       teams: [],
       stats: {},
       departedPlayerIds: [],
@@ -915,6 +930,7 @@ class Store {
       status: 'idle',
       teamCount: 4,
       presentPlayerIds: [],
+      diaristaPlayerIds: [],
       teams: [],
       stats: {},
       departedPlayerIds: [],
