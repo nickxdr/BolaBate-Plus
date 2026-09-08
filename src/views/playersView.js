@@ -112,37 +112,38 @@ export function renderPlayersView() {
                   </span>
                 </div>
               </div>
+            </div>
 
-              <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 6px;">
 
+              <button
+                class="btn btn-secondary btn-sm btn-profile-player"
+                data-id="${player.id}"
+                title="Ver perfil e evolução"
+              >
+                📊
+              </button>
+
+              ${store.isAdmin ? `
                 <button
-                  class="btn btn-secondary btn-sm btn-profile-player"
+                  class="btn btn-secondary btn-sm btn-edit-player"
                   data-id="${player.id}"
-                  title="Ver perfil e evolução"
+                  title="Editar nome e estrelas"
                 >
-                  📊
+                  ✏️
                 </button>
 
-                ${store.isAdmin ? `
-                  <button
-                    class="btn btn-secondary btn-sm btn-edit-player"
-                    data-id="${player.id}"
-                    title="Editar nome e estrelas"
-                  >
-                    ✏️
-                  </button>
-
-                  <button
-                    class="btn btn-secondary btn-sm btn-delete-player"
-                    data-id="${player.id}"
-                    style="color: var(--accent-red);"
-                    title="Excluir jogador"
-                  >
-                    🗑️
-                  </button>
-                ` : ''}
-              </div>
+                <button
+                  class="btn btn-secondary btn-sm btn-delete-player"
+                  data-id="${player.id}"
+                  style="color: var(--accent-red);"
+                  title="Excluir jogador"
+                >
+                  🗑️
+                </button>
+              ` : ''}
             </div>
+          </div>
           `;
         }).join('')}
       </div>
