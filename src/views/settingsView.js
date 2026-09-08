@@ -1,6 +1,7 @@
 import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
-import { loginAdmin, logoutAdmin, pushStateNow } from "../services/cloudSync.js";
+import { loginAdmin, logoutAdmin, pushStateNow, listAdmins, addAdminAccount, removeAdminAccount, ADMIN_UID } from "../services/cloudSync.js";
+import { auth } from "../services/firebase.js";
 
 export function renderSettingsView() {
   const container = document.createElement("div");
@@ -83,6 +84,26 @@ export function renderSettingsView() {
             <button id="btn-admin-logout" class="btn btn-secondary">
               🚪 Sair do modo admin (voltar a somente leitura)
             </button>
+          </div>
+
+          <!-- Admin management (only visible to authenticated admins) -->
+          <div style="border-top: 1px solid var(--border-color); margin-top: 16px; padding-top: 14px;">
+            <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;">
+              👑 Gerenciar Administradores
+            </h3>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+              Cadastre novos admins com e-mail e senha — sem precisar de código ou console. O administrador raiz não pode ser removido.
+            </p>
+
+            <div id="admins-list" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+              <span style="font-size: 0.8rem; color: var(--text-muted);">Carregando administradores...</span>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <input id="new-admin-email" type="email" placeholder="E-mail do novo admin" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+              <input id="new-admin-password" type="password" placeholder="Senha (mínimo 6 caracteres)" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+              <button id="btn-add-admin" class="btn btn-primary">➕ Cadastrar Admin</button>
+            </div>
           </div>
         `
             : `
@@ -174,6 +195,79 @@ export function renderSettingsView() {
         pushBtn.textContent = "⬆️ Enviar dados locais para a nuvem";
       });
     }
+
+    // Bind Admin Management (list / add / remove) — admin only
+    const adminsList = container.querySelector("#admins-list");
+    async function refreshAdminsList() {
+      try {
+        const admins = await listAdmins();
+        const currentUid = auth?.currentUser?.uid;
+        adminsList.innerHTML = admins
+          .map((a) => {
+            const isSelf = a.uid === currentUid;
+            const isRoot = a.uid === ADMIN_UID;
+            const canRemove = !isSelf && !isRoot;
+            return `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary);">
+              <div style="min-width: 0;">
+                <div style="font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">${a.email || a.uid}</div>
+                <div style="font-size: 0.72rem; color: var(--text-muted);">${isRoot ? "👑 administrador raiz" : isSelf ? "você" : ""}</div>
+              </div>
+              ${
+                canRemove
+                  ? `<button class="btn btn-danger btn-sm btn-remove-admin" data-uid="${a.uid}" data-email="${a.email || ""}" title="Remover admin">🗑️</button>`
+                  : `<span style="font-size: 0.75rem; color: var(--text-dim);">—</span>`
+              }
+            </div>
+          `;
+          })
+          .join("");
+        adminsList.querySelectorAll(".btn-remove-admin").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const uid = btn.getAttribute("data-uid");
+            const email = btn.getAttribute("data-email");
+            if (!confirm(`Remover ${email} como administrador? Ele perderá o acesso de edição (a conta de login continua existindo).`)) {
+              return;
+            }
+            btn.disabled = true;
+            const result = await removeAdminAccount(uid);
+            if (result.success) {
+              showToast(`${email} não é mais administrador.`);
+            } else {
+              showToast("❌ " + result.error);
+              btn.disabled = false;
+            }
+            refreshAdminsList();
+          });
+        });
+      } catch (err) {
+        adminsList.innerHTML = `<span style="font-size: 0.8rem; color: var(--accent-red);">Não foi possível carregar a lista (verifique as regras do Firestore).</span>`;
+      }
+    }
+    refreshAdminsList();
+
+    const addAdminBtn = container.querySelector("#btn-add-admin");
+    addAdminBtn.addEventListener("click", async () => {
+      const email = container.querySelector("#new-admin-email").value.trim();
+      const password = container.querySelector("#new-admin-password").value;
+      if (!email || !password) {
+        showToast("⚠️ Preencha o e-mail e a senha do novo admin.");
+        return;
+      }
+      addAdminBtn.disabled = true;
+      addAdminBtn.textContent = "Cadastrando...";
+      const result = await addAdminAccount(email, password);
+      if (result.success) {
+        showToast(`👑 ${email} agora é administrador!`);
+        container.querySelector("#new-admin-email").value = "";
+        container.querySelector("#new-admin-password").value = "";
+        refreshAdminsList();
+      } else {
+        showToast("❌ " + result.error);
+      }
+      addAdminBtn.disabled = false;
+      addAdminBtn.textContent = "➕ Cadastrar Admin";
+    });
 
     // Bind Reset — opens a confirmation modal (admin only)
     container

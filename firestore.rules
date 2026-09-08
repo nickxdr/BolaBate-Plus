@@ -3,21 +3,42 @@ rules_version = '2';
 // BolaBate+ — Firestore Security Rules
 // Paste this in: Firebase Console → Firestore Database → Rules → Publish
 //
-// Model: everyone signs in anonymously and can READ the league data.
-// Only the admin account (fixed UID) can WRITE. All writes from the app
-// go through the single document cloud/state.
+// Model:
+//  - Everyone signs in (anonymously) and can READ the league data.
+//  - Admins are: the bootstrap UID below OR any UID listed in admins/.
+//  - Only admins can WRITE cloud/state and manage the admins/ collection.
 
 service cloud.firestore {
+  function isBootstrapAdmin() {
+    return request.auth.uid == "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
+  }
+
+  function isRegisteredAdmin() {
+    return exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+  }
+
+  function isAdmin() {
+    return request.auth != null && (isBootstrapAdmin() || isRegisteredAdmin());
+  }
+
   match /databases/{database}/documents {
 
     // The whole league state lives in one document: cloud/state
     match /cloud/state {
-      allow read: if request.auth != null;                 // any signed-in user (incl. anonymous)
-      allow write: if request.auth != null
-                   && request.auth.uid == "ArLRIkCZT7VNTa7nmvpjUOGpoWh2"; // admin only
+      allow read: if request.auth != null;   // any signed-in user (incl. anonymous)
+      allow write: if isAdmin();
     }
 
-    // Deny everything else (users collection, future collections, etc.)
+    // Admin registry — managed by admins from the app's settings screen
+    match /admins/{uid} {
+      // An admin can read the list; any signed-in user can check their own doc
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      // Only admins can grant/revoke; nobody can remove the bootstrap admin
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin() && uid != "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
+    }
+
+    // Deny everything else
     match /{document=**} {
       allow read, write: if false;
     }

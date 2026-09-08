@@ -2,9 +2,20 @@
 // document (cloud/state). Admins push changes; everyone else subscribes and
 // receives live updates. Firestore's offline cache keeps the app usable with
 // bad signal, syncing automatically when the connection returns.
-import { doc, onSnapshot, setDoc, getDoc } from "firebase/firestore";
-import { auth, db, ADMIN_UID } from "./firebase.js";
 import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+} from "firebase/firestore";
+import { initializeApp } from "firebase/app";
+import { auth, db, ADMIN_UID, firebaseConfig } from "./firebase.js";
+import {
+  createUserWithEmailAndPassword,
+  getAuth as getSecondaryAuth,
   signInAnonymously,
   signInWithEmailAndPassword,
   signOut,
@@ -12,6 +23,79 @@ import {
 } from "firebase/auth";
 
 const CLOUD_DOC = doc(db, "cloud", "state");
+const ADMINS_COL = collection(db, "admins");
+
+// Re-exported for the settings UI (bootstrap admin can't be removed)
+export { ADMIN_UID };
+
+/** Admin = bootstrap UID (hardcoded, first admin) OR listed in Firestore admins/. */
+async function isUserAdmin(user) {
+  if (!user) return false;
+  if (user.uid === ADMIN_UID) return true;
+  try {
+    const snap = await getDoc(doc(db, "admins", user.uid));
+    return snap.exists();
+  } catch (err) {
+    console.error("[cloud] Admin check failed:", err);
+    return false;
+  }
+}
+
+/** Lists all registered admins (admin-only; rules enforce). */
+export async function listAdmins() {
+  const snap = await getDocs(ADMINS_COL);
+  return snap.docs
+    .map((d) => ({ uid: d.id, ...d.data() }))
+    .sort((a, b) => String(a.email || "").localeCompare(String(b.email || "")));
+}
+
+/**
+ * Signs up a new admin (email + password) and registers them in Firestore.
+ * Uses a secondary Firebase app instance so the current admin session on the
+ * main app is NOT replaced by the newly created account.
+ */
+export async function addAdminAccount(email, password) {
+  const secondaryApp = initializeApp(firebaseConfig, "admin-signup");
+  const secondaryAuth = getSecondaryAuth(secondaryApp);
+  try {
+    const cred = await createUserWithEmailAndPassword(
+      secondaryAuth,
+      email,
+      password,
+    );
+    const newUid = cred.user.uid;
+    await setDoc(doc(db, "admins", newUid), {
+      email,
+      createdAt: new Date().toISOString(),
+      createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
+    });
+    await signOut(secondaryAuth);
+    return { success: true, uid: newUid };
+  } catch (err) {
+    let message = err.message;
+    if (err.code === "auth/email-already-in-use") {
+      message =
+        "Este e-mail já possui conta. Se for um usuário existente, o cadastro precisa ser feito no console do Firebase.";
+    } else if (err.code === "auth/weak-password") {
+      message = "A senha precisa ter pelo menos 6 caracteres.";
+    } else if (err.code === "auth/invalid-email") {
+      message = "E-mail inválido.";
+    }
+    return { success: false, error: message };
+  }
+}
+
+/** Removes admin privileges (cannot remove the bootstrap admin). */
+export async function removeAdminAccount(uid) {
+  if (uid === ADMIN_UID) {
+    return {
+      success: false,
+      error: "O administrador raiz (bootstrap) não pode ser removido.",
+    };
+  }
+  await deleteDoc(doc(db, "admins", uid));
+  return { success: true };
+}
 const PUSH_DEBOUNCE_MS = 600;
 
 let storeRef = null;
@@ -102,8 +186,8 @@ export function initCloudSync(store) {
   // Firebase persists the session automatically, so a returning admin stays
   // logged in across page refreshes and app restarts. We only fall back to
   // anonymous sign-in when there is NO restored session at all.
-  onAuthStateChanged(auth, (user) => {
-    const newIsAdmin = !!user && user.uid === ADMIN_UID;
+  onAuthStateChanged(auth, async (user) => {
+    const newIsAdmin = await isUserAdmin(user);
     const newUserType = user ? (newIsAdmin ? "admin" : "anon") : null;
     const roleChanged = store.isAdmin !== newIsAdmin || store.cloudUserType !== newUserType;
 

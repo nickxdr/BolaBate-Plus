@@ -9,7 +9,7 @@ import {
   persistentMultipleTabManager,
 } from "firebase/firestore";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyAQpRUQKM3-S_EKsbkPu3bEEUbWU0K0mPs",
   authDomain: "bola-bate-plus.firebaseapp.com",
   projectId: "bola-bate-plus",
