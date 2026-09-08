@@ -4,6 +4,7 @@ import {
   emptyPlayerStats,
   statsHaveActivity,
 } from "../services/periodStats.js";
+import { openPlayerComparison } from "./playerComparisonView.js";
 
 function capitalizeMonth(str) {
   return str ? String(str).charAt(0).toUpperCase() + String(str).slice(1) : str;
@@ -87,6 +88,9 @@ export function renderRankingView() {
             </select>
           </div>
         </div>
+        <button id="btn-player-comparison" class="btn btn-secondary btn-sm" title="Comparar jogadores">
+          ⚔️ Comparar
+        </button>
         <button id="btn-share-whatsapp" class="btn btn-secondary btn-sm ranking-share-btn" title="Copiar ranking formatado para WhatsApp">
           <span class="ranking-share-icon">📤</span><span class="ranking-share-label">Compartilhar</span>
         </button>
@@ -209,6 +213,12 @@ export function renderRankingView() {
       openEditPlayerModal(pid);
     });
   });
+
+  container
+    .querySelector("#btn-player-comparison")
+    ?.addEventListener("click", () => {
+      openPlayerComparison();
+    });
 
   container
     .querySelector("#btn-share-whatsapp")
