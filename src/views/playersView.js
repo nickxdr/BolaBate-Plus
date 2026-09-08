@@ -66,13 +66,8 @@ export function renderPlayersView() {
                 ${player.name.charAt(0).toUpperCase()}
               </div>
               <div>
-                <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 2px;">
+                <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                   ${escapeHtml(player.name)}
-                </h3>
-                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <span class="player-position-label">
-                    ${escapeHtml(player.favoritePosition || 'Posição não definida')}
-                  </span>
                   ${store.isAdmin ? `
                   <span class="star-badge" style="cursor: pointer;" data-edit-stars="${player.id}" title="Clique para editar nome e estrelas">
                     ★ ${player.stars.toFixed(1)}
@@ -82,6 +77,11 @@ export function renderPlayersView() {
                     ★ ${player.stars.toFixed(1)}
                   </span>
                   `}
+                </h3>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span class="player-position-label">
+                    ${escapeHtml(player.favoritePosition || 'Posição não definida')}
+                  </span>
                 </div>
               </div>
             </div>

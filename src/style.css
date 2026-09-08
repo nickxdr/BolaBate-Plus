@@ -653,6 +653,40 @@ body {
   font-size: 0.85rem;
 }
 
+/* Ranking View Header (title + period selectors + share button) */
+.ranking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ranking-header-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ranking-period-group {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ranking-period-field {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ranking-share-icon {
+  display: none;
+}
+
 /* League Table (Ranking) Styling - Faithful to Spreadsheet Photo */
 .table-responsive {
   width: 100%;
@@ -711,6 +745,13 @@ body {
 .ranking-table tr.top-1 td {
   color: var(--top1-text) !important;
   border-bottom-color: rgba(0, 0, 0, 0.15);
+}
+
+/* The default amber star-badge barely shows up against the gold 1st-place row */
+.ranking-table tr.top-1 .star-badge {
+  background: rgba(0, 0, 0, 0.15);
+  color: var(--top1-text);
+  border-color: rgba(0, 0, 0, 0.25);
 }
 
 /* G4 Zone Styling */
@@ -1424,6 +1465,34 @@ body {
   }
   .profile-summary-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .ranking-header {
+    position: relative;
+    padding-right: 44px;
+  }
+  .ranking-header-controls {
+    width: 100%;
+    justify-content: center;
+  }
+  .ranking-period-group {
+    width: 100%;
+    justify-content: center;
+  }
+  .ranking-share-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+  }
+  .ranking-share-icon {
+    display: inline;
+    font-size: 1rem;
+  }
+  .ranking-share-label {
+    display: none;
   }
 }
 
