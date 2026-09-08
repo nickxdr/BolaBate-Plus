@@ -9,19 +9,18 @@ rules_version = '2';
 //  - Only admins can WRITE cloud/state and manage the admins/ collection.
 
 service cloud.firestore {
-  function isBootstrapAdmin() {
-    return request.auth.uid == "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
-  }
-
-  function isRegisteredAdmin() {
-    return exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-  }
-
-  function isAdmin() {
-    return request.auth != null && (isBootstrapAdmin() || isRegisteredAdmin());
-  }
-
   match /databases/{database}/documents {
+    function isBootstrapAdmin() {
+      return request.auth.uid == "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
+    }
+
+    function isRegisteredAdmin() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return request.auth != null && (isBootstrapAdmin() || isRegisteredAdmin());
+    }
 
     // The whole league state lives in one document: cloud/state
     match /cloud/state {
@@ -30,10 +29,15 @@ service cloud.firestore {
     }
 
     // Admin registry — managed by admins from the app's settings screen
+    //
+    // IMPORTANT: read is open to any authenticated user. This breaks the
+    // circular dependency where writing to cloud/state needs isAdmin() which
+    // needs exists(admins/{uid}) which needs to READ admins/{uid}. If read
+    // required isAdmin(), the exists() check could never succeed for a newly
+    // registered admin (chicken-and-egg). The list is not sensitive, so open
+    // read is acceptable; writes remain admin-only.
     match /admins/{uid} {
-      // An admin can read the list; any signed-in user can check their own doc
-      allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);
-      // Only admins can grant/revoke; nobody can remove the bootstrap admin
+      allow read: if request.auth != null;
       allow create, update: if isAdmin();
       allow delete: if isAdmin() && uid != "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
     }
