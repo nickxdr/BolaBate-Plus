@@ -4,8 +4,10 @@ import { renderPlayersView } from "./views/playersView.js";
 import { renderRankingView } from "./views/rankingView.js";
 import { renderHistoryView } from "./views/historyView.js";
 import { renderSettingsView } from "./views/settingsView.js";
-import {renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
+import { renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
 import { showToast } from "./views/rankingView.js";
+
+const ROLE_KEY = "bolabate_role_v1";
 
 let currentTab = "pelada"; // default to Pelada tab as requested!
 
@@ -113,9 +115,9 @@ function initApp() {
 
         ${renderBolaBotView()}
     `;
-    
+
     initBolaBotView();
-    
+
     // Bind Navigation items
     app.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -208,7 +210,81 @@ function initApp() {
     }
   });
 
-  renderShell();
+  // Show splash on first launch, else go straight to shell
+  const savedRole = localStorage.getItem(ROLE_KEY);
+  if (!savedRole) {
+    showSplash(({ role, goSettings }) => {
+      localStorage.setItem(ROLE_KEY, role);
+      renderShell();
+      if (goSettings) {
+        navigateTo("settings");
+        showToast("🔑 Entre com e-mail e senha de administrador abaixo.");
+      }
+    });
+  } else {
+    renderShell();
+  }
+}
+
+/**
+ * Renders the first-launch splash screen overlay directly into <body>.
+ * Calls `onDone({ role, goSettings })` when the user picks a role.
+ */
+function showSplash(onDone) {
+  // Apply dark theme immediately so the splash looks correct
+  store.applyTheme(store.theme);
+
+  const el = document.createElement("div");
+  el.id = "splash-screen";
+  el.innerHTML = `
+    <div class="splash-logo-wrap">
+      <div class="splash-logo-icon">⚽</div>
+      <div>
+        <div class="splash-logo-title">BolaBate<span class="splash-plus">+</span></div>
+        <div class="splash-logo-subtitle">Gestão de Pelada</div>
+      </div>
+    </div>
+
+    <div class="splash-welcome">
+      <h2>Bem-vindo!</h2>
+      <p>Como você quer usar o app? Sua escolha pode ser alterada a qualquer momento nos Ajustes.</p>
+    </div>
+
+    <div class="splash-actions">
+      <button id="btn-splash-player">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+        </svg>
+        Entrar como Jogador
+      </button>
+
+      <div class="splash-divider">— administrador da liga? —</div>
+
+      <button id="btn-splash-admin">Entrar como Admin</button>
+    </div>
+  `;
+
+  document.body.appendChild(el);
+
+  function dismiss(role, goSettings = false) {
+    el.classList.add("exiting");
+    el.addEventListener(
+      "animationend",
+      () => {
+        el.remove();
+        onDone({ role, goSettings });
+      },
+      { once: true },
+    );
+  }
+
+  el.querySelector("#btn-splash-player").addEventListener("click", () => {
+    dismiss("player", false);
+  });
+
+  el.querySelector("#btn-splash-admin").addEventListener("click", () => {
+    dismiss("admin-intent", true);
+  });
 }
 
 document.addEventListener("DOMContentLoaded", initApp);
