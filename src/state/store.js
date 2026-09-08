@@ -206,13 +206,14 @@ class Store {
     return this.players.find(p => p.id === id);
   }
 
-  addPlayer(name, stars = 3.0) {
+  addPlayer(name, stars = 3.0, favoritePosition = '') {
     const trimmed = name.trim();
     if (!trimmed) return null;
     const newPlayer = {
       id: 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
       name: trimmed,
       stars: Math.max(0.5, Math.min(5.0, Number(stars) || 3.0)),
+      favoritePosition: String(favoritePosition || ''),
       goals: 0,
       assists: 0,
       selecao: 0,
@@ -232,6 +233,7 @@ class Store {
 
     if (updates.name !== undefined) player.name = updates.name.trim();
     if (updates.stars !== undefined) player.stars = Math.max(0.5, Math.min(5.0, Number(updates.stars)));
+    if (updates.favoritePosition !== undefined) player.favoritePosition = String(updates.favoritePosition || '');
 
     const hasStatUpdate = STAT_FIELDS.some(f => updates[f] !== undefined);
     if (hasStatUpdate && !this.isAnnualSelected()) {

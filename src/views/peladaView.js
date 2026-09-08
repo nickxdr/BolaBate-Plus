@@ -307,6 +307,7 @@ function renderSetupTeams(container, onNavigate) {
                        title="Arraste para outro time ou solte em cima de outro atleta para trocar">
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span style="font-weight: 700; font-size: 0.95rem;">${escapeHtml(p.name)}</span>
+                      <span class="player-position-label">${escapeHtml(p.favoritePosition || 'Posição não definida')}</span>
                       <span class="star-badge" style="font-size: 0.75rem;">${p.stars.toFixed(1)}★</span>
                     </div>
 

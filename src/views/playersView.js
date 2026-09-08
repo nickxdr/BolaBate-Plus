@@ -70,6 +70,9 @@ export function renderPlayersView() {
                   ${escapeHtml(player.name)}
                 </h3>
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span class="player-position-label">
+                    ${escapeHtml(player.favoritePosition || 'Posição não definida')}
+                  </span>
                   ${store.isAdmin ? `
                   <span class="star-badge" style="cursor: pointer;" data-edit-stars="${player.id}" title="Clique para editar nome e estrelas">
                     ★ ${player.stars.toFixed(1)}
@@ -202,6 +205,18 @@ export function renderPlayersView() {
               </p>
             </div>
 
+            <div style="margin-bottom: 20px;">
+              <label for="add-player-position" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">
+                Posição favorita
+              </label>
+              <select name="favoritePosition" id="add-player-position" class="input-field">
+                <option value="">Não definida</option>
+                <option value="Fixo">Fixo</option>
+                <option value="Ala">Ala</option>
+                <option value="Pivô">Pivô</option>
+              </select>
+            </div>
+
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
               <button type="button" class="btn btn-secondary" id="add-modal-cancel">Cancelar</button>
               <button type="submit" class="btn btn-primary">Adicionar Jogador</button>
@@ -227,7 +242,8 @@ export function renderPlayersView() {
       e.preventDefault();
       const name = e.target.name.value;
       const stars = parseFloat(starRange.value);
-      const created = store.addPlayer(name, stars);
+      const favoritePosition = e.target.favoritePosition.value;
+      const created = store.addPlayer(name, stars, favoritePosition);
       if (created) {
         close();
         showToast(`Jogador "${created.name}" adicionado com sucesso!`);
@@ -329,6 +345,8 @@ export function renderPlayersView() {
         result[field] = months.reduce((sum, month) => sum + (Number(month.stats[field]) || 0), 0);
         return result;
       }, {});
+    const frequentCompanions = getFrequentCompanions(id);
+    const positions = ['Fixo', 'Ala', 'Pivô'];
 
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="profile-modal-overlay">
@@ -339,6 +357,20 @@ export function renderPlayersView() {
               <h2 class="modal-title">${escapeHtml(player.name)}</h2>
             </div>
             <button class="modal-close" id="profile-modal-close" aria-label="Fechar perfil">&times;</button>
+          </div>
+
+          <div class="profile-preferences">
+            <div>
+              <span class="profile-field-label">Posição favorita</span>
+              <p class="profile-field-note">Escolha a posição em que o jogador prefere atuar.</p>
+            </div>
+            <div class="profile-position-control">
+              <select id="profile-position" class="input-field" ${store.isAdmin ? '' : 'disabled'}>
+                <option value="">Não definida</option>
+                ${positions.map(position => `<option value="${position}" ${player.favoritePosition === position ? 'selected' : ''}>${position}</option>`).join('')}
+              </select>
+              ${store.isAdmin ? '<button type="button" class="btn btn-primary btn-sm" id="save-profile-position">Salvar</button>' : ''}
+            </div>
           </div>
 
           <div class="profile-summary-grid">
@@ -375,6 +407,18 @@ export function renderPlayersView() {
             </table>
           </div>
           <p class="profile-awards-note">Prêmios: ${totals.craque} Craque, ${totals.selecao} Seleção, ${totals.puskas} Puskas e ${totals.bagre} Bagre.</p>
+
+          <div class="profile-companions-section">
+            <section>
+              <div class="profile-section-heading">
+                <div>
+                  <h3>Companheiros mais frequentes</h3>
+                  <p>Jogadores que mais dividiram o time</p>
+                </div>
+              </div>
+              ${frequentCompanions.length ? `<ol class="profile-companions-list">${frequentCompanions.map(item => `<li><strong>${escapeHtml(item.name)}</strong><span>${item.count} ${item.count === 1 ? 'vez' : 'vezes'}</span></li>`).join('')}</ol>` : '<p class="profile-empty-note">Ainda não há companheiros registrados.</p>'}
+            </section>
+          </div>
         </div>
       </div>
     `;
@@ -384,6 +428,30 @@ export function renderPlayersView() {
     modalContainer.querySelector('#profile-modal-overlay').addEventListener('click', (event) => {
       if (event.target.id === 'profile-modal-overlay') close();
     });
+    modalContainer.querySelector('#save-profile-position')?.addEventListener('click', () => {
+      const position = modalContainer.querySelector('#profile-position').value;
+      store.updatePlayer(id, { favoritePosition: position });
+      showToast('Posição favorita atualizada.');
+      openPlayerProfileModal(id);
+    });
+  }
+
+  function getFrequentCompanions(playerId) {
+    const counts = new Map();
+    store.history.forEach(entry => {
+      (entry.teams || []).forEach(team => {
+        const playerIds = team.playerIds || [];
+        if (!playerIds.includes(playerId)) return;
+        playerIds.forEach(companionId => {
+          if (companionId === playerId) return;
+          counts.set(companionId, (counts.get(companionId) || 0) + 1);
+        });
+      });
+    });
+    return Array.from(counts.entries())
+      .map(([companionId, count]) => ({ name: store.getPlayer(companionId)?.name || 'Jogador removido', count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 4);
   }
 
   function profileMetric(icon, label, value, tone) {
