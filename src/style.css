@@ -2071,4 +2071,268 @@ body {
   font-size: 0.72rem;
   color: #374151;
   position: relative;
-}
+}
+
+/* =========================================
+   PLAYER COMPARISON
+========================================= */
+
+.comparison-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.comparison-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.comparison-card {
+  position: relative;
+  z-index: 1;
+  width: min(700px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+}
+
+.comparison-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.comparison-kicker {
+  display: block;
+  color: var(--pitch-green);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.comparison-header h2 {
+  margin: 4px 0 0;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.comparison-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.comparison-close:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-main);
+}
+
+.comparison-selectors {
+  display: grid;
+  grid-template-columns: 1fr 60px 1fr;
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.comparison-player-select {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comparison-player-select label {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.comparison-player-select select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.comparison-player-select select:focus {
+  border-color: var(--pitch-green);
+  box-shadow: 0 0 0 3px var(--pitch-green-glow);
+}
+
+.comparison-vs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  color: var(--accent-gold);
+  font-weight: 900;
+  font-size: 14px;
+}
+
+.comparison-players {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.comparison-player-name {
+  text-align: center;
+  color: var(--text-main);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.comparison-stats {
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.comparison-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.15s ease;
+}
+
+.comparison-row:hover {
+  background: var(--bg-card-hover);
+}
+
+.comparison-row:last-child {
+  border-bottom: 0;
+}
+
+.comparison-value {
+  text-align: center;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.comparison-value.winner {
+  color: var(--pitch-green);
+  font-weight: 900;
+}
+
+.comparison-stat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.comparison-stat-icon {
+  font-size: 15px;
+}
+
+.comparison-verdict {
+  margin-top: 20px;
+  padding: 14px;
+  text-align: center;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 12px;
+  background: var(--pitch-green-glow);
+  color: var(--pitch-green);
+  font-weight: 800;
+}
+
+.comparison-direct-history {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card-subtle);
+}
+
+.comparison-history-title {
+  color: var(--text-main);
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.comparison-direct-history p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.comparison-error {
+  padding: 20px;
+  text-align: center;
+  color: var(--accent-red);
+}
+
+/* MOBILE */
+
+@media (max-width: 600px) {
+
+  .comparison-modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .comparison-card {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 20px 20px 0 0;
+    padding: 20px 16px;
+  }
+
+  .comparison-selectors {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .comparison-vs {
+    height: 24px;
+  }
+
+  .comparison-row {
+    grid-template-columns: 0.8fr 1.5fr 0.8fr;
+  }
+
+  .comparison-stat {
+    font-size: 12px;
+  }
+
+  .comparison-value {
+    font-size: 15px;
+  }
+}

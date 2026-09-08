@@ -1,6 +1,7 @@
 import { store } from '../state/store.js';
 import { calculatePointsFromStats } from '../data/seedData.js';
 import { emptyPlayerStats, statsHaveActivity } from '../services/periodStats.js';
+import { openPlayerComparison } from './playerComparisonView.js';
 
 function capitalizeMonth(str) {
   return str ? String(str).charAt(0).toUpperCase() + String(str).slice(1) : str;
@@ -71,6 +72,9 @@ export function renderRankingView() {
           <option value="anual" ${isAnnual ? 'selected' : ''}>Anual</option>
           ${months.map(m => `<option value="${m}" ${(!isAnnual && Number(m) === Number(selMonth)) ? 'selected' : ''}>${capitalizeMonth(new Date(0, m-1).toLocaleString('pt-BR', { month: 'long' }))}</option>`).join('')}
         </select>
+        <button id="btn-player-comparison" class="btn btn-secondary btn-sm" title="Comparar jogadores" style="margin-left:8px;">
+  ⚔️      Comparar
+        </button>
         <button id="btn-share-whatsapp" class="btn btn-secondary btn-sm" title="Copiar ranking formatado para WhatsApp" style="margin-left:8px;">
           Compartilhar
         </button>
@@ -198,6 +202,12 @@ export function renderRankingView() {
     });
   });
 
+  container.querySelector('#btn-player-comparison')
+  ?.addEventListener('click', () => {
+    console.log('CLIQUEI NO COMPARAR');
+    openPlayerComparison();
+  });
+  
   container.querySelector('#btn-share-whatsapp').addEventListener('click', () => {
     const shareLabel = isAnnual
       ? `Anual • ${selYear}`
