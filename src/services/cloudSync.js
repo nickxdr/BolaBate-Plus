@@ -115,42 +115,6 @@ export async function addAdminAccount(email, password) {
   }
 }
 
-/**
- * Registers an EXISTING Firebase Auth account as admin by UID.
- * Use this when an account was created outside the app (e.g. in the Firebase
- * console) so its `admins/{uid}` doc can be created without needing to know
- * the password.
- */
-export async function registerAdminByUid(uid, email) {
-  if (uid === ADMIN_UID) {
-    return {
-      success: false,
-      error: "Este UID é o administrador raiz (já possui privilégios).",
-    };
-  }
-  try {
-    // Check if already registered
-    const existing = await getDoc(doc(db, "admins", uid));
-    if (existing.exists()) {
-      return { success: false, error: "Este UID já está registrado como admin." };
-    }
-    await setDoc(doc(db, "admins", uid), {
-      email: email || "conta existente",
-      createdAt: new Date().toISOString(),
-      createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
-      registeredByUid: true,
-    });
-    return { success: true, uid };
-  } catch (err) {
-    console.error("[cloud] registerAdminByUid failed:", err);
-    return {
-      success: false,
-      error:
-        "Falha ao registrar (verifique as regras do Firestore): " + err.message,
-    };
-  }
-}
-
 /** Removes admin privileges (cannot remove the bootstrap admin). */
 export async function removeAdminAccount(uid) {
   if (uid === ADMIN_UID) {
