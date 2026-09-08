@@ -6,6 +6,7 @@ import {
   pushStateNow,
   listAdmins,
   addAdminAccount,
+  registerAdminByUid,
   removeAdminAccount,
   ADMIN_UID,
 } from "../services/cloudSync.js";
@@ -111,6 +112,23 @@ export function renderSettingsView() {
               <input id="new-admin-email" type="email" placeholder="E-mail do novo admin" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
               <input id="new-admin-password" type="password" placeholder="Senha (mínimo 6 caracteres)" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
               <button id="btn-add-admin" class="btn btn-primary">➕ Cadastrar Admin</button>
+            </div>
+
+            <!-- Recovery: register an existing account (created in console) by UID -->
+            <div style="border-top: 1px dashed var(--border-color); margin-top: 14px; padding-top: 12px;">
+              <details id="register-existing-admin-details">
+                <summary style="cursor: pointer; font-size: 0.85rem; color: var(--text-muted); user-select: none;">
+                  🔧 Registrar conta existente (por UID)
+                </summary>
+                <p style="font-size: 0.78rem; color: var(--text-muted); margin: 8px 0; line-height: 1.4;">
+                  Use isto se a conta foi criada diretamente no console do Firebase. Informe o UID e o e-mail da conta para conceder privilégios de admin.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <input id="existing-admin-uid" type="text" placeholder="UID da conta (ex: jTlKdgAnCuOlS4g3DCy67C0OWhl2)" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.85rem; font-family: monospace;" />
+                  <input id="existing-admin-email" type="email" placeholder="E-mail da conta (ex: admin@teste.com)" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+                  <button id="btn-register-existing-admin" class="btn btn-secondary">🔑 Registrar como Admin</button>
+                </div>
+              </details>
             </div>
           </div>
         `
@@ -288,6 +306,36 @@ export function renderSettingsView() {
         }
         addAdminBtn.disabled = false;
         addAdminBtn.textContent = "➕ Cadastrar Admin";
+      });
+    }
+
+    // Bind "register existing admin by UID" (recovery tool for console-created accounts)
+    const registerExistingBtn = container.querySelector(
+      "#btn-register-existing-admin",
+    );
+    if (registerExistingBtn) {
+      registerExistingBtn.addEventListener("click", async () => {
+        const uid = container.querySelector("#existing-admin-uid").value.trim();
+        const email = container
+          .querySelector("#existing-admin-email")
+          .value.trim();
+        if (!uid) {
+          showToast("⚠️ Informe o UID da conta.");
+          return;
+        }
+        registerExistingBtn.disabled = true;
+        registerExistingBtn.textContent = "Registrando...";
+        const result = await registerAdminByUid(uid, email);
+        if (result.success) {
+          showToast(`👑 Conta registrada como admin!`);
+          container.querySelector("#existing-admin-uid").value = "";
+          container.querySelector("#existing-admin-email").value = "";
+          refreshAdminsList();
+        } else {
+          showToast("❌ " + result.error);
+        }
+        registerExistingBtn.disabled = false;
+        registerExistingBtn.textContent = "🔑 Registrar como Admin";
       });
     }
 

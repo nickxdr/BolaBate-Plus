@@ -1,4 +1,4 @@
-// Cloud sync for BolaBate+ — mirrors the local store into a single Firestore
+﻿// Cloud sync for BolaBate+ — mirrors the local store into a single Firestore
 // document (cloud/state). Admins push changes; everyone else subscribes and
 // receives live updates. Firestore's offline cache keeps the app usable with
 // bad signal, syncing automatically when the connection returns.
@@ -11,7 +11,7 @@ import {
   onSnapshot,
   setDoc,
 } from "firebase/firestore";
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { auth, db, ADMIN_UID, firebaseConfig } from "./firebase.js";
 import {
   createUserWithEmailAndPassword,
@@ -55,33 +55,99 @@ export async function listAdmins() {
  * main app is NOT replaced by the newly created account.
  */
 export async function addAdminAccount(email, password) {
-  const secondaryApp = initializeApp(firebaseConfig, "admin-signup");
+  // Reuse existing secondary app if one was already created (prevents
+  // "duplicate app" errors on double-clicks)
+  const existingApps = getApps();
+  const secondaryApp = existingApps.find(a => a.name === "admin-signup") || initializeApp(firebaseConfig, "admin-signup");
   const secondaryAuth = getSecondaryAuth(secondaryApp);
   try {
+    console.log("[cloud] Creating auth account for:", email);
     const cred = await createUserWithEmailAndPassword(
       secondaryAuth,
       email,
       password,
     );
     const newUid = cred.user.uid;
-    await setDoc(doc(db, "admins", newUid), {
+    console.log("[cloud] Auth account created, UID:", newUid);
+    console.log(
+      "[cloud] Current main auth user:",
+      auth.currentUser ? auth.currentUser.uid : "none",
+    );
+
+    const adminDocData = {
       email,
       createdAt: new Date().toISOString(),
       createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
-    });
+    };
+    console.log("[cloud] Writing admins/" + newUid, adminDocData);
+    await setDoc(doc(db, "admins", newUid), adminDocData);
+    console.log("[cloud] admins/" + newUid + " written successfully");
+
+    // Verify the doc was actually created
+    const verifySnap = await getDoc(doc(db, "admins", newUid));
+    console.log(
+      "[cloud] Verification — doc exists:",
+      verifySnap.exists(),
+    );
+
     await signOut(secondaryAuth);
     return { success: true, uid: newUid };
   } catch (err) {
+    console.error("[cloud] addAdminAccount FAILED:", err);
+    console.error("[cloud] Error code:", err.code);
+    console.error("[cloud] Error message:", err.message);
     let message = err.message;
     if (err.code === "auth/email-already-in-use") {
       message =
-        "Este e-mail já possui conta. Se for um usuário existente, o cadastro precisa ser feito no console do Firebase.";
+        "Este e-mail já possui conta. Use a opção \"Registrar conta existente (por UID)\" abaixo para conceder privilégios de admin.";
     } else if (err.code === "auth/weak-password") {
       message = "A senha precisa ter pelo menos 6 caracteres.";
     } else if (err.code === "auth/invalid-email") {
       message = "E-mail inválido.";
+    } else if (
+      err.code === "permission-denied" ||
+      err.message?.includes("permission")
+    ) {
+      message =
+        "Permissão negada ao registrar admin. Verifique se as regras do Firestore foram publicadas.";
     }
     return { success: false, error: message };
+  }
+}
+
+/**
+ * Registers an EXISTING Firebase Auth account as admin by UID.
+ * Use this when an account was created outside the app (e.g. in the Firebase
+ * console) so its `admins/{uid}` doc can be created without needing to know
+ * the password.
+ */
+export async function registerAdminByUid(uid, email) {
+  if (uid === ADMIN_UID) {
+    return {
+      success: false,
+      error: "Este UID é o administrador raiz (já possui privilégios).",
+    };
+  }
+  try {
+    // Check if already registered
+    const existing = await getDoc(doc(db, "admins", uid));
+    if (existing.exists()) {
+      return { success: false, error: "Este UID já está registrado como admin." };
+    }
+    await setDoc(doc(db, "admins", uid), {
+      email: email || "conta existente",
+      createdAt: new Date().toISOString(),
+      createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
+      registeredByUid: true,
+    });
+    return { success: true, uid };
+  } catch (err) {
+    console.error("[cloud] registerAdminByUid failed:", err);
+    return {
+      success: false,
+      error:
+        "Falha ao registrar (verifique as regras do Firestore): " + err.message,
+    };
   }
 }
 
@@ -248,6 +314,11 @@ export async function logoutAdmin() {
 }
 
 /** Used by the migration helper: checks whether the cloud doc already exists. */
+/** Clears the local admin cache (useful for troubleshooting). */
+export function clearAdminCache() {
+  localStorage.removeItem("bolabate_admin_cache");
+}
+
 export async function cloudStateExists() {
   const snap = await getDoc(CLOUD_DOC);
   return snap.exists();
