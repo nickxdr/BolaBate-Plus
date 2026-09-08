@@ -41,29 +41,6 @@ export function renderSettingsView() {
         </div>
       </div>
 
-      <!-- Backup & Restore JSON Card -->
-      <div class="card">
-        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-          💾 Backup & Sincronização (JSON)
-        </h2>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-          Exporte jogadores, pontuações, estrelas e o histórico completo de peladas (gols, assistências e votações) para transferir para outro celular ou computador.
-        </p>
-
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          <button id="btn-export-json" class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-            Exportar Dados (Baixar Arquivo JSON)
-          </button>
-
-          <label class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer;">
-            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-            Importar Arquivo JSON
-            <input type="file" id="input-import-json" accept=".json,application/json" style="display: none;" />
-          </label>
-        </div>
-      </div>
-
       <!-- Reset & Default Data Card -->
       <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
@@ -73,9 +50,18 @@ export function renderSettingsView() {
           Restaura a tabela com os dados originais do app.
         </p>
 
-        <button id="btn-reset-default" class="btn btn-danger btn-sm">
+        ${
+          store.isAdmin
+            ? `<button id="btn-reset-default" class="btn btn-danger btn-sm">
           Restaurar Dados Originais da Planilha
+        </button>`
+            : `<button id="btn-reset-default" class="btn btn-danger btn-sm" disabled style="opacity: 0.45; cursor: not-allowed;" title="Somente o administrador pode restaurar os dados">
+          🔒 Restaurar Dados Originais da Planilha
         </button>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin-top: 8px;">
+          🔒 Disponível apenas para o administrador (entre na seção ☁️ Nuvem &amp; Administrador).
+        </p>`
+        }
       </div>
 
       <!-- Cloud Sync & Admin Card -->
@@ -121,7 +107,7 @@ export function renderSettingsView() {
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
-        <p>• Todos os dados são armazenados localmente e podem ser salvos via exportação JSON.</p>
+        <p>• Os dados ficam salvos na nuvem (Firebase) — alterações do administrador aparecem para todos automaticamente.</p>
       </div>
     `;
 
@@ -137,50 +123,6 @@ export function renderSettingsView() {
         store.setTheme("light");
         render();
       });
-
-    // Bind Export
-    container
-      .querySelector("#btn-export-json")
-      .addEventListener("click", () => {
-        const json = store.exportToJson();
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        const dateStr = new Date().toISOString().split("T")[0];
-        a.href = url;
-        a.download = `bolabate-backup-${dateStr}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast("Backup JSON exportado com sucesso!");
-      });
-
-    // Bind Import
-    const importInput = container.querySelector("#input-import-json");
-    importInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target.result;
-        const result = store.importFromJson(content);
-        if (result.success) {
-          const historyMsg = result.historyCount
-            ? ` e ${result.historyCount} ${result.historyCount === 1 ? "pelada" : "peladas"}`
-            : "";
-          showToast(
-            `Sucesso! ${result.count} jogadores${historyMsg} importados.`,
-          );
-          render();
-        } else {
-          alert("Erro ao importar arquivo: " + result.error);
-        }
-      };
-      reader.readAsText(file);
-      importInput.value = "";
-    });
 
     // Bind Cloud & Admin
     const loginBtn = container.querySelector("#btn-admin-login");
@@ -233,20 +175,65 @@ export function renderSettingsView() {
       });
     }
 
-    // Bind Reset
+    // Bind Reset — opens a confirmation modal (admin only)
     container
       .querySelector("#btn-reset-default")
       .addEventListener("click", () => {
-        if (
-          confirm(
-            "Atenção: deseja realmente restaurar os dados originais? Dados adicionados serão substituídos.",
-          )
-        ) {
-          store.resetToDefaults();
-          showToast("Dados restaurados para a planilha original!");
-          render();
+        if (!store.isAdmin) {
+          showToast("🔒 Apenas o administrador pode restaurar os dados.");
+          return;
         }
+        openResetConfirmModal(render);
       });
+  }
+
+  /** Confirmation modal for the "restore original data" action. */
+  function openResetConfirmModal(onDone) {
+    const modalContainer = document.getElementById("modal-container");
+    modalContainer.innerHTML = `
+      <div class="modal-overlay" id="reset-modal-overlay">
+        <div class="modal-content" style="max-width: 460px;">
+          <div class="modal-header">
+            <h2 class="modal-title" style="color: var(--accent-red);">⚠️ Restaurar dados originais?</h2>
+            <button class="modal-close" id="reset-modal-close" title="Fechar">✕</button>
+          </div>
+
+          <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">
+            <p style="margin-bottom: 10px;">
+              Isso vai <strong>apagar TODOS os dados atuais</strong> e restaurar a planilha original:
+            </p>
+            <ul style="margin: 0 0 12px 18px; padding: 0;">
+              <li>Jogadores adicionados serão <strong>removidos</strong></li>
+              <li>Estatísticas editadas voltarão ao padrão</li>
+              <li>Histórico de peladas será apagado</li>
+            </ul>
+            <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">
+              A mudança será sincronizada com a nuvem para todos os usuários. <strong>Essa ação não pode ser desfeita.</strong>
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button id="reset-modal-cancel" class="btn btn-secondary">Cancelar</button>
+            <button id="reset-modal-confirm" class="btn btn-danger">Sim, apagar tudo</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const close = () => { modalContainer.innerHTML = ""; };
+    const overlay = modalContainer.querySelector("#reset-modal-overlay");
+    modalContainer.querySelector("#reset-modal-close").addEventListener("click", close);
+    modalContainer.querySelector("#reset-modal-cancel").addEventListener("click", close);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+
+    modalContainer.querySelector("#reset-modal-confirm").addEventListener("click", () => {
+      store.resetToDefaults();
+      close();
+      onDone();
+      showToast("Dados restaurados para a planilha original!");
+    });
   }
 
   render();

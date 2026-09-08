@@ -70,9 +70,15 @@ export function renderPlayersView() {
                   ${escapeHtml(player.name)}
                 </h3>
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  ${store.isAdmin ? `
                   <span class="star-badge" style="cursor: pointer;" data-edit-stars="${player.id}" title="Clique para editar nome e estrelas">
                     ★ ${player.stars.toFixed(1)}
                   </span>
+                  ` : `
+                  <span class="star-badge" title="Somente o administrador pode editar">
+                    ★ ${player.stars.toFixed(1)}
+                  </span>
+                  `}
                 </div>
               </div>
             </div>
@@ -81,12 +87,14 @@ export function renderPlayersView() {
               <button class="btn btn-secondary btn-sm btn-profile-player" data-id="${player.id}" title="Ver perfil e evolução">
                 📊
               </button>
+              ${store.isAdmin ? `
               <button class="btn btn-secondary btn-sm btn-edit-player" data-id="${player.id}" title="Editar nome e estrelas">
                 ✏️
               </button>
               <button class="btn btn-secondary btn-sm btn-delete-player" data-id="${player.id}" style="color: var(--accent-red);" title="Excluir jogador">
                 🗑️
               </button>
+              ` : ''}
             </div>
           </div>
         `;

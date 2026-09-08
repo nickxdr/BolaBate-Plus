@@ -2,6 +2,7 @@ import { INITIAL_PLAYERS, INITIAL_MONTHLY_STATS } from '../data/seedData.js';
 import {
   aggregateHistoryToMonthly,
   applyHistoryEntryToPeriod,
+  removeHistoryEntryFromPeriod,
   addPlayerStats,
   periodKey,
   parseDateToPeriod,
@@ -22,7 +23,7 @@ const ADMIN_ONLY_METHODS = [
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
-  'finishPelada', 'updateHistoryAwards', 'cancelPelada',
+  'finishPelada', 'updateHistoryAwards', 'cancelPelada', 'deleteHistoryEntry',
   'importFromJson', 'resetToDefaults',
 ];
 
@@ -799,6 +800,22 @@ class Store {
     entry.awardsSynced.bagre = !!nextBagreId;
     entry.awardsSynced.selecao = nextSelecaoIds.length > 0;
 
+    this.syncCareerStatsFromMonthly({ silent: true });
+    this.save();
+    return { success: true };
+  }
+
+  /** Removes a pelada from history and subtracts its stats from the monthly table. */
+  deleteHistoryEntry(historyId) {
+    const entry = this.getHistoryEntry(historyId);
+    if (!entry) return { success: false, error: 'Pelada não encontrada no histórico.' };
+
+    const key = parseDateToPeriod(entry.dateISO || entry.date);
+    if (key && this.monthlyStats && this.monthlyStats[key]) {
+      removeHistoryEntryFromPeriod(this.monthlyStats[key], entry);
+    }
+
+    this.history = this.history.filter(e => e.id !== historyId);
     this.syncCareerStatsFromMonthly({ silent: true });
     this.save();
     return { success: true };

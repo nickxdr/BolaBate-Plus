@@ -93,6 +93,43 @@ export function applyHistoryEntryToPeriod(period, entry) {
   }
 }
 
+/** Exact inverse of applyHistoryEntryToPeriod — used when deleting a pelada. */
+export function removeHistoryEntryFromPeriod(period, entry) {
+  const participating = new Set();
+  (entry.teams || []).forEach(team => {
+    (team.playerIds || []).forEach(pid => participating.add(pid));
+  });
+
+  participating.forEach(pid => {
+    const target = period.players[pid];
+    if (!target) return;
+    const stats = (entry.stats && entry.stats[pid]) || {};
+    target.goals = Math.max(0, target.goals - (Number(stats.goals) || 0));
+    target.assists = Math.max(0, target.assists - (Number(stats.assists) || 0));
+    target.participacao = Math.max(0, target.participacao - 1);
+  });
+
+  const awards = entry.awards || {};
+  if (awards.craqueId && period.players[awards.craqueId]) {
+    period.players[awards.craqueId].craque = Math.max(0, period.players[awards.craqueId].craque - 1);
+  }
+  if (awards.puskasId && period.players[awards.puskasId]) {
+    period.players[awards.puskasId].puskas = Math.max(0, period.players[awards.puskasId].puskas - 1);
+  }
+  if (awards.bagreId && period.players[awards.bagreId]) {
+    period.players[awards.bagreId].bagre = Math.max(0, period.players[awards.bagreId].bagre - 1);
+  }
+  if (Array.isArray(awards.selecaoIds)) {
+    awards.selecaoIds.forEach(pid => {
+      if (period.players[pid]) {
+        period.players[pid].selecao = Math.max(0, period.players[pid].selecao - 1);
+      }
+    });
+  }
+
+  period.matchIds = period.matchIds.filter(id => id !== entry.id);
+}
+
 export function aggregateHistoryToMonthly(history = []) {
   const monthly = {};
 

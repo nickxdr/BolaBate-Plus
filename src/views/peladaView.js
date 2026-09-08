@@ -107,8 +107,8 @@ function renderPeladaConfig(container, onNavigate) {
         </div>
 
         <div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
-          <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-            Avançar para Montagem dos Times (${count}/${neededPlayers})
+          <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady || !store.isAdmin ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+            ${store.isAdmin ? `Avançar para Montagem dos Times (${count}/${neededPlayers})` : '🔒 Apenas o admin pode iniciar a pelada'}
           </button>
           ${!isReady ? `
             <p style="font-size: 0.78rem; text-align: center; color: var(--text-muted);">
@@ -173,7 +173,7 @@ function renderPeladaConfig(container, onNavigate) {
 
     // Bind advance
     const advanceBtn = container.querySelector('#btn-advance-setup');
-    if (isReady && advanceBtn) {
+    if (isReady && store.isAdmin && advanceBtn) {
       advanceBtn.addEventListener('click', () => {
         store.startPeladaSetup(teamCount, Array.from(selectedIds));
         renderSetupTeams(container, onNavigate);

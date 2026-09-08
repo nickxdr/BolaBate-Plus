@@ -85,6 +85,7 @@ export function renderHistoryView() {
             Craque (+5 pts), Seleção (+4 pts cada), Puskas (+3 pts) e Bagre (-3 pts) atualizam o ranking oficial ao salvar.
           </p>
 
+          ${store.isAdmin ? `
           <form class="history-awards-form" data-history-id="${entry.id}">
             <div class="history-award-field">
               <label for="craque-${entry.id}">⭐ Craque da Pelada</label>
@@ -143,7 +144,16 @@ export function renderHistoryView() {
               Salvar Votações
             </button>
           </form>
+          ` : renderAwardsSummary(entry)}
         </div>
+
+        ${store.isAdmin ? `
+        <div style="display: flex; justify-content: flex-end; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+          <button class="btn btn-danger btn-sm history-delete-btn" data-history-id="${entry.id}" title="Excluir esta pelada e remover suas estatísticas do ranking">
+            🗑️ Excluir Pelada
+          </button>
+        </div>
+        ` : ''}
       </div>
     `;
 
@@ -160,7 +170,7 @@ export function renderHistoryView() {
       chevron.textContent = expanded ? '▾' : '▸';
     });
 
-    card.querySelector('.history-awards-form').addEventListener('submit', (e) => {
+    card.querySelector('.history-awards-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
       const form = e.currentTarget;
       const craqueId = form.craqueId.value || null;
@@ -183,9 +193,93 @@ export function renderHistoryView() {
       showToast('Votações salvas! Ranking atualizado.');
       refreshCardBadges(card, entry.id);
     });
+    card.querySelector('.history-delete-btn')?.addEventListener('click', () => {
+      openDeleteHistoryModal(entry);
+    });
   });
 
   return container;
+}
+
+/** Confirmation modal for deleting a pelada from history (admin only). */
+function openDeleteHistoryModal(entry) {
+  const modalContainer = document.getElementById('modal-container');
+  const matchDate = entry.date || '—';
+  const totalGoals = Object.values(entry.stats || {}).reduce(
+    (acc, s) => acc + (Number(s.goals) || 0), 0
+  );
+
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="delete-history-overlay">
+      <div class="modal-content" style="max-width: 460px;">
+        <div class="modal-header">
+          <h2 class="modal-title" style="color: var(--accent-red);">⚠️ Excluir esta pelada?</h2>
+          <button class="modal-close" id="delete-history-close" title="Fechar">✕</button>
+        </div>
+
+        <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">
+          <p style="margin-bottom: 10px;">
+            A pelada de <strong>${escapeHtml(matchDate)}</strong> (${totalGoals} gols) será
+            <strong>removida do histórico</strong> e suas estatísticas serão descontadas do ranking:
+          </p>
+          <ul style="margin: 0 0 12px 18px; padding: 0;">
+            <li>Gols, assistências e participações do mês</li>
+            <li>Votos de Craque, Seleção, Puskas e Bagre</li>
+          </ul>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">
+            A mudança será sincronizada com a nuvem para todos os usuários. <strong>Essa ação não pode ser desfeita.</strong>
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button id="delete-history-cancel" class="btn btn-secondary">Cancelar</button>
+          <button id="delete-history-confirm" class="btn btn-danger">Sim, excluir pelada</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => { modalContainer.innerHTML = ''; };
+  const overlay = modalContainer.querySelector('#delete-history-overlay');
+  modalContainer.querySelector('#delete-history-close').addEventListener('click', close);
+  modalContainer.querySelector('#delete-history-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  modalContainer.querySelector('#delete-history-confirm').addEventListener('click', () => {
+    const result = store.deleteHistoryEntry(entry.id);
+    close();
+    if (result && result.success) {
+      // store.save() → notify() re-renders this view with the pelada removed
+      showToast('Pelada excluída e ranking atualizado.');
+    } else {
+      showToast(result?.error || 'Não foi possível excluir a pelada.');
+    }
+  });
+}
+
+/** Read-only awards display shown to non-admin users. */
+function renderAwardsSummary(entry) {
+  const awards = entry.awards || {};
+  const nameOf = (id) => {
+    const p = id && store.getPlayer(id);
+    return p ? escapeHtml(p.name) : null;
+  };
+  const rows = [
+    ['⭐ Craque da Pelada', nameOf(awards.craqueId)],
+    ['🎯 Puskas', nameOf(awards.puskasId)],
+    ['🐟 Bagre da Pelada', nameOf(awards.bagreId)],
+    ['🏆 Seleção da Pelada', (Array.isArray(awards.selecaoIds) ? awards.selecaoIds : []).map(nameOf).filter(Boolean).join(', ') || null],
+  ];
+  return `
+    <div style="font-size: 0.85rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 6px; padding: 4px 0;">
+      <p class="history-awards-note" style="margin-bottom: 4px;">🔒 Apenas o administrador pode editar as votações.</p>
+      ${rows.map(([label, value]) => `
+        <div><strong style="color: var(--text-main);">${label}:</strong> ${value || '<em>Aguardando votação...</em>'}</div>
+      `).join('')}
+    </div>
+  `;
 }
 
 function renderTeamsSection(entry) {

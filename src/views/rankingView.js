@@ -167,12 +167,14 @@ export function renderRankingView() {
       <td>${player.craque}</td>
       <td>${player.bagre}</td>
       <td>${player.participacao}</td>
+      ${store.isAdmin ? `
       <td>
         ${isAnnual ? '' : `
         <button class="btn btn-secondary btn-sm edit-player-stat-btn" data-id="${player.id}" style="padding: 3px 7px;" title="Editar dados">
           ✏️
         </button>`}
       </td>
+      ` : '<td></td>'}
     `;
 
     tbody.appendChild(tr);
