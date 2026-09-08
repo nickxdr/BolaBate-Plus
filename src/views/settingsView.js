@@ -1,6 +1,14 @@
 import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
-import { loginAdmin, logoutAdmin, pushStateNow, listAdmins, addAdminAccount, removeAdminAccount, ADMIN_UID } from "../services/cloudSync.js";
+import {
+  loginAdmin,
+  logoutAdmin,
+  pushStateNow,
+  listAdmins,
+  addAdminAccount,
+  removeAdminAccount,
+  ADMIN_UID,
+} from "../services/cloudSync.js";
 import { auth } from "../services/firebase.js";
 
 export function renderSettingsView() {
@@ -92,7 +100,7 @@ export function renderSettingsView() {
               👑 Gerenciar Administradores
             </h3>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-              Cadastre novos admins com e-mail e senha — sem precisar de código ou console. O administrador raiz não pode ser removido.
+              Cadastre novos admins com e-mail e senha.
             </p>
 
             <div id="admins-list" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
@@ -161,7 +169,12 @@ export function renderSettingsView() {
           await loginAdmin(email, password);
           showToast("👑 Bem-vindo, admin!");
         } catch (err) {
-          showToast("❌ Login falhou: " + (err.code === "auth/invalid-credential" ? "e-mail ou senha incorretos." : err.message));
+          showToast(
+            "❌ Login falhou: " +
+              (err.code === "auth/invalid-credential"
+                ? "e-mail ou senha incorretos."
+                : err.message),
+          );
           loginBtn.disabled = false;
           loginBtn.textContent = "🔑 Entrar como Administrador";
         }
@@ -196,9 +209,12 @@ export function renderSettingsView() {
       });
     }
 
-    // Bind Admin Management (list / add / remove) — admin only
+    // Bind Admin Management (list / add / remove) — admin only.
+    // NOTE: the elements below only exist in the DOM for admins; guard to avoid
+    // crashing the whole settings screen for regular users.
     const adminsList = container.querySelector("#admins-list");
     async function refreshAdminsList() {
+      if (!adminsList) return;
       try {
         const admins = await listAdmins();
         const currentUid = auth?.currentUser?.uid;
@@ -226,7 +242,11 @@ export function renderSettingsView() {
           btn.addEventListener("click", async () => {
             const uid = btn.getAttribute("data-uid");
             const email = btn.getAttribute("data-email");
-            if (!confirm(`Remover ${email} como administrador? Ele perderá o acesso de edição (a conta de login continua existindo).`)) {
+            if (
+              !confirm(
+                `Remover ${email} como administrador? Ele perderá o acesso de edição (a conta de login continua existindo).`,
+              )
+            ) {
               return;
             }
             btn.disabled = true;
@@ -247,27 +267,29 @@ export function renderSettingsView() {
     refreshAdminsList();
 
     const addAdminBtn = container.querySelector("#btn-add-admin");
-    addAdminBtn.addEventListener("click", async () => {
-      const email = container.querySelector("#new-admin-email").value.trim();
-      const password = container.querySelector("#new-admin-password").value;
-      if (!email || !password) {
-        showToast("⚠️ Preencha o e-mail e a senha do novo admin.");
-        return;
-      }
-      addAdminBtn.disabled = true;
-      addAdminBtn.textContent = "Cadastrando...";
-      const result = await addAdminAccount(email, password);
-      if (result.success) {
-        showToast(`👑 ${email} agora é administrador!`);
-        container.querySelector("#new-admin-email").value = "";
-        container.querySelector("#new-admin-password").value = "";
-        refreshAdminsList();
-      } else {
-        showToast("❌ " + result.error);
-      }
-      addAdminBtn.disabled = false;
-      addAdminBtn.textContent = "➕ Cadastrar Admin";
-    });
+    if (addAdminBtn) {
+      addAdminBtn.addEventListener("click", async () => {
+        const email = container.querySelector("#new-admin-email").value.trim();
+        const password = container.querySelector("#new-admin-password").value;
+        if (!email || !password) {
+          showToast("⚠️ Preencha o e-mail e a senha do novo admin.");
+          return;
+        }
+        addAdminBtn.disabled = true;
+        addAdminBtn.textContent = "Cadastrando...";
+        const result = await addAdminAccount(email, password);
+        if (result.success) {
+          showToast(`👑 ${email} agora é administrador!`);
+          container.querySelector("#new-admin-email").value = "";
+          container.querySelector("#new-admin-password").value = "";
+          refreshAdminsList();
+        } else {
+          showToast("❌ " + result.error);
+        }
+        addAdminBtn.disabled = false;
+        addAdminBtn.textContent = "➕ Cadastrar Admin";
+      });
+    }
 
     // Bind Reset — opens a confirmation modal (admin only)
     container
@@ -314,20 +336,28 @@ export function renderSettingsView() {
       </div>
     `;
 
-    const close = () => { modalContainer.innerHTML = ""; };
+    const close = () => {
+      modalContainer.innerHTML = "";
+    };
     const overlay = modalContainer.querySelector("#reset-modal-overlay");
-    modalContainer.querySelector("#reset-modal-close").addEventListener("click", close);
-    modalContainer.querySelector("#reset-modal-cancel").addEventListener("click", close);
+    modalContainer
+      .querySelector("#reset-modal-close")
+      .addEventListener("click", close);
+    modalContainer
+      .querySelector("#reset-modal-cancel")
+      .addEventListener("click", close);
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) close();
     });
 
-    modalContainer.querySelector("#reset-modal-confirm").addEventListener("click", () => {
-      store.resetToDefaults();
-      close();
-      onDone();
-      showToast("Dados restaurados para a planilha original!");
-    });
+    modalContainer
+      .querySelector("#reset-modal-confirm")
+      .addEventListener("click", () => {
+        store.resetToDefaults();
+        close();
+        onDone();
+        showToast("Dados restaurados para a planilha original!");
+      });
   }
 
   render();
