@@ -1,5 +1,6 @@
 import { store } from '../state/store.js';
 import { showToast } from './rankingView.js';
+import { getPlayerAchievements } from '../services/achievement.js';
 
 export function renderPlayersView() {
   const container = document.createElement('div');
@@ -34,7 +35,9 @@ export function renderPlayersView() {
         </div>
 
         <button id="btn-add-player" class="btn btn-primary">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
           Adicionar Jogador
         </button>
       </div>
@@ -43,21 +46,46 @@ export function renderPlayersView() {
       <div class="card" style="padding: 14px; margin-bottom: 16px;">
         <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
           <div style="flex: 1; min-width: 200px;">
-            <input type="text" id="player-search" class="input-field" placeholder="Buscar jogador por nome..." value="${escapeHtml(searchTerm)}" />
+            <input
+              type="text"
+              id="player-search"
+              class="input-field"
+              placeholder="Buscar jogador por nome..."
+              value="${escapeHtml(searchTerm)}"
+            />
           </div>
+
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Ordenar:</span>
-            <select id="player-sort" class="input-field" style="width: auto; padding: 8px 12px;">
-              <option value="name" ${sortBy === 'name' ? 'selected' : ''}>Nome (A-Z)</option>
-              <option value="stars-desc" ${sortBy === 'stars-desc' ? 'selected' : ''}>Mais Estrelas (5.0 → 0.5)</option>
-              <option value="stars-asc" ${sortBy === 'stars-asc' ? 'selected' : ''}>Menos Estrelas (0.5 → 5.0)</option>
+            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">
+              Ordenar:
+            </span>
+
+            <select
+              id="player-sort"
+              class="input-field"
+              style="width: auto; padding: 8px 12px;"
+            >
+              <option value="name" ${sortBy === 'name' ? 'selected' : ''}>
+                Nome (A-Z)
+              </option>
+
+              <option value="stars-desc" ${sortBy === 'stars-desc' ? 'selected' : ''}>
+                Mais Estrelas (5.0 → 0.5)
+              </option>
+
+              <option value="stars-asc" ${sortBy === 'stars-asc' ? 'selected' : ''}>
+                Menos Estrelas (0.5 → 5.0)
+              </option>
             </select>
           </div>
         </div>
       </div>
 
       <!-- Players Cards Grid -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;" id="players-grid">
+      <div
+        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;"
+        id="players-grid"
+      >
         ${players.map(player => {
           return `
           <div class="card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0;">
@@ -84,40 +112,59 @@ export function renderPlayersView() {
                   </span>
                 </div>
               </div>
-            </div>
 
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-secondary btn-sm btn-profile-player" data-id="${player.id}" title="Ver perfil e evolução">
-                📊
-              </button>
-              ${store.isAdmin ? `
-              <button class="btn btn-secondary btn-sm btn-edit-player" data-id="${player.id}" title="Editar nome e estrelas">
-                ✏️
-              </button>
-              <button class="btn btn-secondary btn-sm btn-delete-player" data-id="${player.id}" style="color: var(--accent-red);" title="Excluir jogador">
-                🗑️
-              </button>
-              ` : ''}
+              <div style="display: flex; gap: 6px;">
+
+                <button
+                  class="btn btn-secondary btn-sm btn-profile-player"
+                  data-id="${player.id}"
+                  title="Ver perfil e evolução"
+                >
+                  📊
+                </button>
+
+                ${store.isAdmin ? `
+                  <button
+                    class="btn btn-secondary btn-sm btn-edit-player"
+                    data-id="${player.id}"
+                    title="Editar nome e estrelas"
+                  >
+                    ✏️
+                  </button>
+
+                  <button
+                    class="btn btn-secondary btn-sm btn-delete-player"
+                    data-id="${player.id}"
+                    style="color: var(--accent-red);"
+                    title="Excluir jogador"
+                  >
+                    🗑️
+                  </button>
+                ` : ''}
+              </div>
             </div>
-          </div>
-        `;
+          `;
         }).join('')}
       </div>
 
       ${players.length === 0 ? `
         <div style="text-align: center; padding: 48px 16px; color: var(--text-muted);">
-          <p style="font-size: 1.1rem; font-weight: 600;">Nenhum jogador encontrado.</p>
+          <p style="font-size: 1.1rem; font-weight: 600;">
+            Nenhum jogador encontrado.
+          </p>
         </div>
       ` : ''}
     `;
 
     // Bind search and filter events
     const searchInput = container.querySelector('#player-search');
+
     searchInput.addEventListener('input', (e) => {
       searchTerm = e.target.value;
       render();
-      // Keep cursor position
+
       const input = container.querySelector('#player-search');
+
       if (input) {
         input.focus();
         input.setSelectionRange(searchTerm.length, searchTerm.length);
@@ -125,6 +172,7 @@ export function renderPlayersView() {
     });
 
     const sortSelect = container.querySelector('#player-sort');
+
     sortSelect.addEventListener('change', (e) => {
       sortBy = e.target.value;
       render();
@@ -143,9 +191,12 @@ export function renderPlayersView() {
       });
     });
 
+    // Bind Profile
     container.querySelectorAll('.btn-profile-player').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        openPlayerProfileModal(e.currentTarget.getAttribute('data-id'));
+        openPlayerProfileModal(
+          e.currentTarget.getAttribute('data-id')
+        );
       });
     });
 
@@ -162,8 +213,14 @@ export function renderPlayersView() {
       btn.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         const player = store.getPlayer(id);
+
         if (!player) return;
-        if (confirm(`Tem certeza que deseja excluir "${player.name}"? As estatísticas dele serão removidas.`)) {
+
+        if (
+          confirm(
+            `Tem certeza que deseja excluir "${player.name}"? As estatísticas dele serão removidas.`
+          )
+        ) {
           store.deletePlayer(id);
           showToast(`Jogador "${player.name}" removido.`);
           render();
@@ -174,33 +231,67 @@ export function renderPlayersView() {
 
   function openAddPlayerModal() {
     const modalContainer = document.getElementById('modal-container');
+
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="add-modal-overlay">
         <div class="modal-content">
+
           <div class="modal-header">
             <h2 class="modal-title">Novo Jogador</h2>
             <button class="modal-close" id="add-modal-close">&times;</button>
           </div>
 
           <form id="add-player-form">
+
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">
+              <label
+                style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);"
+              >
                 Nome do Jogador
               </label>
-              <input type="text" name="name" class="input-field" placeholder="Ex: Lucas Silva" required autofocus />
+
+              <input
+                type="text"
+                name="name"
+                class="input-field"
+                placeholder="Ex: Lucas Silva"
+                required
+                autofocus
+              />
             </div>
 
             <div style="margin-bottom: 20px;">
-              <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">
+              <label
+                style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);"
+              >
                 Nível de Habilidade (0.5 a 5.0 Estrelas)
               </label>
+
               <div style="display: flex; align-items: center; gap: 12px;">
-                <input type="range" name="stars" id="star-range-input" min="0.5" max="5.0" step="0.5" value="3.0" style="flex: 1; accent-color: var(--accent-gold); cursor: pointer;" />
-                <span id="star-value-label" class="star-badge" style="font-size: 1rem; min-width: 60px; justify-content: center;">
+
+                <input
+                  type="range"
+                  name="stars"
+                  id="star-range-input"
+                  min="0.5"
+                  max="5.0"
+                  step="0.5"
+                  value="3.0"
+                  style="flex: 1; accent-color: var(--accent-gold); cursor: pointer;"
+                />
+
+                <span
+                  id="star-value-label"
+                  class="star-badge"
+                  style="font-size: 1rem; min-width: 60px; justify-content: center;"
+                >
                   3.0 ★
                 </span>
               </div>
-              <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">
+
+              <p
+                style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;"
+              >
                 Dica: O balanceador busca média de ~4.0★ por jogador (~20★ total no time de 5).
               </p>
             </div>
@@ -218,24 +309,51 @@ export function renderPlayersView() {
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-              <button type="button" class="btn btn-secondary" id="add-modal-cancel">Cancelar</button>
-              <button type="submit" class="btn btn-primary">Adicionar Jogador</button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                id="add-modal-cancel"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                class="btn btn-primary"
+              >
+                Adicionar Jogador
+              </button>
             </div>
+
           </form>
         </div>
       </div>
     `;
 
-    const close = () => { modalContainer.innerHTML = ''; };
+    const close = () => {
+      modalContainer.innerHTML = '';
+    };
+
     const overlay = modalContainer.querySelector('#add-modal-overlay');
-    modalContainer.querySelector('#add-modal-close').addEventListener('click', close);
-    modalContainer.querySelector('#add-modal-cancel').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    modalContainer
+      .querySelector('#add-modal-close')
+      .addEventListener('click', close);
+
+    modalContainer
+      .querySelector('#add-modal-cancel')
+      .addEventListener('click', close);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
 
     const starRange = modalContainer.querySelector('#star-range-input');
     const starLabel = modalContainer.querySelector('#star-value-label');
+
     starRange.addEventListener('input', (e) => {
-      starLabel.textContent = Number(e.target.value).toFixed(1) + ' ★';
+      starLabel.textContent =
+        Number(e.target.value).toFixed(1) + ' ★';
     });
 
     modalContainer.querySelector('#add-player-form').addEventListener('submit', (e) => {
@@ -254,90 +372,194 @@ export function renderPlayersView() {
 
   function openEditPlayerModal(id) {
     const player = store.getPlayer(id);
+
     if (!player) return;
 
     const modalContainer = document.getElementById('modal-container');
+
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="edit-modal-overlay">
+
         <div class="modal-content" style="max-width: 520px;">
+
           <div class="modal-header">
+
             <h2 class="modal-title">Editar Jogador</h2>
-              <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
-                ✏️ Aqui você só edita o nome e as estrelas. As estatísticas (gols, assistências, votos) são editadas na aba Ranking.
-              </span>
-            <button class="modal-close" id="edit-modal-close">&times;</button>
+
+            <span
+              style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);"
+            >
+              ✏️ Aqui você só edita o nome e as estrelas. As estatísticas (gols, assistências, votos) são editadas na aba Ranking.
+            </span>
+
+            <button
+              class="modal-close"
+              id="edit-modal-close"
+            >
+              &times;
+            </button>
+
           </div>
 
           <form id="edit-player-form">
+
             <div style="margin-bottom: 14px;">
-              <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);">
+              <label
+                style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);"
+              >
                 Nome do Jogador
               </label>
-              <input type="text" name="name" class="input-field" value="${escapeHtml(player.name)}" required />
+
+              <input
+                type="text"
+                name="name"
+                class="input-field"
+                value="${escapeHtml(player.name)}"
+                required
+              />
             </div>
 
             <div style="margin-bottom: 16px;">
-              <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);">
+              <label
+                style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);"
+              >
                 Nível de Habilidade (0.5 a 5.0 Estrelas)
               </label>
+
               <div style="display: flex; align-items: center; gap: 12px;">
-                <input type="range" name="stars" id="edit-star-range" min="0.5" max="5.0" step="0.5" value="${player.stars}" style="flex: 1; accent-color: var(--accent-gold); cursor: pointer;" />
-                <span id="edit-star-label" class="star-badge" style="font-size: 1rem; min-width: 60px; justify-content: center;">
+
+                <input
+                  type="range"
+                  name="stars"
+                  id="edit-star-range"
+                  min="0.5"
+                  max="5.0"
+                  step="0.5"
+                  value="${player.stars}"
+                  style="flex: 1; accent-color: var(--accent-gold); cursor: pointer;"
+                />
+
+                <span
+                  id="edit-star-label"
+                  class="star-badge"
+                  style="font-size: 1rem; min-width: 60px; justify-content: center;"
+                >
                   ${player.stars.toFixed(1)} ★
                 </span>
+
               </div>
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-              <button type="button" class="btn btn-secondary" id="edit-modal-cancel">Cancelar</button>
-              <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+
+              <button
+                type="button"
+                class="btn btn-secondary"
+                id="edit-modal-cancel"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                class="btn btn-primary"
+              >
+                Salvar Alterações
+              </button>
+
             </div>
+
           </form>
         </div>
       </div>
     `;
 
-    const close = () => { modalContainer.innerHTML = ''; };
-    const overlay = modalContainer.querySelector('#edit-modal-overlay');
-    modalContainer.querySelector('#edit-modal-close').addEventListener('click', close);
-    modalContainer.querySelector('#edit-modal-cancel').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const close = () => {
+      modalContainer.innerHTML = '';
+    };
 
-    const starRange = modalContainer.querySelector('#edit-star-range');
-    const starLabel = modalContainer.querySelector('#edit-star-label');
-    starRange.addEventListener('input', (e) => {
-      starLabel.textContent = Number(e.target.value).toFixed(1) + ' ★';
+    const overlay = modalContainer.querySelector('#edit-modal-overlay');
+
+    modalContainer
+      .querySelector('#edit-modal-close')
+      .addEventListener('click', close);
+
+    modalContainer
+      .querySelector('#edit-modal-cancel')
+      .addEventListener('click', close);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
     });
 
-    const form = modalContainer.querySelector('#edit-player-form');
+    const starRange =
+      modalContainer.querySelector('#edit-star-range');
+
+    const starLabel =
+      modalContainer.querySelector('#edit-star-label');
+
+    starRange.addEventListener('input', (e) => {
+      starLabel.textContent =
+        Number(e.target.value).toFixed(1) + ' ★';
+    });
+
+    const form =
+      modalContainer.querySelector('#edit-player-form');
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
+
       const newName = form.name.value.trim();
       const newStars = parseFloat(starRange.value);
+
       store.updatePlayer(id, {
         name: newName,
         stars: newStars
       });
+
       close();
+
       showToast(`Jogador "${newName}" atualizado!`);
+
       render();
     });
   }
 
   function openPlayerProfileModal(id) {
     const player = store.getPlayer(id);
+
     if (!player) return;
 
-    const modalContainer = document.getElementById('modal-container');
+    const modalContainer =
+      document.getElementById('modal-container');
+
     const now = new Date();
+
     const months = Array.from({ length: 12 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const date = new Date(
+        now.getFullYear(),
+        now.getMonth() - (11 - index),
+        1
+      );
+
+      const key =
+        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
       return {
         key,
-        label: date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''),
-        stats: store.getPeriodSnapshot(date.getFullYear(), date.getMonth() + 1).players?.[id] || {},
+
+        label: date
+          .toLocaleDateString('pt-BR', {
+            month: 'short',
+            year: '2-digit'
+          })
+          .replace('.', ''),
+
+        stats:
+          store.getPeriodSnapshot(
+            date.getFullYear(),
+            date.getMonth() + 1
+          ).players?.[id] || {},
       };
     });
     const totals = ['goals', 'assists', 'participacao', 'selecao', 'puskas', 'craque', 'bagre']
@@ -347,16 +569,33 @@ export function renderPlayersView() {
       }, {});
     const frequentCompanions = getFrequentCompanions(id);
     const positions = ['Fixo', 'Ala', 'Pivô'];
+    const achievements = getPlayerAchievements(id);
 
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="profile-modal-overlay">
+
         <div class="modal-content player-profile-modal">
+
           <div class="modal-header">
+
             <div>
-              <span class="profile-eyebrow">Perfil individual</span>
-              <h2 class="modal-title">${escapeHtml(player.name)}</h2>
+              <span class="profile-eyebrow">
+                Perfil individual
+              </span>
+
+              <h2 class="modal-title">
+                ${escapeHtml(player.name)}
+              </h2>
             </div>
-            <button class="modal-close" id="profile-modal-close" aria-label="Fechar perfil">&times;</button>
+
+            <button
+              class="modal-close"
+              id="profile-modal-close"
+              aria-label="Fechar perfil"
+            >
+              &times;
+            </button>
+
           </div>
 
           <div class="profile-preferences">
@@ -374,38 +613,135 @@ export function renderPlayersView() {
           </div>
 
           <div class="profile-summary-grid">
-            ${profileMetric('⚽', 'Gols', totals.goals, 'goals')}
-            ${profileMetric('👟', 'Assistências', totals.assists, 'assists')}
-            ${profileMetric('📅', 'Participações', totals.participacao, 'matches')}
-            ${profileMetric('🏆', 'Prêmios', totals.selecao + totals.puskas + totals.craque + totals.bagre, 'awards')}
+
+            ${profileMetric(
+              '⚽',
+              'Gols',
+              totals.goals,
+              'goals'
+            )}
+
+            ${profileMetric(
+              '👟',
+              'Assistências',
+              totals.assists,
+              'assists'
+            )}
+
+            ${profileMetric(
+              '📅',
+              'Participações',
+              totals.participacao,
+              'matches'
+            )}
+
+            ${profileMetric(
+              '🏆',
+              'Prêmios',
+              totals.selecao +
+              totals.puskas +
+              totals.craque +
+              totals.bagre,
+              'awards'
+            )}
+
           </div>
 
           <div class="profile-section-heading">
+
             <div>
               <h3>Evolução mensal</h3>
               <p>Últimos 12 meses registrados</p>
             </div>
-            <span class="star-badge">★ ${Number(player.stars).toFixed(1)}</span>
+
+            <span class="star-badge">
+              ★ ${Number(player.stars).toFixed(1)}
+            </span>
+
           </div>
 
           <div class="profile-table-wrap">
+
             <table class="profile-table">
-              <thead><tr><th>Mês</th><th>Gols</th><th>Assist.</th><th>Part.</th><th>Prêmios</th></tr></thead>
+
+              <thead>
+                <tr>
+                  <th>Mês</th>
+                  <th>Gols</th>
+                  <th>Assist.</th>
+                  <th>Part.</th>
+                  <th>Prêmios</th>
+                </tr>
+              </thead>
+
               <tbody>
                 ${months.map(month => {
                   const stats = month.stats;
-                  const awards = (Number(stats.selecao) || 0) + (Number(stats.puskas) || 0) + (Number(stats.craque) || 0) + (Number(stats.bagre) || 0);
-                  return `<tr>
-                    <th scope="row">${month.label}</th>
-                    <td class="profile-goals">${Number(stats.goals) || 0}</td>
-                    <td class="profile-assists">${Number(stats.assists) || 0}</td>
-                    <td>${Number(stats.participacao) || 0}</td>
-                    <td>${awards}</td>
-                  </tr>`;
+
+                  const awards =
+                    (Number(stats.selecao) || 0) +
+                    (Number(stats.puskas) || 0) +
+                    (Number(stats.craque) || 0) +
+                    (Number(stats.bagre) || 0);
+
+                  return `
+                    <tr>
+                      <th scope="row">${month.label}</th>
+                      <td class="profile-goals">
+                        ${Number(stats.goals) || 0}
+                      </td>
+                      <td class="profile-assists">
+                        ${Number(stats.assists) || 0}
+                      </td>
+                      <td>
+                        ${Number(stats.participacao) || 0}
+                      </td>
+                      <td>
+                        ${awards}
+                      </td>
+                    </tr>
+                  `;
                 }).join('')}
               </tbody>
+
             </table>
+
           </div>
+          <div class="profile-section-heading">
+            <div>
+              <h3>Conquistas</h3>
+              <p>Desafios desbloqueados ao longo da carreira</p>
+            </div>
+            <span class="profile-achievements-count">
+              ${achievements.filter(a => a.unlocked).length}/${achievements.length}
+            </span>
+          </div>
+
+          <div class="profile-achievements">
+            ${achievements.map(achievement => {
+              const progress = Math.min(achievement.progress, achievement.target);
+              const percentage = Math.min((achievement.progress / achievement.target) * 100, 100);
+
+              return `
+                <div class="profile-achievement ${achievement.unlocked ? 'unlocked' : 'locked'}">
+                  <div class="profile-achievement-icon">
+                    ${achievement.icon}
+                  </div>
+                  <div class="profile-achievement-content">
+                    <div class="profile-achievement-header">
+                      <strong>${escapeHtml(achievement.name)}</strong>
+                      <span>${achievement.unlocked ? '✓ Desbloqueada' : `${progress}/${achievement.target}`}</span>
+                    </div>
+                    <p>${escapeHtml(achievement.description)}</p>
+                    <div class="profile-achievement-progress">
+                      <div class="profile-achievement-progress-bar" style="width: ${percentage}%"></div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
           <p class="profile-awards-note">Prêmios: ${totals.craque} Craque, ${totals.selecao} Seleção, ${totals.puskas} Puskas e ${totals.bagre} Bagre.</p>
 
           <div class="profile-companions-section">
@@ -419,7 +755,9 @@ export function renderPlayersView() {
               ${frequentCompanions.length ? `<ol class="profile-companions-list">${frequentCompanions.map(item => `<li><strong>${escapeHtml(item.name)}</strong><span>${item.count} ${item.count === 1 ? 'vez' : 'vezes'}</span></li>`).join('')}</ol>` : '<p class="profile-empty-note">Ainda não há companheiros registrados.</p>'}
             </section>
           </div>
+
         </div>
+
       </div>
     `;
 
@@ -455,17 +793,24 @@ export function renderPlayersView() {
   }
 
   function profileMetric(icon, label, value, tone) {
-    return `<div class="profile-metric ${tone}">
-      <span class="profile-metric-icon">${icon}</span>
-      <span class="profile-metric-value">${value}</span>
-      <span class="profile-metric-label">${label}</span>
-    </div>`;
+    return `
+      <div class="profile-metric ${tone}">
+        <span class="profile-metric-icon">${icon}</span>
+        <span class="profile-metric-value">${value}</span>
+        <span class="profile-metric-label">${label}</span>
+      </div>
+    `;
   }
 
   render();
+
   return container;
 }
 
 function escapeHtml(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
