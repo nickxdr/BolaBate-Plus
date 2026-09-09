@@ -20,6 +20,15 @@ export const firebaseConfig = {
 
 export const ADMIN_UID = "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
 
+// Dev/local and prod share this one Firebase project (same Auth users, same
+// security rules) but must NEVER share the same data document — see
+// cloudSync.js, which picks "cloud/state-dev" instead of "cloud/state" when
+// this is true. Add other standing preview hostnames here if you create more.
+const DEV_HOSTNAMES = ["localhost", "127.0.0.1", "bola-bate-plus-develop.vercel.app"];
+export const IS_DEV_ENVIRONMENT =
+  Boolean(import.meta.env.DEV) ||
+  (typeof window !== "undefined" && DEV_HOSTNAMES.includes(window.location.hostname));
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 

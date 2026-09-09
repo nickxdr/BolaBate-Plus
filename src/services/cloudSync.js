@@ -12,7 +12,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { auth, db, ADMIN_UID, firebaseConfig } from "./firebase.js";
+import { auth, db, ADMIN_UID, firebaseConfig, IS_DEV_ENVIRONMENT } from "./firebase.js";
 import {
   createUserWithEmailAndPassword,
   getAuth as getSecondaryAuth,
@@ -22,8 +22,15 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 
-const CLOUD_DOC = doc(db, "cloud", "state");
+// Dev/local write to a separate document than prod so testing never touches
+// real league data — same Firebase project, same admins/rules, isolated data.
+const CLOUD_DOC_ID = IS_DEV_ENVIRONMENT ? "state-dev" : "state";
+const CLOUD_DOC = doc(db, "cloud", CLOUD_DOC_ID);
 const ADMINS_COL = collection(db, "admins");
+
+if (IS_DEV_ENVIRONMENT) {
+  console.info(`[cloud] Dev/local environment — using cloud/${CLOUD_DOC_ID} (production data is untouched).`);
+}
 
 // Re-exported for the settings UI (bootstrap admin can't be removed)
 export { ADMIN_UID };
@@ -212,6 +219,35 @@ export function initCloudSync(store) {
   started = true;
   storeRef = store;
 
+  // The Listen subscription must not start until we actually HAVE an auth
+  // token (anonymous or admin) — Firestore rejects an unauthenticated Listen
+  // with permission-denied, and unlike transient errors it never retries a
+  // listener after that; it would stay dead for the rest of the session even
+  // once sign-in completes a moment later. So we subscribe only once, from
+  // inside onAuthStateChanged, the first time `user` is non-null.
+  let snapshotSubscribed = false;
+  function ensureSnapshotSubscription() {
+    if (snapshotSubscribed) return;
+    snapshotSubscribed = true;
+
+    // Live subscription — every signed-in device receives updates instantly
+    onSnapshot(
+      CLOUD_DOC,
+      (snap) => {
+        if (!snap.exists()) {
+          setStatus(store.isAdmin ? "admin" : "empty");
+          return;
+        }
+        setStatus(store.isAdmin ? "admin" : "online");
+        applyRemote(snap.data());
+      },
+      (err) => {
+        console.error("[cloud] Subscription error:", err);
+        setStatus("error", err.message);
+      },
+    );
+  }
+
   // Track auth state → sets store.isAdmin (admin UID) or anonymous (read-only).
   // Firebase persists the session automatically, so a returning admin stays
   // logged in across page refreshes and app restarts. We only fall back to
@@ -235,25 +271,11 @@ export function initCloudSync(store) {
         console.error("[cloud] Anonymous sign-in failed:", err);
         setStatus("error", err.message);
       });
+      return; // wait for the resulting onAuthStateChanged(user) call below
     }
-  });
 
-  // Live subscription — every signed-in device receives updates instantly
-  onSnapshot(
-    CLOUD_DOC,
-    (snap) => {
-      if (!snap.exists()) {
-        setStatus(store.isAdmin ? "admin" : "empty");
-        return;
-      }
-      setStatus(store.isAdmin ? "admin" : "online");
-      applyRemote(snap.data());
-    },
-    (err) => {
-      console.error("[cloud] Subscription error:", err);
-      setStatus("error", err.message);
-    },
-  );
+    ensureSnapshotSubscription();
+  });
 }
 
 /** Push the current local state to the cloud immediately (admin only). */

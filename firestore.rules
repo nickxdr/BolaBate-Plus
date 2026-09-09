@@ -22,9 +22,12 @@ service cloud.firestore {
       return request.auth != null && (isBootstrapAdmin() || isRegisteredAdmin());
     }
 
-    // The whole league state lives in one document: cloud/state
-    match /cloud/state {
-      allow read: if request.auth != null;   // any signed-in user (incl. anonymous)
+    // The whole league state lives in one document: cloud/state (prod) or
+    // cloud/state-dev (dev Vercel deployment + local `npm run dev` — see
+    // src/services/firebase.js IS_DEV_ENVIRONMENT / cloudSync.js CLOUD_DOC_ID).
+    // Same rule for both: any signed-in user can read, only admins can write.
+    match /cloud/{stateId} {
+      allow read: if request.auth != null;
       allow write: if isAdmin();
     }
 
