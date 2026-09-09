@@ -20,9 +20,6 @@ export function renderPlayerComparisonView() {
     `)
     .join('');
 
-  const firstPlayer = players[0];
-  const secondPlayer = players[1];
-
   return `
     <div class="comparison-modal" id="player-comparison-modal">
       <div class="comparison-overlay" data-close-comparison></div>
@@ -49,6 +46,7 @@ export function renderPlayerComparisonView() {
             <label for="comparison-player-1">Jogador 1</label>
 
             <select id="comparison-player-1">
+              <option value="" selected disabled>Selecione um jogador</option>
               ${options}
             </select>
           </div>
@@ -61,29 +59,29 @@ export function renderPlayerComparisonView() {
             <label for="comparison-player-2">Jogador 2</label>
 
             <select id="comparison-player-2">
-              ${players
-                .map((player, index) => `
-                  <option
-                    value="${player.id}"
-                    ${index === 1 ? 'selected' : ''}
-                  >
-                    ${escapeHtml(player.name)}
-                  </option>
-                `)
-                .join('')}
+              <option value="" selected disabled>Selecione um jogador</option>
+              ${options}
             </select>
           </div>
 
         </div>
 
         <div id="comparison-result">
-          ${renderComparisonResult(firstPlayer.id, secondPlayer.id)}
+          ${renderComparisonPrompt()}
         </div>
       </div>
     </div>
   `;
 }
 
+
+function renderComparisonPrompt() {
+  return `
+    <div class="comparison-empty-prompt">
+      <p>Escolha os dois jogadores acima para ver a comparação.</p>
+    </div>
+  `;
+}
 
 function renderComparisonResult(player1Id, player2Id) {
   const player1 = store.getPlayer(player1Id);
@@ -240,10 +238,12 @@ export function initPlayerComparisonView() {
   const result = modal.querySelector('#comparison-result');
 
   function updateComparison() {
-    result.innerHTML = renderComparisonResult(
-      player1Select.value,
-      player2Select.value
-    );
+    const id1 = player1Select.value;
+    const id2 = player2Select.value;
+
+    result.innerHTML = (id1 && id2)
+      ? renderComparisonResult(id1, id2)
+      : renderComparisonPrompt();
   }
 
   player1Select.addEventListener('change', updateComparison);

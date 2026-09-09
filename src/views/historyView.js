@@ -307,11 +307,14 @@ function renderTeamsSection(entry) {
       `;
     }).join('');
 
+    const wins = Number(team.wins) || 0;
+
     return `
       <section class="history-team-card" style="--team-color: ${team.color || 'var(--pitch-green)'}">
         <header class="history-team-header">
           <span class="history-team-dot"></span>
           <h4>${escapeHtml(team.name || 'Time')}</h4>
+          <span class="history-team-wins-pill" title="Vitórias na pelada">${wins} V</span>
         </header>
         <div class="history-team-players">
           ${rows || '<p class="history-team-empty">Nenhum jogador registrado.</p>'}

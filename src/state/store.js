@@ -23,9 +23,13 @@ const ADMIN_ONLY_METHODS = [
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
+  'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
+  'startMatchBetween', 'reorderWaitingQueue',
   'finishPelada', 'updateHistoryAwards', 'cancelPelada', 'deleteHistoryEntry',
   'importFromJson', 'resetToDefaults',
 ];
+
+const MATCH_TIMER_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
 class Store {
   constructor() {
@@ -97,6 +101,9 @@ class Store {
         if (!Array.isArray(parsed.diaristaPlayerIds)) {
           parsed.diaristaPlayerIds = [];
         }
+        if (parsed.rotation === undefined) {
+          parsed.rotation = null;
+        }
         return parsed;
       }
     } catch (e) {
@@ -113,7 +120,8 @@ class Store {
       },
       departedPlayerIds: [], // IDs of players who went home early
       guestSlots: [], // [ { teamId, originalPlayerId, guestPlayerId } ]
-      events: [] // chronological list of goals/actions
+      events: [], // chronological list of goals/actions
+      rotation: null, // "winner stays" carousel state — see buildInitialRotation()
     };
   }
 
@@ -288,6 +296,7 @@ class Store {
       departedPlayerIds: [],
       guestSlots: [],
       events: [],
+      rotation: null,
       startedAt: new Date().toISOString()
     };
     this.save();
@@ -324,7 +333,224 @@ class Store {
     this.activePelada.departedPlayerIds = [];
     this.activePelada.guestSlots = [];
     this.activePelada.events = [];
+    this.activePelada.rotation = this.buildInitialRotation();
     this.save();
+  }
+
+  // --- "Winner stays" Rotation (Carrossel de Times) ---
+
+  /** Extracts the numeric suffix from a team id (e.g. "team-3" -> 3), used as the tiebreak. */
+  getTeamNumber(teamId) {
+    const match = /(\d+)/.exec(teamId || '');
+    return match ? Number(match[1]) : 0;
+  }
+
+  /** Counts match wins per team from the rotation log — a draw counts for neither side. Used to archive win totals into history when the pelada ends. */
+  getTeamWinsFromLog(log) {
+    const wins = {};
+    (log || []).forEach(entry => {
+      if (entry.winnerId) {
+        wins[entry.winnerId] = (wins[entry.winnerId] || 0) + 1;
+      }
+    });
+    return wins;
+  }
+
+  /** How many players a team can currently field: present roster minus departures, plus any guest fill-ins. */
+  getTeamCompleteness(teamId) {
+    const team = this.activePelada.teams.find(t => t.id === teamId);
+    if (!team) return 0;
+    const departed = new Set(this.activePelada.departedPlayerIds || []);
+    const activeOriginal = team.playerIds.filter(pid => !departed.has(pid)).length;
+    const activeGuests = (this.activePelada.guestSlots || []).filter(g => g.teamId === teamId).length;
+    return activeOriginal + activeGuests;
+  }
+
+  /** Sorts team ids by "most complete" first, then by team number ascending — used only as the initial suggested queue order; the admin can freely reorder it afterwards. */
+  rankTeamsByAvailability(teamIds) {
+    return [...teamIds].sort((a, b) => {
+      const diff = this.getTeamCompleteness(b) - this.getTeamCompleteness(a);
+      if (diff !== 0) return diff;
+      return this.getTeamNumber(a) - this.getTeamNumber(b);
+    });
+  }
+
+  createMatch(teamAId, teamBId) {
+    return {
+      teamAId,
+      teamBId,
+      scoreA: 0,
+      scoreB: 0,
+      timerDurationMs: MATCH_TIMER_DURATION_MS,
+      timerRemainingMs: MATCH_TIMER_DURATION_MS,
+      timerRunning: false,
+      timerEndsAt: null,
+    };
+  }
+
+  /** Lazily builds rotation state for peladas started before this feature existed. */
+  ensureRotation() {
+    if (!this.activePelada.rotation) {
+      this.activePelada.rotation = this.buildInitialRotation();
+      this.save();
+    }
+  }
+
+  /** All teams start in the waiting queue (ordered "most complete" first as a default suggestion) — the admin picks the actual first match manually via startMatchBetween(). */
+  buildInitialRotation() {
+    const ranked = this.rankTeamsByAvailability(this.activePelada.teams.map(t => t.id));
+    return {
+      currentMatch: null,
+      waitingTeamIds: ranked,
+      streakTeamId: null,
+      streakCount: 0,
+      log: [],
+    };
+  }
+
+  /** Admin picks two waiting teams to kick off a match — used for the very first confrontation of the pelada (subsequent ones are assembled automatically by endCurrentMatch). */
+  startMatchBetween(teamAId, teamBId) {
+    const rotation = this.activePelada.rotation;
+    if (!rotation) return { success: false, error: 'Pelada sem rotação ativa.' };
+    if (rotation.currentMatch) return { success: false, error: 'Já existe uma partida em andamento.' };
+    if (!teamAId || !teamBId || teamAId === teamBId) return { success: false, error: 'Selecione dois times diferentes.' };
+    if (!rotation.waitingTeamIds.includes(teamAId) || !rotation.waitingTeamIds.includes(teamBId)) {
+      return { success: false, error: 'Os times selecionados precisam estar na fila de espera.' };
+    }
+
+    rotation.waitingTeamIds = rotation.waitingTeamIds.filter(id => id !== teamAId && id !== teamBId);
+    rotation.currentMatch = this.createMatch(teamAId, teamBId);
+    this.save();
+    return { success: true };
+  }
+
+  /**
+   * Replaces the waiting queue with an admin-chosen order — the array order itself IS the
+   * priority (index 0 plays next). Any ids missing from `orderedTeamIds` (stale drag state,
+   * teams that left the queue in the meantime) keep their relative order at the end.
+   */
+  reorderWaitingQueue(orderedTeamIds) {
+    const rotation = this.activePelada.rotation;
+    if (!rotation) return;
+    const current = rotation.waitingTeamIds;
+    const currentSet = new Set(current);
+    const next = (orderedTeamIds || []).filter(id => currentSet.has(id));
+    const seen = new Set(next);
+    current.forEach(id => { if (!seen.has(id)) next.push(id); });
+    rotation.waitingTeamIds = next;
+    this.save();
+  }
+
+  startMatchTimer() {
+    const match = this.activePelada.rotation?.currentMatch;
+    if (!match || match.timerRunning) return;
+    match.timerRunning = true;
+    match.timerEndsAt = Date.now() + match.timerRemainingMs;
+    this.save();
+  }
+
+  pauseMatchTimer() {
+    const match = this.activePelada.rotation?.currentMatch;
+    if (!match || !match.timerRunning) return;
+    match.timerRemainingMs = Math.max(0, match.timerEndsAt - Date.now());
+    match.timerRunning = false;
+    match.timerEndsAt = null;
+    this.save();
+  }
+
+  /** Ends the current match, applies the winner-stays / 3-in-a-row / draw rules, and pulls in the next team(s). */
+  endCurrentMatch() {
+    const rotation = this.activePelada.rotation;
+    const match = rotation?.currentMatch;
+    if (!match) return { success: false, error: 'Nenhuma partida em andamento.' };
+
+    // Mirrors the "Finalizar" button's disabled state — a match can only end once a team
+    // has scored twice, or the clock has run out, even if this is called directly.
+    const remainingMs = match.timerRunning
+      ? Math.max(0, match.timerEndsAt - Date.now())
+      : match.timerRemainingMs;
+    const canFinish = match.scoreA >= 2 || match.scoreB >= 2 || remainingMs <= 0;
+    if (!canFinish) {
+      return { success: false, error: 'A partida só pode ser finalizada com 2 gols de diferença ou quando o tempo acabar.' };
+    }
+
+    if (match.timerRunning) {
+      match.timerRemainingMs = Math.max(0, match.timerEndsAt - Date.now());
+      match.timerRunning = false;
+      match.timerEndsAt = null;
+    }
+
+    const { teamAId, teamBId, scoreA, scoreB } = match;
+    let winnerId = null;
+    if (scoreA > scoreB) winnerId = teamAId;
+    else if (scoreB > scoreA) winnerId = teamBId;
+
+    rotation.log.unshift({
+      teamAId, teamBId, scoreA, scoreB, winnerId,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+
+    const outgoingIds = [];
+    let stayingId = null;
+
+    if (!winnerId) {
+      // Draw — both teams go back to the waiting pool
+      outgoingIds.push(teamAId, teamBId);
+      rotation.streakTeamId = null;
+      rotation.streakCount = 0;
+    } else {
+      const loserId = winnerId === teamAId ? teamBId : teamAId;
+      outgoingIds.push(loserId);
+
+      if (rotation.streakTeamId === winnerId) {
+        rotation.streakCount += 1;
+      } else {
+        rotation.streakTeamId = winnerId;
+        rotation.streakCount = 1;
+      }
+
+      if (rotation.streakCount >= 3) {
+        // Won 3 in a row — steps aside even though it just won
+        outgoingIds.push(winnerId);
+        rotation.streakTeamId = null;
+        rotation.streakCount = 0;
+      } else {
+        stayingId = winnerId;
+      }
+    }
+
+    rotation.waitingTeamIds.push(...outgoingIds); // outgoing team(s) go to the BACK of the queue
+
+    // Incoming team(s) come from the FRONT of the queue — its order is the admin's manual priority list.
+    const neededCount = stayingId ? 1 : 2;
+    const incomingIds = rotation.waitingTeamIds.slice(0, neededCount);
+    rotation.waitingTeamIds = rotation.waitingTeamIds.slice(neededCount);
+
+    const nextTeamAId = stayingId || incomingIds[0] || null;
+    const nextTeamBId = stayingId ? (incomingIds[0] || null) : (incomingIds[1] || null);
+
+    rotation.currentMatch = (nextTeamAId && nextTeamBId)
+      ? this.createMatch(nextTeamAId, nextTeamBId)
+      : null;
+
+    this.save();
+    return { success: true, winnerId, teamAId, teamBId, scoreA, scoreB };
+  }
+
+  /** Finds which team a player currently belongs to (original roster or an active guest slot). */
+  findPlayerTeamId(playerId) {
+    const team = this.activePelada.teams.find(t => t.playerIds.includes(playerId));
+    if (team) return team.id;
+    const guestSlot = (this.activePelada.guestSlots || []).find(g => g.guestPlayerId === playerId);
+    return guestSlot ? guestSlot.teamId : null;
+  }
+
+  /** Keeps the current match's live score in sync with goals scored by either side (all goals count, including guests/diaristas). */
+  bumpMatchScore(teamId, delta) {
+    const match = this.activePelada.rotation?.currentMatch;
+    if (!match || !teamId) return;
+    if (teamId === match.teamAId) match.scoreA = Math.max(0, match.scoreA + delta);
+    else if (teamId === match.teamBId) match.scoreB = Math.max(0, match.scoreB + delta);
   }
 
   recordGoal(playerId, teamId, isGuest = false) {
@@ -337,6 +563,8 @@ class Store {
     } else {
       this.activePelada.stats[playerId].goals += 1;
     }
+
+    this.bumpMatchScore(teamId, 1);
 
     this.activePelada.events.unshift({
       id: 'ev_' + Date.now(),
@@ -384,6 +612,7 @@ class Store {
         this.activePelada.stats[playerId].goals -= 1;
       }
     }
+    this.bumpMatchScore(this.findPlayerTeamId(playerId), -1);
     this.save();
   }
 
@@ -451,6 +680,7 @@ class Store {
     });
 
     const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
+    const teamWins = this.getTeamWinsFromLog(this.activePelada.rotation?.log);
 
     const now = new Date();
     const historyEntry = this.normalizeHistoryEntry({
@@ -458,7 +688,10 @@ class Store {
       date: now.toLocaleDateString('pt-BR'),
       dateISO: now.toISOString(),
       teamCount: this.activePelada.teamCount,
-      teams: JSON.parse(JSON.stringify(this.activePelada.teams)),
+      teams: JSON.parse(JSON.stringify(this.activePelada.teams)).map(team => ({
+        ...team,
+        wins: teamWins[team.id] || 0,
+      })),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
       diaristaPlayerIds: Array.from(diaristaIds),
       awards: {
@@ -505,7 +738,8 @@ class Store {
       stats: {},
       departedPlayerIds: [],
       guestSlots: [],
-      events: []
+      events: [],
+      rotation: null
     };
 
     this.save();
@@ -739,6 +973,7 @@ class Store {
           name: team.name || `Time ${index + 1}`,
           color: team.color || this.getTeamColor(index),
           playerIds: Array.isArray(team.playerIds) ? [...team.playerIds] : [],
+          wins: Number(team.wins) || 0,
         }))
         : [],
       stats: entry.stats && typeof entry.stats === 'object' ? entry.stats : {},
@@ -850,7 +1085,8 @@ class Store {
       stats: {},
       departedPlayerIds: [],
       guestSlots: [],
-      events: []
+      events: [],
+      rotation: null
     };
     this.save();
   }
@@ -935,7 +1171,8 @@ class Store {
       stats: {},
       departedPlayerIds: [],
       guestSlots: [],
-      events: []
+      events: [],
+      rotation: null
     };
     this.save();
   }

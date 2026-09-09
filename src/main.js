@@ -6,6 +6,7 @@ import { renderHistoryView } from "./views/historyView.js";
 import { renderSettingsView } from "./views/settingsView.js";
 import { renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
 import { showToast } from "./views/rankingView.js";
+import { openPlayerComparison } from "./views/playerComparisonView.js";
 
 const ROLE_KEY = "bolabate_role_v1";
 
@@ -113,10 +114,27 @@ function initApp() {
         </button>
       </nav>
 
+        <button
+          id="ranking-compare-fab"
+          class="compare-fab"
+          title="Comparar jogadores"
+          aria-label="Comparar jogadores"
+          ${currentTab === "ranking" ? "" : "hidden"}
+        >
+          ⚔️
+        </button>
+
         ${renderBolaBotView()}
     `;
 
     initBolaBotView();
+
+    const compareFab = app.querySelector("#ranking-compare-fab");
+    if (compareFab) {
+      compareFab.addEventListener("click", () => {
+        openPlayerComparison();
+      });
+    }
 
     // Bind Navigation items
     app.querySelectorAll(".nav-item").forEach((btn) => {
@@ -164,6 +182,10 @@ function initApp() {
         btn.classList.remove("active");
       }
     });
+
+    const compareFab = document.getElementById("ranking-compare-fab");
+    if (compareFab) compareFab.hidden = tab !== "ranking";
+
     renderCurrentView();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }

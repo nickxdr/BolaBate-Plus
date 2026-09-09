@@ -4,7 +4,6 @@ import {
   emptyPlayerStats,
   statsHaveActivity,
 } from "../services/periodStats.js";
-import { openPlayerComparison } from "./playerComparisonView.js";
 
 function capitalizeMonth(str) {
   return str ? String(str).charAt(0).toUpperCase() + String(str).slice(1) : str;
@@ -65,35 +64,32 @@ export function renderRankingView() {
   container.innerHTML = `
     <div class="ranking-header">
       <div>
-        <h1 style="font-size: 1.6rem; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+        <h1 class="ranking-title">
           🏆 Tabela da Liga
+          <button id="btn-share-whatsapp" class="ranking-share-icon-btn" title="Copiar ranking formatado para WhatsApp" aria-label="Compartilhar ranking">
+            📤
+          </button>
         </h1>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Ranking oficial. Escolha o mês (ou Anual) e o ano para ver a tabela daquele período.
+          Escolha o mês (ou Anual) e o ano para ver a tabela do período.
         </p>
       </div>
       <div class="ranking-header-controls">
         <div class="ranking-period-group">
           <div class="ranking-period-field">
-            <label style="font-size:0.85rem; color:var(--text-muted);">Ano</label>
-            <select id="period-year" class="input-field" style="width:110px;">
+            <label style="font-size:0.85rem; color:var(--text-muted);">Ano: </label>
+            <select id="period-year" class="input-field ranking-period-select">
               ${years.map((y) => `<option value="${y}" ${String(y) === String(selYear) ? "selected" : ""}>${y}</option>`).join("")}
             </select>
           </div>
           <div class="ranking-period-field">
-            <label style="font-size:0.85rem; color:var(--text-muted);">Mês</label>
-            <select id="period-month" class="input-field" style="width:140px;">
+            <label style="font-size:0.85rem; color:var(--text-muted);">Mês: </label>
+            <select id="period-month" class="input-field ranking-period-select">
               <option value="anual" ${isAnnual ? "selected" : ""}>Anual</option>
               ${months.map((m) => `<option value="${m}" ${!isAnnual && Number(m) === Number(selMonth) ? "selected" : ""}>${capitalizeMonth(new Date(0, m - 1).toLocaleString("pt-BR", { month: "long" }))}</option>`).join("")}
             </select>
           </div>
         </div>
-        <button id="btn-player-comparison" class="btn btn-secondary btn-sm" title="Comparar jogadores">
-          ⚔️ Comparar
-        </button>
-        <button id="btn-share-whatsapp" class="btn btn-secondary btn-sm ranking-share-btn" title="Copiar ranking formatado para WhatsApp">
-          <span class="ranking-share-icon">📤</span><span class="ranking-share-label">Compartilhar</span>
-        </button>
       </div>
     </div>
 
@@ -213,12 +209,6 @@ export function renderRankingView() {
       openEditPlayerModal(pid);
     });
   });
-
-  container
-    .querySelector("#btn-player-comparison")
-    ?.addEventListener("click", () => {
-      openPlayerComparison();
-    });
 
   container
     .querySelector("#btn-share-whatsapp")
