@@ -1526,6 +1526,28 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
+/* Sortable column headers (click to reorder the table by that statistic) */
+.ranking-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+}
+
+.ranking-table th.sortable-th:hover:not(.sort-active) {
+  color: var(--text-main);
+}
+
+.ranking-table th.sort-active {
+  font-weight: 800;
+}
+
+.ranking-table th .sort-arrow {
+  font-size: 0.66rem;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
 .ranking-table td {
   padding: 11px 10px;
   border-bottom: 1px solid var(--border-color);
