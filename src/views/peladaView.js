@@ -7,6 +7,7 @@ import {
 } from "../services/balancer.js";
 import { showToast } from "./rankingView.js";
 import { getAvatarDataUri } from "../services/avatar.js";
+import { computeCurrentOVRs } from "../services/ovr.js";
 import confetti from "canvas-confetti";
 import { playSound } from "../services/soundManager.js";
 
@@ -837,6 +838,17 @@ function renderLivePelada(container, onNavigate) {
         const span = btn.previousElementSibling;
         if (span?.classList.contains("count")) span.textContent = assistVal;
       });
+
+    if (!isGuest) {
+      const ovr = computeCurrentOVRs(store)[playerId];
+      if (ovr !== undefined) {
+        container
+          .querySelectorAll(`.mini-pitch-ovr-badge[data-id="${playerId}"]`)
+          .forEach((badge) => {
+            badge.textContent = ovr;
+          });
+      }
+    }
   }
 
   function patchScoreboard() {
@@ -1038,6 +1050,7 @@ function renderLivePelada(container, onNavigate) {
         store.removeGoal(pid, false);
         patchPlayerCounters(pid, false);
         patchScoreboard();
+        patchTimeline();
       });
     });
 
@@ -1056,6 +1069,7 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         store.removeAssist(pid, false);
         patchPlayerCounters(pid, false);
+        patchTimeline();
       });
     });
 
@@ -1078,6 +1092,7 @@ function renderLivePelada(container, onNavigate) {
         store.removeGoal(pid, true);
         patchPlayerCounters(pid, true);
         patchScoreboard();
+        patchTimeline();
       });
     });
 
@@ -1096,6 +1111,7 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         store.removeAssist(pid, true);
         patchPlayerCounters(pid, true);
+        patchTimeline();
       });
     });
 
@@ -1819,6 +1835,8 @@ function renderMatchPanel(
     `;
   }
 
+  const ovrMap = computeCurrentOVRs(store);
+
   const remainingMs = match.timerRunning
     ? Math.max(0, match.timerEndsAt - Date.now())
     : match.timerRemainingMs;
@@ -1866,6 +1884,7 @@ function renderMatchPanel(
                           ? `<img src="${getAvatarDataUri(store.avatars[player.id])}" alt="" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`
                           : escapeHtml(player.name.charAt(0).toUpperCase())
                       }
+                      <span class="mini-pitch-ovr-badge" data-id="${player.id}">${ovrMap[player.id] ?? ""}</span>
                     </div>
                     <span class="mini-pitch-position-name">${escapeHtml(player.name)}</span>
                   </div>

@@ -30,7 +30,7 @@ export function parseDateToPeriod(dateValue) {
 }
 
 export function emptyPlayerStats() {
-  return { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0 };
+  return { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0, wins: 0, losses: 0 };
 }
 
 export function createEmptyPeriod() {
@@ -51,24 +51,32 @@ export function addPlayerStats(target, source, { includeGuest = false } = {}) {
   dest.craque += Number(source.craque) || 0;
   dest.bagre += Number(source.bagre) || 0;
   dest.participacao += Number(source.participacao) || 0;
+  dest.wins += Number(source.wins) || 0;
+  dest.losses += Number(source.losses) || 0;
   return dest;
 }
 
 export function applyHistoryEntryToPeriod(period, entry) {
   const diaristas = new Set(entry.diaristaPlayerIds || []);
-  const participating = new Set();
+  const teamByPlayer = {};
   (entry.teams || []).forEach(team => {
     (team.playerIds || []).forEach(pid => {
-      if (!diaristas.has(pid)) participating.add(pid);
+      teamByPlayer[pid] = team;
     });
   });
+  const participating = new Set(
+    Object.keys(teamByPlayer).filter(pid => !diaristas.has(pid))
+  );
 
   participating.forEach(pid => {
     if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
     const stats = (entry.stats && entry.stats[pid]) || {};
+    const team = teamByPlayer[pid];
     period.players[pid].goals += Number(stats.goals) || 0;
     period.players[pid].assists += Number(stats.assists) || 0;
     period.players[pid].participacao += 1;
+    period.players[pid].wins += Number(team?.wins) || 0;
+    period.players[pid].losses += Number(team?.losses) || 0;
   });
 
   const awards = entry.awards || {};
@@ -99,20 +107,26 @@ export function applyHistoryEntryToPeriod(period, entry) {
 /** Exact inverse of applyHistoryEntryToPeriod — used when deleting a pelada. */
 export function removeHistoryEntryFromPeriod(period, entry) {
   const diaristas = new Set(entry.diaristaPlayerIds || []);
-  const participating = new Set();
+  const teamByPlayer = {};
   (entry.teams || []).forEach(team => {
     (team.playerIds || []).forEach(pid => {
-      if (!diaristas.has(pid)) participating.add(pid);
+      teamByPlayer[pid] = team;
     });
   });
+  const participating = new Set(
+    Object.keys(teamByPlayer).filter(pid => !diaristas.has(pid))
+  );
 
   participating.forEach(pid => {
     const target = period.players[pid];
     if (!target) return;
     const stats = (entry.stats && entry.stats[pid]) || {};
+    const team = teamByPlayer[pid];
     target.goals = Math.max(0, target.goals - (Number(stats.goals) || 0));
     target.assists = Math.max(0, target.assists - (Number(stats.assists) || 0));
     target.participacao = Math.max(0, target.participacao - 1);
+    target.wins = Math.max(0, target.wins - (Number(team?.wins) || 0));
+    target.losses = Math.max(0, target.losses - (Number(team?.losses) || 0));
   });
 
   const awards = entry.awards || {};

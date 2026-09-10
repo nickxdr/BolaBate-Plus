@@ -308,6 +308,7 @@ function renderTeamsSection(entry) {
     }).join('');
 
     const wins = Number(team.wins) || 0;
+    const losses = Number(team.losses) || 0;
 
     return `
       <section class="history-team-card" style="--team-color: ${team.color || 'var(--pitch-green)'}">
@@ -315,6 +316,7 @@ function renderTeamsSection(entry) {
           <span class="history-team-dot"></span>
           <h4>${escapeHtml(team.name || 'Time')}</h4>
           <span class="history-team-wins-pill" title="Vitórias na pelada">${wins} V</span>
+          <span class="history-team-losses-pill" title="Derrotas na pelada">${losses} D</span>
         </header>
         <div class="history-team-players">
           ${rows || '<p class="history-team-empty">Nenhum jogador registrado.</p>'}
