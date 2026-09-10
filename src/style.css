@@ -635,6 +635,7 @@ body {
 }
 
 .mini-pitch-chip {
+  position: relative;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -647,6 +648,67 @@ body {
   font-size: 0.68rem;
   font-weight: 800;
   flex-shrink: 0;
+}
+
+.ovr-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.ovr-badge .ovr-number {
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ovr-badge .ovr-label {
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+.ovr-badge.ovr-elite {
+  background: linear-gradient(145deg, #facc15, #b45309);
+  color: #1a1200;
+}
+
+.ovr-badge.ovr-good {
+  background: linear-gradient(145deg, #4ade80, #15803d);
+  color: #06210f;
+}
+
+.ovr-badge.ovr-mid {
+  background: linear-gradient(145deg, #60a5fa, #1d4ed8);
+  color: #eef4ff;
+}
+
+.ovr-badge.ovr-low {
+  background: linear-gradient(145deg, #9ca3af, #4b5563);
+  color: #f3f4f6;
+}
+
+.mini-pitch-ovr-badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #FCD34D;
+  font-size: 0.5rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 6px;
+  pointer-events: none;
 }
 
 .mini-pitch-position-name {
@@ -1952,6 +2014,18 @@ body {
   background: rgba(245, 158, 11, 0.18);
   color: var(--accent-gold);
   border: 1px solid rgba(245, 158, 11, 0.4);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 9px;
+  border-radius: 10px;
+}
+
+.history-team-losses-pill {
+  flex-shrink: 0;
+  white-space: nowrap;
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.4);
   font-size: 0.72rem;
   font-weight: 800;
   padding: 2px 9px;

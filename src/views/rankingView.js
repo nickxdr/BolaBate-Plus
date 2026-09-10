@@ -4,6 +4,7 @@ import {
   emptyPlayerStats,
   statsHaveActivity,
 } from "../services/periodStats.js";
+import { computeCumulativeOVRsAsOf } from "../services/ovr.js";
 
 function capitalizeMonth(str) {
   return str ? String(str).charAt(0).toUpperCase() + String(str).slice(1) : str;
@@ -31,6 +32,7 @@ export function renderRankingView() {
     : store.getPeriodSnapshot(Number(selYear), Number(selMonth));
 
   // Calculate sorted rankings from period snapshot (fallback to zeros)
+  const periodOvrMap = computeCumulativeOVRsAsOf(store, Number(selYear), Number(selMonth) || 1, isAnnual);
   const rankedPlayers = [...store.players]
     .map((p) => {
       const stats =
@@ -46,6 +48,7 @@ export function renderRankingView() {
         bagre: stats.bagre || 0,
         participacao: stats.participacao || 0,
         totalPoints: calculatePointsFromStats(stats),
+        ovr: periodOvrMap[p.id] || 0,
       };
     })
     .filter((p) => statsHaveActivity(p))
@@ -112,6 +115,7 @@ export function renderRankingView() {
           <tr>
             <th style="width: 50px;">Pos</th>
             <th style="text-align: left; padding-left: 14px;">Jogador</th>
+            <th title="Overall do mês — estrelas ajustadas pelo desempenho frente à média da liga no período">OVR</th>
             <th style="color: var(--pitch-green);">Pontos</th>
             <th>Gols (+3)</th>
             <th>Assists (+2)</th>
@@ -159,6 +163,9 @@ export function renderRankingView() {
         </span>
         ${isG4 ? '<span style="font-size: 0.68rem; background: var(--g4-bg); color: var(--g4-text); padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 800;">G4</span>' : ""}
         ${isZ4 ? '<span style="font-size: 0.68rem; background: var(--z4-bg); color: var(--z4-text); padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 800;">Z4</span>' : ""}
+      </td>
+      <td>
+        <span class="star-badge" style="font-size: 0.72rem; padding: 1px 6px;">${player.ovr}</span>
       </td>
       <td class="points-cell" style="font-size: 1.1rem; font-weight: 900;">
         ${player.totalPoints}

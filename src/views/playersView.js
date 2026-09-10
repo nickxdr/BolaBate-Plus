@@ -7,6 +7,14 @@ import {
   DEFAULT_AVATAR_CONFIG,
   getAvatarDataUri,
 } from "../services/avatar.js";
+import { computeCurrentOVRs } from "../services/ovr.js";
+
+function ovrTierClass(ovr) {
+  if (ovr >= 85) return "ovr-elite";
+  if (ovr >= 70) return "ovr-good";
+  if (ovr >= 55) return "ovr-mid";
+  return "ovr-low";
+}
 
 /**
  * Diaristas (day-rate guests) declutter the roster management screen once their
@@ -610,6 +618,7 @@ export function renderPlayersView() {
     const frequentCompanions = getFrequentCompanions(id);
     const positions = ["Fixo", "Ala", "Pivô"];
     const achievements = getPlayerAchievements(id);
+    const ovr = computeCurrentOVRs(store)[id] ?? 0;
 
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="profile-modal-overlay">
@@ -627,6 +636,11 @@ export function renderPlayersView() {
               >
                 <img src="${getAvatarDataUri(store.avatars[player.id])}" alt="" style="width: 100%; height: 100%; object-fit: cover;" />
               </button>
+
+              <div class="ovr-badge ${ovrTierClass(ovr)}" title="Overall — calculado a partir das estrelas e do desempenho em relação à média da liga">
+                <span class="ovr-number">${ovr}</span>
+                <span class="ovr-label">OVR</span>
+              </div>
 
               <div>
                 <span class="profile-eyebrow">

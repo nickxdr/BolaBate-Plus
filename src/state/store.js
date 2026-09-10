@@ -421,15 +421,20 @@ class Store {
     return match ? Number(match[1]) : 0;
   }
 
-  /** Counts match wins per team from the rotation log — a draw counts for neither side. Used to archive win totals into history when the pelada ends. */
-  getTeamWinsFromLog(log) {
-    const wins = {};
+  /** Counts match wins & losses per team from the rotation log — a draw counts for neither side. Used to archive the record into history when the pelada ends. */
+  getTeamRecordFromLog(log) {
+    const record = {};
+    const bump = (teamId, field) => {
+      if (!record[teamId]) record[teamId] = { wins: 0, losses: 0 };
+      record[teamId][field] += 1;
+    };
     (log || []).forEach(entry => {
-      if (entry.winnerId) {
-        wins[entry.winnerId] = (wins[entry.winnerId] || 0) + 1;
-      }
+      if (!entry.winnerId) return; // draw — counts for neither side
+      const loserId = entry.winnerId === entry.teamAId ? entry.teamBId : entry.teamAId;
+      bump(entry.winnerId, 'wins');
+      bump(loserId, 'losses');
     });
-    return wins;
+    return record;
   }
 
   /** How many players a team can currently field: present roster minus departures, plus any guest fill-ins. */
@@ -730,6 +735,15 @@ class Store {
     this.saveQuiet();
   }
 
+  /** Undoing a goal/assist should also drop its entry from the live match timeline — removes
+   *  the most recently recorded matching event (events are unshifted, so it's the first match). */
+  removeMostRecentEvent(type, playerId, isGuest) {
+    const idx = this.activePelada.events.findIndex(
+      ev => ev.type === type && ev.playerId === playerId && !!ev.isGuest === !!isGuest
+    );
+    if (idx !== -1) this.activePelada.events.splice(idx, 1);
+  }
+
   removeGoal(playerId, isGuest = false) {
     if (!this.activePelada.stats[playerId]) return;
     if (isGuest) {
@@ -742,6 +756,7 @@ class Store {
       }
     }
     this.bumpMatchScore(this.findPlayerTeamId(playerId), -1);
+    this.removeMostRecentEvent('goal', playerId, isGuest);
     this.saveQuiet();
   }
 
@@ -756,6 +771,7 @@ class Store {
         this.activePelada.stats[playerId].assists -= 1;
       }
     }
+    this.removeMostRecentEvent('assist', playerId, isGuest);
     this.saveQuiet();
   }
 
@@ -825,7 +841,7 @@ class Store {
     });
 
     const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
-    const teamWins = this.getTeamWinsFromLog(this.activePelada.rotation?.log);
+    const teamRecord = this.getTeamRecordFromLog(this.activePelada.rotation?.log);
 
     const now = new Date();
     const historyEntry = this.normalizeHistoryEntry({
@@ -835,7 +851,8 @@ class Store {
       teamCount: this.activePelada.teamCount,
       teams: JSON.parse(JSON.stringify(this.activePelada.teams)).map(team => ({
         ...team,
-        wins: teamWins[team.id] || 0,
+        wins: teamRecord[team.id]?.wins || 0,
+        losses: teamRecord[team.id]?.losses || 0,
       })),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
       diaristaPlayerIds: Array.from(diaristaIds),
@@ -856,11 +873,19 @@ class Store {
     const key = parseDateToPeriod(historyEntry.dateISO) || this.currentPeriodKey();
     this.ensurePeriodByKey(key);
 
+    const teamByPlayer = {};
+    this.activePelada.teams.forEach(team => {
+      team.playerIds.forEach(pid => { teamByPlayer[pid] = team; });
+    });
+
     participatingPlayerIds.forEach(pid => {
       if (diaristaIds.has(pid)) return; // Diaristas don't count toward the ranking table
       const pStats = this.activePelada.stats[pid];
       const periodStats = this.getOrCreatePeriodPlayer(key, pid);
+      const record = teamRecord[teamByPlayer[pid]?.id];
       periodStats.participacao += 1;
+      periodStats.wins += Number(record?.wins) || 0;
+      periodStats.losses += Number(record?.losses) || 0;
       if (pStats) {
         periodStats.goals += Number(pStats.goals) || 0;
         periodStats.assists += Number(pStats.assists) || 0;
@@ -1169,6 +1194,9 @@ class Store {
           color: team.color || this.getTeamColor(index),
           playerIds: Array.isArray(team.playerIds) ? [...team.playerIds] : [],
           wins: Number(team.wins) || 0,
+          // Peladas finished before this field existed have no way to retroactively
+          // know their losses (the rotation log itself isn't archived) — defaults to 0.
+          losses: Number(team.losses) || 0,
         }))
         : [],
       stats: entry.stats && typeof entry.stats === 'object' ? entry.stats : {},
