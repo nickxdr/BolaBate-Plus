@@ -36,7 +36,7 @@ const MATCH_TIMER_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 class Store {
   constructor() {
     this.listeners = new Set();
-    this.theme = localStorage.getItem(THEME_KEY) || 'dark';
+    this.theme = localStorage.getItem(THEME_KEY) || 'bolabate-dark';
     this.isAdmin = false;         // true only for the admin Firebase UID
     this.cloudUserType = null;    // 'admin' | 'anon' | null
     this.cloudStatus = 'connecting';
@@ -280,7 +280,8 @@ class Store {
   }
 
   setTheme(theme) {
-    this.theme = theme === 'light' ? 'light' : 'dark';
+    const valid = ['dark', 'light', 'bolabate-dark', 'bolabate-light'];
+    this.theme = valid.includes(theme) ? theme : 'bolabate-dark';
     this.applyTheme(this.theme);
     this.save();
   }

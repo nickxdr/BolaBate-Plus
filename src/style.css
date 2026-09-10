@@ -52,6 +52,12 @@
 
   --diarista-yellow: #EEFF00;
   --diarista-yellow-glow: rgba(238, 255, 0, 0.3);
+
+  --brand-gradient: linear-gradient(135deg, #10B981, #34D399);
+  --brand-plus-color: #F59E0B;
+
+  --btn-primary-gradient: linear-gradient(135deg, #10B981, #059669);
+  --btn-primary-gradient-hover: linear-gradient(135deg, #34D399, #10B981);
 }
 
 /* Light Theme Variables */
@@ -98,6 +104,138 @@
 
   --diarista-yellow: #A3A200;
   --diarista-yellow-glow: rgba(163, 162, 0, 0.2);
+
+  --brand-gradient: linear-gradient(135deg, #059669, #10B981);
+  --brand-plus-color: #D97706;
+
+  --btn-primary-gradient: linear-gradient(135deg, #10B981, #059669);
+  --btn-primary-gradient-hover: linear-gradient(135deg, #34D399, #10B981);
+}
+
+/* Bola Bate Dark Theme — red/blue/white, matching the club badge. New app default. */
+[data-theme="bolabate-dark"] {
+  --bg-app: #0A0E1A;
+  --bg-card: #111729;
+  --bg-card-hover: #182036;
+  --bg-card-subtle: #141B30;
+  --border-color: #212B47;
+  --border-highlight: #34406B;
+
+  --text-main: #F8FAFC;
+  --text-muted: #9CA9C4;
+  --text-dim: #64729A;
+
+  --pitch-green: #2563EB;
+  --pitch-green-glow: rgba(37, 99, 235, 0.28);
+  --pitch-green-dark: #1E3A8A;
+
+  --accent-gold: #F59E0B;
+  --accent-gold-glow: rgba(245, 158, 11, 0.25);
+  --accent-gold-bg: rgba(245, 158, 11, 0.15);
+
+  --accent-red: #E11D2E;
+  --accent-red-glow: rgba(225, 29, 46, 0.28);
+  --accent-red-bg: rgba(225, 29, 46, 0.16);
+
+  --accent-blue: #3B82F6;
+  --accent-purple: #8B5CF6;
+
+  --g4-bg: #1D5A3A;
+  --g4-text: #E8F5E9;
+  --g4-row-bg: rgba(74, 222, 128, 0.14);
+  --g4-row-border: #22C55E;
+
+  --z4-bg: #7A121F;
+  --z4-text: #FEE2E2;
+  --z4-row-bg: rgba(225, 29, 46, 0.16);
+  --z4-row-border: #E11D2E;
+
+  --top1-bg: #FBBF24;
+  --top1-text: #78350F;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  --diarista-yellow: #EEFF00;
+  --diarista-yellow-glow: rgba(238, 255, 0, 0.3);
+
+  --brand-gradient: linear-gradient(135deg, #2563EB, #60A5FA);
+  --brand-plus-color: #E11D2E;
+
+  --btn-primary-gradient: linear-gradient(135deg, #2563EB, #1D4ED8);
+  --btn-primary-gradient-hover: linear-gradient(135deg, #3B82F6, #2563EB);
+}
+
+[data-theme="bolabate-dark"] .app-header {
+  background-color: rgba(10, 14, 26, 0.85);
+}
+
+[data-theme="bolabate-dark"] .bottom-nav {
+  background-color: rgba(10, 14, 26, 0.95);
+}
+
+/* Bola Bate Light Theme — same red/blue/white palette, inverted for a bright background. */
+[data-theme="bolabate-light"] {
+  --bg-app: #F5F7FC;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #EEF2FA;
+  --bg-card-subtle: #F5F7FC;
+  --border-color: #DDE4F2;
+  --border-highlight: #C2CEE8;
+
+  --text-main: #0B1220;
+  --text-muted: #4A5678;
+  --text-dim: #8A96B5;
+
+  --pitch-green: #1D4ED8;
+  --pitch-green-glow: rgba(29, 78, 216, 0.2);
+  --pitch-green-dark: #DBEAFE;
+
+  --accent-gold: #D97706;
+  --accent-gold-glow: rgba(217, 119, 6, 0.2);
+  --accent-gold-bg: rgba(217, 119, 6, 0.1);
+
+  --accent-red: #DC2626;
+  --accent-red-glow: rgba(220, 38, 38, 0.2);
+  --accent-red-bg: rgba(220, 38, 38, 0.1);
+
+  --accent-blue: #2563EB;
+  --accent-purple: #8B5CF6;
+
+  --g4-bg: #4D7C0F;
+  --g4-text: #FFFFFF;
+  --g4-row-bg: #DCFCE7;
+  --g4-row-border: #16A34A;
+
+  --z4-bg: #DC2626;
+  --z4-text: #FFFFFF;
+  --z4-row-bg: #FEE2E2;
+  --z4-row-border: #DC2626;
+
+  --top1-bg: #FDE047;
+  --top1-text: #713F12;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 20px rgba(0, 0, 0, 0.12);
+
+  --diarista-yellow: #A3A200;
+  --diarista-yellow-glow: rgba(163, 162, 0, 0.2);
+
+  --brand-gradient: linear-gradient(135deg, #1D4ED8, #3B82F6);
+  --brand-plus-color: #DC2626;
+
+  --btn-primary-gradient: linear-gradient(135deg, #2563EB, #1D4ED8);
+  --btn-primary-gradient-hover: linear-gradient(135deg, #3B82F6, #2563EB);
+}
+
+[data-theme="bolabate-light"] .app-header {
+  background-color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="bolabate-light"] .bottom-nav {
+  background-color: rgba(255, 255, 255, 0.95);
 }
 
 * {
@@ -167,7 +305,7 @@ body {
   font-size: 1.25rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #10B981, #34D399);
+  background: var(--brand-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -177,8 +315,8 @@ body {
 }
 
 .brand-title span.plus {
-  color: #F59E0B;
-  -webkit-text-fill-color: #F59E0B;
+  color: var(--brand-plus-color);
+  -webkit-text-fill-color: var(--brand-plus-color);
   font-weight: 900;
 }
 
@@ -349,13 +487,13 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: var(--btn-primary-gradient);
   color: #FFFFFF;
   box-shadow: 0 4px 12px var(--pitch-green-glow);
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, #34D399, #10B981);
+  background: var(--btn-primary-gradient-hover);
 }
 
 .btn-secondary {
@@ -1708,7 +1846,7 @@ body {
 }
 
 .player-chip.selected {
-  background: rgba(16, 185, 129, 0.15);
+  background: var(--pitch-green-glow);
   border-color: var(--pitch-green);
   color: var(--text-main);
 }
@@ -2501,7 +2639,7 @@ body {
   height: 58px;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: var(--btn-primary-gradient);
   color: #FFFFFF;
   display: flex;
   align-items: center;
@@ -2577,6 +2715,23 @@ body {
 
 .compare-fab:active {
   transform: scale(0.95);
+}
+
+/* In the Bola Bate theme the head-to-head FAB goes red instead of blue, so it doesn't
+   blend into the (now also blue) BolaBot trigger sitting right next to it. */
+[data-theme="bolabate-dark"] .compare-fab,
+[data-theme="bolabate-light"] .compare-fab {
+  background: linear-gradient(135deg, #F43F5E, #E11D2E);
+  box-shadow:
+    0 6px 20px var(--accent-red-glow),
+    0 0 0 4px var(--accent-red-bg);
+}
+
+[data-theme="bolabate-dark"] .compare-fab:hover,
+[data-theme="bolabate-light"] .compare-fab:hover {
+  box-shadow:
+    0 8px 26px var(--accent-red-glow),
+    0 0 0 5px var(--accent-red-bg);
 }
 
 
@@ -2658,7 +2813,7 @@ body {
 
   border-radius: 12px;
 
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: var(--btn-primary-gradient);
 
   color: #FFFFFF;
 
@@ -2785,7 +2940,7 @@ body {
 }
 
 .bolabot-message.user .bolabot-bubble {
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: var(--btn-primary-gradient);
 
   color: #FFFFFF;
 
@@ -2982,7 +3137,7 @@ body {
   border: none;
   border-radius: 12px;
 
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: var(--btn-primary-gradient);
 
   color: #FFFFFF;
 
@@ -3186,6 +3341,7 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* The splash logo stays fixed on first open regardless of the active theme. */
 .splash-logo-icon {
   width: 80px;
   height: 80px;
@@ -3207,7 +3363,7 @@ body {
 }
 
 .splash-logo-title .splash-plus {
-  color: #10B981;
+  color: #F59E0B;
 }
 
 .splash-logo-subtitle {
@@ -3257,10 +3413,10 @@ body {
   font-weight: 700;
   font-family: var(--font-family);
   cursor: pointer;
-  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  background: var(--btn-primary-gradient);
   color: #fff;
   box-shadow:
-    0 0 28px rgba(16, 185, 129, 0.35),
+    0 0 28px var(--pitch-green-glow),
     0 6px 20px rgba(0, 0, 0, 0.4);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   display: flex;

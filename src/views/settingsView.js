@@ -34,20 +34,41 @@ export function renderSettingsView() {
           🎨 Tema Visual
         </h2>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-          Escolha entre o tema Escuro (estádio noturno) e o tema Claro.
+          Escolha os temas Escuro/Claro Bola Bate ou os temas Escuro/Claro tradicionais.
         </p>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div id="theme-bolabate-dark-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === "bolabate-dark" ? "#3B82F6" : "var(--border-color)"}; background: #0A0E1A; color: #F8FAFC; text-align: center; margin-bottom: 0;">
+            <div style="font-size: 1.5rem; margin-bottom: 6px;">🛡️</div>
+            <strong style="font-size: 0.95rem;">Bola Bate Escuro</strong>
+            <div style="font-size: 0.75rem; margin-top: 2px;">
+              <span style="color: #3B82F6;">●</span>
+              <span style="color: #E11D2E;">●</span>
+              <span style="color: #F8FAFC;">●</span>
+              (Padrão)
+            </div>
+          </div>
+
+          <div id="theme-bolabate-light-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === "bolabate-light" ? "#1D4ED8" : "var(--border-color)"}; background: #F5F7FC; color: #0B1220; text-align: center; margin-bottom: 0;">
+            <div style="font-size: 1.5rem; margin-bottom: 6px;">🛡️</div>
+            <strong style="font-size: 0.95rem;">Bola Bate Claro</strong>
+            <div style="font-size: 0.75rem; margin-top: 2px;">
+              <span style="color: #1D4ED8;">●</span>
+              <span style="color: #DC2626;">●</span>
+              <span style="color: #94A3B8;">●</span>
+            </div>
+          </div>
+
           <div id="theme-dark-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === "dark" ? "var(--pitch-green)" : "var(--border-color)"}; background: #0F172A; color: #F8FAFC; text-align: center; margin-bottom: 0;">
             <div style="font-size: 1.5rem; margin-bottom: 6px;">🌙</div>
             <strong style="font-size: 0.95rem;">Tema Escuro</strong>
-            <div style="font-size: 0.75rem; color: #94A3B8; margin-top: 2px;">(Padrão Estádio)</div>
+            <div style="font-size: 0.75rem; color: #94A3B8; margin-top: 2px;">(Clássico Estádio)</div>
           </div>
 
           <div id="theme-light-btn" class="card" style="padding: 14px; cursor: pointer; border: 2px solid ${store.theme === "light" ? "var(--pitch-green)" : "var(--border-color)"}; background: #FFFFFF; color: #0F172A; text-align: center; margin-bottom: 0;">
             <div style="font-size: 1.5rem; margin-bottom: 6px;">☀️</div>
             <strong style="font-size: 0.95rem;">Tema Claro</strong>
-            <div style="font-size: 0.75rem; color: #64748B; margin-top: 2px;">(Alto Contraste)</div>
+            <div style="font-size: 0.75rem; color: #64748B; margin-top: 2px;">(Clássico Alto Contraste)</div>
           </div>
         </div>
       </div>
@@ -148,6 +169,20 @@ export function renderSettingsView() {
     `;
 
     // Bind Theme
+    container
+      .querySelector("#theme-bolabate-dark-btn")
+      .addEventListener("click", () => {
+        store.setTheme("bolabate-dark");
+        render();
+      });
+
+    container
+      .querySelector("#theme-bolabate-light-btn")
+      .addEventListener("click", () => {
+        store.setTheme("bolabate-light");
+        render();
+      });
+
     container.querySelector("#theme-dark-btn").addEventListener("click", () => {
       store.setTheme("dark");
       render();
