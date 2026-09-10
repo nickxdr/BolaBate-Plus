@@ -100,6 +100,7 @@ function renderComparisonResult(player1Id, player2Id) {
 
   const points1 = calculatePointsFromStats(stats1);
   const points2 = calculatePointsFromStats(stats2);
+  const directHistory = getDirectHistory(player1.id, player2.id);
 
   const rows = [
     {
@@ -216,13 +217,155 @@ function renderComparisonResult(player1Id, player2Id) {
     </div>
 
     <div class="comparison-direct-history">
-      <div class="comparison-history-title">
-        🏟️ Confronto direto
+      <div class="comparison-section-heading">
+        <div>
+          <span class="comparison-section-kicker">HISTÓRICO</span>
+          <div class="comparison-history-title">🏟️ Confronto direto</div>
+        </div>
+        <span class="comparison-match-count">${directHistory.length} ${directHistory.length === 1 ? 'partida' : 'partidas'}</span>
       </div>
+      ${renderDirectHistory(directHistory, player1, player2)}
+    </div>
 
-      <p>
-        Ainda não existem partidas registradas entre esses jogadores.
-      </p>
+    <div class="comparison-performance">
+      <div class="comparison-section-heading">
+        <div>
+          <span class="comparison-section-kicker">DESEMPENHO</span>
+          <div class="comparison-history-title">Gols e assistências no confronto</div>
+        </div>
+        <span class="comparison-performance-icon">⚽</span>
+      </div>
+      ${renderPerformance(directHistory, player1, player2)}
+    </div>
+  `;
+}
+
+function getDirectHistory(player1Id, player2Id) {
+  const history = [...store.history]
+    .map(entry => {
+      const team1 = (entry.teams || []).find(team => (team.playerIds || []).includes(player1Id));
+      const team2 = (entry.teams || []).find(team => (team.playerIds || []).includes(player2Id));
+
+      if (!team1 || !team2 || team1.id === team2.id) return null;
+
+      return {
+        date: entry.date || 'Data não informada',
+        dateISO: entry.dateISO || '',
+        team1Name: team1.name || 'Time 1',
+        team2Name: team2.name || 'Time 2',
+        team1Wins: Number(team1.wins) || 0,
+        team2Wins: Number(team2.wins) || 0,
+        stats1: entry.stats?.[player1Id] || {},
+        stats2: entry.stats?.[player2Id] || {},
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const dateA = a.dateISO ? new Date(a.dateISO).getTime() : 0;
+      const dateB = b.dateISO ? new Date(b.dateISO).getTime() : 0;
+      return dateB - dateA;
+    });
+
+  const activePelada = store.activePelada;
+  const activeTeam1 = (activePelada?.teams || [])
+    .find(team => (team.playerIds || []).includes(player1Id));
+  const activeTeam2 = (activePelada?.teams || [])
+    .find(team => (team.playerIds || []).includes(player2Id));
+
+  if (activePelada?.status === 'live' && activeTeam1 && activeTeam2 && activeTeam1.id !== activeTeam2.id) {
+    const directMatches = [
+      ...(activePelada.rotation?.log || []),
+      ...(activePelada.rotation?.currentMatch ? [activePelada.rotation.currentMatch] : [])
+    ].filter(match => (
+      (match.teamAId === activeTeam1.id && match.teamBId === activeTeam2.id) ||
+      (match.teamBId === activeTeam1.id && match.teamAId === activeTeam2.id)
+    ));
+
+    if (directMatches.length > 0) {
+      const completedMatches = directMatches.filter(match => match !== activePelada.rotation?.currentMatch);
+      const directWins = completedMatches.reduce((result, match) => {
+        const player1IsA = match.teamAId === activeTeam1.id;
+        const score1 = Number(player1IsA ? match.scoreA : match.scoreB) || 0;
+        const score2 = Number(player1IsA ? match.scoreB : match.scoreA) || 0;
+        if (score1 > score2) result.team1Wins += 1;
+        else if (score2 > score1) result.team2Wins += 1;
+        else result.draws += 1;
+        return result;
+      }, { team1Wins: 0, team2Wins: 0, draws: 0 });
+
+      history.unshift({
+        date: 'Em andamento',
+        dateISO: new Date().toISOString(),
+        team1Name: activeTeam1.name || 'Time 1',
+        team2Name: activeTeam2.name || 'Time 2',
+        team1Wins: directWins.team1Wins,
+        team2Wins: directWins.team2Wins,
+        activeDraws: directWins.draws,
+        isActive: true,
+        stats1: activePelada.stats?.[player1Id] || {},
+        stats2: activePelada.stats?.[player2Id] || {}
+      });
+    }
+  }
+
+  return history;
+}
+
+function renderDirectHistory(history, player1, player2) {
+  const totals = history.reduce((result, match) => {
+    if (match.team1Wins > match.team2Wins) result.player1Wins += 1;
+    else if (match.team2Wins > match.team1Wins) result.player2Wins += 1;
+    else if (match.isActive) result.draws += Number(match.activeDraws) || 0;
+    else result.draws += 1;
+    return result;
+  }, { player1Wins: 0, draws: 0, player2Wins: 0 });
+
+  return `
+    <div class="comparison-history-cards">
+      <div class="comparison-history-stat">
+        <span class="comparison-history-player player-one">● ${escapeHtml(player1.name)}</span>
+        <strong>${totals.player1Wins}</strong>
+        <small>VITÓRIAS</small>
+      </div>
+      <div class="comparison-history-stat">
+        <span class="comparison-history-player draws">● Empates</span>
+        <strong>${totals.draws}</strong>
+        <small>EMPATES</small>
+      </div>
+      <div class="comparison-history-stat">
+        <span class="comparison-history-player player-two">● ${escapeHtml(player2.name)}</span>
+        <strong>${totals.player2Wins}</strong>
+        <small>VITÓRIAS</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderPerformance(history, player1, player2) {
+  const totals = history.reduce((result, match) => {
+    result.player1Goals += Number(match.stats1.goals) || 0;
+    result.player1Assists += Number(match.stats1.assists) || 0;
+    result.player2Goals += Number(match.stats2.goals) || 0;
+    result.player2Assists += Number(match.stats2.assists) || 0;
+    return result;
+  }, { player1Goals: 0, player1Assists: 0, player2Goals: 0, player2Assists: 0 });
+
+  return `
+    <div class="comparison-performance-grid">
+      <div class="comparison-performance-player">
+        <span class="comparison-history-player player-one">● ${escapeHtml(player1.name)}</span>
+        <div class="comparison-performance-values">
+          <strong>${totals.player1Goals}</strong><strong>${totals.player1Assists}</strong>
+        </div>
+        <div class="comparison-performance-labels"><small>GOLS</small><small>ASSISTÊNCIAS</small></div>
+      </div>
+      <div class="comparison-performance-player">
+        <span class="comparison-history-player player-two">● ${escapeHtml(player2.name)}</span>
+        <div class="comparison-performance-values">
+          <strong>${totals.player2Goals}</strong><strong>${totals.player2Assists}</strong>
+        </div>
+        <div class="comparison-performance-labels"><small>GOLS</small><small>ASSISTÊNCIAS</small></div>
+      </div>
     </div>
   `;
 }
@@ -245,6 +388,15 @@ export function initPlayerComparisonView() {
       ? renderComparisonResult(id1, id2)
       : renderComparisonPrompt();
   }
+
+  const unsubscribe = store.subscribe(updateComparison);
+  const refreshTimer = window.setInterval(() => {
+    if (player1Select.value && player2Select.value) updateComparison();
+  }, 500);
+  modal._comparisonUnsubscribe = () => {
+    window.clearInterval(refreshTimer);
+    unsubscribe();
+  };
 
   player1Select.addEventListener('change', updateComparison);
   player2Select.addEventListener('change', updateComparison);
@@ -288,6 +440,7 @@ export function closePlayerComparison() {
   const modal = document.querySelector('#player-comparison-modal');
 
   if (modal) {
+    modal._comparisonUnsubscribe?.();
     modal.remove();
   }
 
