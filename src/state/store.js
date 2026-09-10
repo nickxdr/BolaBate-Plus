@@ -11,10 +11,11 @@ import {
   STAT_FIELDS,
 } from '../services/periodStats.js';
 
-import { initCloudSync, scheduleCloudPush } from '../services/cloudSync.js';
+import { initCloudSync, scheduleCloudPush, pushAvatarConfig, initAvatarSync } from '../services/cloudSync.js';
 
 const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1';
+const AVATARS_KEY = 'bolabate_avatars_v1';
 
 // Store methods that mutate league data — reserved for the admin account.
 // Everyone else gets read-only access (also enforced by Firestore Security Rules).
@@ -43,6 +44,7 @@ class Store {
     this.onCloudStatus = null;    // set by main.js → UI status updates
     this.players = this.loadPlayers();
     this.teamSize = this.loadTeamSize(); // 5 (default) or 6 — league-wide match format, synced via cloud
+    this.avatars = this.loadAvatars(); // playerId -> avatar config; anyone can edit anyone's, synced independently
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
     this.monthlyStats = this.loadMonthlyStats();
@@ -115,6 +117,37 @@ class Store {
     this.teamSize = next;
     this.save();
     return { success: true };
+  }
+
+  loadAvatars() {
+    try {
+      const data = localStorage.getItem(AVATARS_KEY);
+      if (data) return JSON.parse(data);
+    } catch (e) {
+      console.error('Error loading avatars:', e);
+    }
+    return {};
+  }
+
+  /**
+   * Sets a player's avatar config (from the DiceBear-based creator in the Players screen).
+   * Deliberately NOT admin-gated — it's a purely cosmetic, low-stakes feature, so anyone
+   * (including anonymous visitors) can customize any player's avatar. Persists locally
+   * right away for instant feedback, then mirrors to its own Firestore collection —
+   * separate from the main admin-only synced document — so it reaches every device.
+   */
+  updatePlayerAvatar(playerId, config) {
+    if (!playerId) return;
+    this.avatars[playerId] = config;
+    try {
+      localStorage.setItem(AVATARS_KEY, JSON.stringify(this.avatars));
+    } catch (e) {
+      console.error('Error saving avatars:', e);
+    }
+    this.notify();
+    pushAvatarConfig(playerId, config).catch((err) => {
+      console.error('[avatar] Failed to sync avatar:', err);
+    });
   }
 
   loadPelada() {
@@ -201,6 +234,7 @@ class Store {
   /** Connects the store to Firebase (anonymous auth + live cloud subscription). */
   initCloud() {
     initCloudSync(this);
+    initAvatarSync(this);
   }
 
   _setCloudStatus(status, detail) {

@@ -28,6 +28,11 @@ const CLOUD_DOC_ID = IS_DEV_ENVIRONMENT ? "state-dev" : "state";
 const CLOUD_DOC = doc(db, "cloud", CLOUD_DOC_ID);
 const ADMINS_COL = collection(db, "admins");
 
+// Player avatars live in their own collection (not the single admin-only cloud/state
+// document) since anyone — including anonymous visitors — can write to it.
+const AVATARS_COL_ID = IS_DEV_ENVIRONMENT ? "playerAvatars-dev" : "playerAvatars";
+const AVATARS_COL = collection(db, AVATARS_COL_ID);
+
 if (IS_DEV_ENVIRONMENT) {
   console.info(`[cloud] Dev/local environment — using cloud/${CLOUD_DOC_ID} (production data is untouched).`);
 }
@@ -279,6 +284,54 @@ export function initCloudSync(store) {
     }
 
     ensureSnapshotSubscription();
+  });
+}
+
+let avatarsStarted = false;
+
+/**
+ * Live-syncs player avatars — a separate, wide-open collection (anyone signed in, admin or
+ * anonymous, can read/write) since customizing an avatar is purely cosmetic and isn't gated
+ * like the rest of the league data. Only starts listening once auth resolves, same reasoning
+ * as ensureSnapshotSubscription above (a Listen with no auth token yet is rejected for good).
+ */
+export function initAvatarSync(store) {
+  if (avatarsStarted) return;
+  avatarsStarted = true;
+
+  let subscribed = false;
+  function ensureSubscription() {
+    if (subscribed) return;
+    subscribed = true;
+    onSnapshot(
+      AVATARS_COL,
+      (snap) => {
+        const avatars = {};
+        snap.forEach((docSnap) => {
+          avatars[docSnap.id] = docSnap.data().config;
+        });
+        store.avatars = avatars;
+        try {
+          localStorage.setItem("bolabate_avatars_v1", JSON.stringify(avatars));
+        } catch (e) {
+          // ignore — in-memory state is still correct
+        }
+        store.notify();
+      },
+      (err) => console.error("[cloud] Avatar subscription error:", err),
+    );
+  }
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) ensureSubscription();
+  });
+}
+
+/** Saves one player's avatar config — callable by anyone, admin or anonymous. */
+export async function pushAvatarConfig(playerId, config) {
+  await setDoc(doc(AVATARS_COL, playerId), {
+    config,
+    updatedAt: new Date().toISOString(),
   });
 }
 

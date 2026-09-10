@@ -1,0 +1,191 @@
+// Player avatar creator (Mii/Duolingo-style) built on DiceBear's "avataaars" style.
+// Anyone — admin or anonymous visitor — can customize any player's avatar; it's a
+// purely cosmetic, low-stakes feature, so there's no ownership/permission model here.
+import { createAvatar } from "@dicebear/core";
+import { avataaars } from "@dicebear/collection";
+
+const SCHEMA = avataaars.schema.properties;
+
+/** Turns a DiceBear trait codename ("shortFlat") into a readable label ("Short Flat"). */
+function humanize(key) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function enumOptions(schemaKey) {
+  return (SCHEMA[schemaKey]?.items?.enum || []).map((value) => ({
+    value,
+    label: humanize(value),
+  }));
+}
+
+// The clothing region's absolute bounding box for the "shirtCrewNeck" shape, in the
+// avatar's 280x280 canvas (extracted from DiceBear's own generated SVG) — used to size
+// and position each jersey's pattern fill so it exactly follows the shirt DiceBear draws,
+// instead of a hand-drawn overlay that would risk not lining up with the body/neck/arms.
+const JERSEY_X = 32;
+const JERSEY_Y = 170;
+const JERSEY_W = 200;
+const JERSEY_H = 110;
+const JERSEY_BASE_CLOTHING = "shirtCrewNeck";
+// Never a real DiceBear palette color — used to find-and-replace the clothing fill
+// with our pattern reference in the generated SVG string.
+const JERSEY_MARKER_COLOR = "ff00fe";
+
+// Real club jerseys — fixed multi-color patterns (not simple flat recolors), rendered
+// by pattern-filling DiceBear's own shirt silhouette rather than a hand-drawn overlay.
+export const JERSEY_PRESETS = [
+  {
+    key: "sport",
+    label: "Sport Recife",
+    pattern: `<pattern id="jersey-sport" patternUnits="userSpaceOnUse" x="${JERSEY_X}" y="${JERSEY_Y}" width="${JERSEY_W}" height="22">
+      <rect width="${JERSEY_W}" height="11" fill="#E8112D"/>
+      <rect y="11" width="${JERSEY_W}" height="11" fill="#111111"/>
+    </pattern>`,
+  },
+  {
+    key: "santacruz",
+    label: "Santa Cruz",
+    pattern: `<pattern id="jersey-santacruz" patternUnits="userSpaceOnUse" x="${JERSEY_X}" y="${JERSEY_Y}" width="${JERSEY_W}" height="${JERSEY_H}">
+      <rect width="${JERSEY_W}" height="${JERSEY_H}" fill="#FFFFFF"/>
+      <rect y="26" width="${JERSEY_W}" height="11" fill="#111111"/>
+      <rect y="37" width="${JERSEY_W}" height="9" fill="#E8112D"/>
+    </pattern>`,
+  },
+  {
+    key: "nautico",
+    label: "Náutico",
+    pattern: `<pattern id="jersey-nautico" patternUnits="userSpaceOnUse" x="${JERSEY_X}" y="${JERSEY_Y}" width="28" height="${JERSEY_H}">
+      <rect width="14" height="${JERSEY_H}" fill="#FFFFFF"/>
+      <rect x="14" width="14" height="${JERSEY_H}" fill="#D0112B"/>
+    </pattern>`,
+  },
+  {
+    key: "bolabate1",
+    label: "Bola Bate 1",
+    pattern: `<pattern id="jersey-bolabate1" patternUnits="userSpaceOnUse" x="${JERSEY_X}" y="${JERSEY_Y}" width="${JERSEY_W}" height="${JERSEY_H}">
+      <rect width="${JERSEY_W}" height="${JERSEY_H}" fill="#0A0A0A"/>
+      <rect x="-40" y="15" width="280" height="38" fill="#E8112D" transform="rotate(-18 100 55)"/>
+    </pattern>`,
+  },
+  {
+    key: "bolabate2",
+    label: "Bola Bate 2",
+    pattern: `<pattern id="jersey-bolabate2" patternUnits="userSpaceOnUse" x="${JERSEY_X}" y="${JERSEY_Y}" width="${JERSEY_W}" height="${JERSEY_H}">
+      <rect width="${JERSEY_W}" height="${JERSEY_H}" fill="#E5E7EB"/>
+      <rect x="-40" y="15" width="280" height="38" fill="#1D4ED8" transform="rotate(-18 100 55)"/>
+    </pattern>`,
+  },
+];
+
+// Every trait category shown in the editor, grouped into tabs. `nullable: true`
+// categories get an explicit "None" tile (e.g. you can go beardless / glasses-free).
+// "clothing" mixes plain recolorable shirt shapes with the fixed-pattern team jerseys
+// above (via `jerseyOptions`) — picking one clears the other, see playersView.js.
+// The feminine-coded cuts in this set: a headscarf, a flower crown, and various
+// long/bob styles. Every other "top" option (short cuts, dreads, headwear, etc.)
+// reads neutral.
+const FEMININE_TOP_STYLES = new Set([
+  "hijab",
+  "bob",
+  "bun",
+  "curly",
+  "curvy",
+  "frida",
+  "longButNotTooLong",
+  "miaWallace",
+  "straight01",
+  "straight02",
+  "straightAndStrand",
+]);
+
+export const AVATAR_TABS = [
+  {
+    key: "top",
+    label: "💇 Cabelo",
+    schemaKey: "top",
+    options: enumOptions("top").filter((o) => !FEMININE_TOP_STYLES.has(o.value)),
+  },
+  { key: "eyes", label: "👀 Olhos", schemaKey: "eyes", options: enumOptions("eyes") },
+  { key: "eyebrows", label: "🤨 Sobrancelhas", schemaKey: "eyebrows", options: enumOptions("eyebrows") },
+  { key: "mouth", label: "👄 Boca", schemaKey: "mouth", options: enumOptions("mouth") },
+  { key: "facialHair", label: "🧔 Barba", schemaKey: "facialHair", options: enumOptions("facialHair"), nullable: true },
+  { key: "accessories", label: "👓 Óculos", schemaKey: "accessories", options: enumOptions("accessories"), nullable: true },
+  {
+    key: "clothing",
+    label: "👕 Roupa",
+    schemaKey: "clothing",
+    // Scoop-neck is the one feminine-coded cut in this set; every other shape reads neutral.
+    options: enumOptions("clothing").filter(
+      (o) => o.value !== "graphicShirt" && o.value !== "shirtScoopNeck",
+    ),
+    jerseyOptions: JERSEY_PRESETS.map((j) => ({ value: j.key, label: j.label })),
+  },
+];
+
+// Color swatches, shown as their own tab (skin, hair, clothing, background). Kept short
+// and curated rather than every DiceBear default, since these are shown as tap targets.
+export const AVATAR_COLOR_TABS = [
+  { key: "skinColor", label: "🎨 Pele", colors: SCHEMA.skinColor.default },
+  { key: "hairColor", label: "🎨 Cor do Cabelo", colors: SCHEMA.hairColor.default },
+  { key: "clothesColor", label: "🎨 Cor da Roupa", colors: SCHEMA.clothesColor.default },
+  { key: "backgroundColor", label: "🖼️ Fundo", colors: [...SCHEMA.clothesColor.default, "transparent"] },
+];
+
+/** Same look for every player until they're explicitly customized — a clear, friendly starting point. */
+export const DEFAULT_AVATAR_CONFIG = {
+  top: "shortFlat",
+  eyes: "default",
+  eyebrows: "default",
+  mouth: "smile",
+  facialHair: null,
+  accessories: null,
+  clothing: "hoodie",
+  jersey: null, // one of JERSEY_PRESETS' keys, or null for a plain (recolorable) shirt
+  skinColor: "edb98a",
+  hairColor: "4a312c",
+  facialHairColor: "4a312c",
+  accessoriesColor: "262e33",
+  clothesColor: "3c4f5c",
+  backgroundColor: "b6e3f4",
+};
+
+/** Converts our flat config object into DiceBear's array-based options + on/off probabilities. */
+function toDicebearOptions(config) {
+  const cfg = { ...DEFAULT_AVATAR_CONFIG, ...config };
+  const usingJersey = !!cfg.jersey;
+  return {
+    top: [cfg.top],
+    eyes: [cfg.eyes],
+    eyebrows: [cfg.eyebrows],
+    mouth: [cfg.mouth],
+    clothing: [usingJersey ? JERSEY_BASE_CLOTHING : cfg.clothing],
+    skinColor: [cfg.skinColor],
+    hairColor: [cfg.hairColor],
+    clothesColor: [usingJersey ? JERSEY_MARKER_COLOR : cfg.clothesColor],
+    backgroundColor: [cfg.backgroundColor === "transparent" ? "transparent" : cfg.backgroundColor],
+    facialHair: cfg.facialHair ? [cfg.facialHair] : ["beardLight"],
+    facialHairProbability: cfg.facialHair ? 100 : 0,
+    facialHairColor: [cfg.facialHairColor],
+    accessories: cfg.accessories ? [cfg.accessories] : ["round"],
+    accessoriesProbability: cfg.accessories ? 100 : 0,
+    accessoriesColor: [cfg.accessoriesColor],
+  };
+}
+
+/** Renders a player's avatar (their saved config, or the shared default) as an <img>-ready data URI. */
+export function getAvatarDataUri(config) {
+  const cfg = config || {};
+  const avatar = createAvatar(avataaars, toDicebearOptions(cfg));
+
+  const preset = cfg.jersey && JERSEY_PRESETS.find((j) => j.key === cfg.jersey);
+  if (!preset) return avatar.toDataUri();
+
+  // Splice the jersey's pattern into <defs> and point the (marker-colored) shirt fill
+  // at it, so the real DiceBear-drawn shirt silhouette wears the club's colors/pattern.
+  let svg = avatar.toString();
+  svg = svg.replace(/(<svg[^>]*>)/, `$1<defs>${preset.pattern}</defs>`);
+  svg = svg.replaceAll(`fill="#${JERSEY_MARKER_COLOR}"`, `fill="url(#jersey-${preset.key})"`);
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}

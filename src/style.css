@@ -1131,6 +1131,104 @@ body {
   transform: scale(0.98);
 }
 
+/* Avatar Creator (Players screen) */
+.avatar-editor-modal {
+  max-width: 480px;
+}
+
+.avatar-editor-preview {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.avatar-editor-preview img {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: 3px solid var(--pitch-green);
+  background: var(--bg-card-subtle);
+}
+
+.avatar-editor-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.avatar-tab-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.avatar-tab-btn.active {
+  border-color: var(--pitch-green);
+  color: var(--pitch-green);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.avatar-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.avatar-option-tile {
+  padding: 3px;
+  border-radius: 10px;
+  border: 2px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.avatar-option-tile img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 7px;
+  display: block;
+}
+
+.avatar-option-tile.selected {
+  border-color: var(--pitch-green);
+}
+
+.avatar-option-tile:active {
+  transform: scale(0.95);
+}
+
+.avatar-color-swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid var(--border-color);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.avatar-color-swatch.selected {
+  border-color: var(--pitch-green);
+}
+
+.avatar-color-swatch:active {
+  transform: scale(0.9);
+}
+
 .format-option-card.disabled {
   cursor: not-allowed;
   opacity: 0.55;

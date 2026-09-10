@@ -1,6 +1,12 @@
 import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
 import { getPlayerAchievements } from "../services/achievement.js";
+import {
+  AVATAR_TABS,
+  AVATAR_COLOR_TABS,
+  DEFAULT_AVATAR_CONFIG,
+  getAvatarDataUri,
+} from "../services/avatar.js";
 
 /**
  * Diaristas (day-rate guests) declutter the roster management screen once their
@@ -103,9 +109,14 @@ export function renderPlayersView() {
             return `
           <div class="card" style="padding: 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0;">
             <div style="display: flex; align-items: center; gap: 12px;">
-              <div style="width: 44px; height: 44px; border-radius: 12px; background: var(--bg-card-subtle); border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: var(--pitch-green);">
-                ${player.name.charAt(0).toUpperCase()}
-              </div>
+              <button
+                class="btn-edit-avatar"
+                data-id="${player.id}"
+                title="Personalizar avatar"
+                style="width: 44px; height: 44px; border-radius: 12px; overflow: hidden; padding: 0; border: 1px solid var(--border-color); background: var(--bg-card-subtle); cursor: pointer; flex-shrink: 0;"
+              >
+                <img src="${getAvatarDataUri(store.avatars[player.id])}" alt="" style="width: 100%; height: 100%; object-fit: cover;" />
+              </button>
               <div>
                 <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                   ${escapeHtml(player.name)}
@@ -222,6 +233,13 @@ export function renderPlayersView() {
     container.querySelectorAll(".btn-profile-player").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         openPlayerProfileModal(e.currentTarget.getAttribute("data-id"));
+      });
+    });
+
+    // Bind Avatar Editor — open to everyone, admin or anonymous, it's purely cosmetic
+    container.querySelectorAll(".btn-edit-avatar").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        openAvatarEditorModal(e.currentTarget.getAttribute("data-id"), render);
       });
     });
 
@@ -600,14 +618,25 @@ export function renderPlayersView() {
 
           <div class="modal-header">
 
-            <div>
-              <span class="profile-eyebrow">
-                Perfil individual
-              </span>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <button
+                class="btn-edit-avatar"
+                data-id="${player.id}"
+                title="Personalizar avatar"
+                style="width: 56px; height: 56px; border-radius: 14px; overflow: hidden; padding: 0; border: 1px solid var(--border-color); background: var(--bg-card-subtle); cursor: pointer; flex-shrink: 0;"
+              >
+                <img src="${getAvatarDataUri(store.avatars[player.id])}" alt="" style="width: 100%; height: 100%; object-fit: cover;" />
+              </button>
 
-              <h2 class="modal-title">
-                ${escapeHtml(player.name)}
-              </h2>
+              <div>
+                <span class="profile-eyebrow">
+                  Perfil individual
+                </span>
+
+                <h2 class="modal-title">
+                  ${escapeHtml(player.name)}
+                </h2>
+              </div>
             </div>
 
             <button
@@ -800,6 +829,199 @@ export function renderPlayersView() {
         showToast("Posição favorita atualizada.");
         openPlayerProfileModal(id);
       });
+    modalContainer
+      .querySelector(".btn-edit-avatar")
+      .addEventListener("click", () => {
+        openAvatarEditorModal(id, () => openPlayerProfileModal(id));
+      });
+  }
+
+  /**
+   * Mii/Duolingo-style avatar creator. Open to everyone — admin and anonymous visitors
+   * alike — since it's purely cosmetic and not gated like the rest of the roster data.
+   */
+  function openAvatarEditorModal(playerId, onDone) {
+    const player = store.getPlayer(playerId);
+    if (!player) {
+      onDone?.();
+      return;
+    }
+
+    const workingConfig = { ...DEFAULT_AVATAR_CONFIG, ...(store.avatars[playerId] || {}) };
+    let activeGroup = "traits"; // 'traits' | 'colors'
+    let activeTabKey = AVATAR_TABS[0].key;
+
+    const modalContainer = document.getElementById("modal-container");
+
+    function getActiveTab() {
+      return activeGroup === "colors"
+        ? AVATAR_COLOR_TABS.find((t) => t.key === activeTabKey)
+        : AVATAR_TABS.find((t) => t.key === activeTabKey);
+    }
+
+    // Only the grid (and, via patchPreview, the preview image) rebuilds on every tap —
+    // the modal overlay/backdrop itself is created ONCE below and never torn down while
+    // open. Regenerating that whole full-screen overlay on every click (as this used to)
+    // is exactly what caused the pelada view's screen-flash bug fixed earlier this
+    // session; same fix applies here: patch just the small piece that changed.
+    function buildGridHtml() {
+      const isColorTab = activeGroup === "colors";
+      const activeTab = getActiveTab();
+      const optionKey = activeTab.key;
+
+      if (isColorTab) {
+        return activeTab.colors
+          .map((color) => {
+            const isSelected = workingConfig[optionKey] === color;
+            const swatchStyle =
+              color === "transparent"
+                ? "background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% / 12px 12px;"
+                : `background: #${color};`;
+            return `
+            <button class="avatar-color-swatch ${isSelected ? "selected" : ""}" data-color="${color}" style="${swatchStyle}" title="${color}"></button>
+          `;
+          })
+          .join("");
+      }
+
+      // "Roupa" mixes plain recolorable shapes (field: "clothing") with fixed-pattern
+      // team jerseys (field: "jersey") in one grid — picking either clears the other.
+      const optionList =
+        activeTab.key === "clothing"
+          ? [
+              ...activeTab.jerseyOptions.map((opt) => ({ ...opt, field: "jersey" })),
+              ...activeTab.options.map((opt) => ({ ...opt, field: "clothing" })),
+            ]
+          : (activeTab.nullable ? [{ value: null, label: "Nenhum" }, ...activeTab.options] : activeTab.options).map(
+              (opt) => ({ ...opt, field: optionKey }),
+            );
+
+      return optionList
+        .map((opt) => {
+          const isSelected =
+            opt.field === "clothing"
+              ? !workingConfig.jersey && workingConfig.clothing === opt.value
+              : workingConfig[opt.field] === opt.value;
+          const previewConfig =
+            opt.field === "clothing"
+              ? { ...workingConfig, jersey: null, clothing: opt.value }
+              : { ...workingConfig, [opt.field]: opt.value };
+          return `
+          <button class="avatar-option-tile ${isSelected ? "selected" : ""}" data-field="${opt.field}" data-value="${opt.value ?? "__none__"}" title="${escapeHtml(opt.label)}">
+            <img src="${getAvatarDataUri(previewConfig)}" alt="${escapeHtml(opt.label)}" />
+          </button>
+        `;
+        })
+        .join("");
+    }
+
+    function bindGridListeners() {
+      modalContainer.querySelectorAll(".avatar-option-tile").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const field = e.currentTarget.getAttribute("data-field");
+          const raw = e.currentTarget.getAttribute("data-value");
+          const value = raw === "__none__" ? null : raw;
+          if (field === "clothing") workingConfig.jersey = null; // a plain shape replaces any team jersey
+          workingConfig[field] = value;
+          patchAfterChange();
+        });
+      });
+
+      modalContainer.querySelectorAll(".avatar-color-swatch").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const optionKey = getActiveTab().key;
+          // Recoloring the shirt only makes sense for a plain shape — clear any team
+          // jersey so the pick is visible instead of silently overridden by its pattern.
+          if (optionKey === "clothesColor") workingConfig.jersey = null;
+          workingConfig[optionKey] = e.currentTarget.getAttribute("data-color");
+          patchAfterChange();
+        });
+      });
+    }
+
+    function patchAfterChange() {
+      modalContainer.querySelector(".avatar-editor-preview img").src = getAvatarDataUri(workingConfig);
+      const gridEl = modalContainer.querySelector(".avatar-editor-grid");
+      gridEl.innerHTML = buildGridHtml();
+      bindGridListeners();
+    }
+
+    function switchTab(group, key) {
+      activeGroup = group;
+      activeTabKey = key;
+      modalContainer.querySelectorAll(".avatar-tab-btn").forEach((btn) => {
+        const isActive =
+          btn.getAttribute("data-group") === activeGroup && btn.getAttribute("data-tab") === activeTabKey;
+        btn.classList.toggle("active", isActive);
+      });
+      modalContainer
+        .querySelector(".avatar-tab-btn.active")
+        ?.scrollIntoView({ inline: "center", block: "nearest" });
+      const gridEl = modalContainer.querySelector(".avatar-editor-grid");
+      gridEl.innerHTML = buildGridHtml();
+      bindGridListeners();
+    }
+
+    // Built once — the overlay/backdrop DOM node is never recreated while the modal is open.
+    modalContainer.innerHTML = `
+      <div class="modal-overlay" id="avatar-modal-overlay">
+        <div class="modal-content avatar-editor-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">🎨 Avatar de ${escapeHtml(player.name)}</h2>
+            <button class="modal-close" id="avatar-modal-close">&times;</button>
+          </div>
+
+          <div class="avatar-editor-preview">
+            <img src="${getAvatarDataUri(workingConfig)}" alt="Pré-visualização do avatar" />
+          </div>
+
+          <div class="avatar-editor-tabs">
+            ${AVATAR_TABS.map(
+              (t) => `<button class="avatar-tab-btn ${activeTabKey === t.key ? "active" : ""}" data-group="traits" data-tab="${t.key}">${t.label}</button>`,
+            ).join("")}
+            ${AVATAR_COLOR_TABS.map(
+              (t) => `<button class="avatar-tab-btn" data-group="colors" data-tab="${t.key}">${t.label}</button>`,
+            ).join("")}
+          </div>
+
+          <div class="avatar-editor-grid">
+            ${buildGridHtml()}
+          </div>
+
+          <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+            <button id="avatar-cancel" class="btn btn-secondary">Cancelar</button>
+            <button id="avatar-save" class="btn btn-primary">💾 Salvar Avatar</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Every way of leaving (X, overlay click, Cancel, Save) returns to whatever opened
+    // the editor — the players list re-renders, or the profile modal reopens — instead
+    // of Cancel dumping the visitor out to a bare screen.
+    const close = () => {
+      modalContainer.innerHTML = "";
+      onDone?.();
+    };
+    modalContainer.querySelector("#avatar-modal-close").addEventListener("click", close);
+    modalContainer.querySelector("#avatar-modal-overlay").addEventListener("click", (e) => {
+      if (e.target.id === "avatar-modal-overlay") close();
+    });
+    modalContainer.querySelector("#avatar-cancel").addEventListener("click", close);
+
+    modalContainer.querySelectorAll(".avatar-tab-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        switchTab(e.currentTarget.getAttribute("data-group"), e.currentTarget.getAttribute("data-tab"));
+      });
+    });
+
+    modalContainer.querySelector("#avatar-save").addEventListener("click", () => {
+      store.updatePlayerAvatar(playerId, workingConfig);
+      showToast(`🎉 Avatar de ${player.name} atualizado!`);
+      close();
+    });
+
+    bindGridListeners();
   }
 
   function getFrequentCompanions(playerId) {

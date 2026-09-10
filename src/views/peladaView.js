@@ -6,6 +6,7 @@ import {
   getSubstituteSuggestions,
 } from "../services/balancer.js";
 import { showToast } from "./rankingView.js";
+import { getAvatarDataUri } from "../services/avatar.js";
 import confetti from "canvas-confetti";
 
 export function renderPeladaView(onNavigate) {
@@ -1855,7 +1856,11 @@ function renderMatchPanel(
                   return `
                   <div class="mini-pitch-position" style="left: ${x}%; top: ${y}%;">
                     <div class="mini-pitch-chip" style="border-color: ${team.color};" title="${escapeHtml(player.name)}">
-                      ${escapeHtml(player.name.charAt(0).toUpperCase())}
+                      ${
+                        store.avatars[player.id]
+                          ? `<img src="${getAvatarDataUri(store.avatars[player.id])}" alt="" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`
+                          : escapeHtml(player.name.charAt(0).toUpperCase())
+                      }
                     </div>
                     <span class="mini-pitch-position-name">${escapeHtml(player.name)}</span>
                   </div>
