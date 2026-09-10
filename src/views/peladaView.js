@@ -8,6 +8,7 @@ import {
 import { showToast } from "./rankingView.js";
 import { getAvatarDataUri } from "../services/avatar.js";
 import confetti from "canvas-confetti";
+import { playSound } from "../services/soundManager.js";
 
 export function renderPeladaView(onNavigate) {
   const container = document.createElement("div");
@@ -901,6 +902,7 @@ function renderLivePelada(container, onNavigate) {
     if (startTimerBtn) {
       startTimerBtn.addEventListener("click", () => {
         store.startMatchTimer();
+        playSound("whistleStart");
         refreshMatchControls();
       });
     }
@@ -920,6 +922,7 @@ function renderLivePelada(container, onNavigate) {
       finishMatchBtn.addEventListener("click", () => {
         const result = store.endCurrentMatch();
         if (result.success) {
+          playSound("whistleEnd");
           const teamAName =
             pelada.teams.find((t) => t.id === result.teamAId)?.name || "Time A";
           const teamBName =
@@ -1022,6 +1025,7 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
         store.recordGoal(pid, teamId, false);
+        playSound("goal");
         patchPlayerCounters(pid, false);
         patchScoreboard();
         patchTimeline();
@@ -1061,6 +1065,7 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
         store.recordGoal(pid, teamId, true);
+        playSound("goal");
         patchPlayerCounters(pid, true);
         patchScoreboard();
         patchTimeline();
