@@ -4,7 +4,8 @@ import { store } from "../state/store.js";
  * BolaBot
  * BolaBate local intelligence+
  *
- * Answer questions using real data from store.
+ * Analisa dados reais do store e responde perguntas
+ * sobre ranking, evolução, desempenho e pelada atual.
  */
 
 const RANKING_WEIGHTS = {
@@ -17,30 +18,59 @@ const RANKING_WEIGHTS = {
   participacao: 1
 };
 
+/* =========================================================
+   UTILITÁRIOS
+========================================================= */
 
 function normalizeText(text) {
-  return text
+  return String(text || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 }
 
-function getRankingScore(player) {
-  return (
-    (player.goals || 0) * RANKING_WEIGHTS.goals +
-    (player.assists || 0) * RANKING_WEIGHTS.assists +
-    (player.selecao || 0) * RANKING_WEIGHTS.selecao +
-    (player.puskas || 0) * RANKING_WEIGHTS.puskas +
-    (player.craque || 0) * RANKING_WEIGHTS.craque -
-    (player.bagre || 0) * 3 +
-    (player.participacao || 0)
-  );
-}
-
 function getPlayers() {
   return Array.isArray(store.players) ? store.players : [];
 }
+
+function getPelada() {
+  return store.activePelada || null;
+}
+
+function formatPlayerName(player) {
+  return player?.name || "Ninguém";
+}
+
+function getRankingScore(player) {
+  return (
+    (Number(player.goals) || 0) * RANKING_WEIGHTS.goals +
+    (Number(player.assists) || 0) * RANKING_WEIGHTS.assists +
+    (Number(player.selecao) || 0) * RANKING_WEIGHTS.selecao +
+    (Number(player.puskas) || 0) * RANKING_WEIGHTS.puskas +
+    (Number(player.craque) || 0) * RANKING_WEIGHTS.craque -
+    (Number(player.bagre) || 0) * 3 +
+    (Number(player.participacao) || 0)
+  );
+}
+
+function getPeriodRankingScore(stats) {
+  if (!stats) return 0;
+
+  return (
+    (Number(stats.goals) || 0) * RANKING_WEIGHTS.goals +
+    (Number(stats.assists) || 0) * RANKING_WEIGHTS.assists +
+    (Number(stats.selecao) || 0) * RANKING_WEIGHTS.selecao +
+    (Number(stats.puskas) || 0) * RANKING_WEIGHTS.puskas +
+    (Number(stats.craque) || 0) * RANKING_WEIGHTS.craque -
+    (Number(stats.bagre) || 0) * 3 +
+    (Number(stats.participacao) || 0)
+  );
+}
+
+/* =========================================================
+   RANKING / ESTATÍSTICAS GERAIS
+========================================================= */
 
 function getBestPlayer() {
   const players = getPlayers();
@@ -68,7 +98,7 @@ function getTopScorer() {
   if (!players.length) return null;
 
   return [...players].sort(
-    (a, b) => (b.goals || 0) - (a.goals || 0)
+    (a, b) => (Number(b.goals) || 0) - (Number(a.goals) || 0)
   )[0];
 }
 
@@ -78,12 +108,8 @@ function getTopAssist() {
   if (!players.length) return null;
 
   return [...players].sort(
-    (a, b) => (b.assists || 0) - (a.assists || 0)
+    (a, b) => (Number(b.assists) || 0) - (Number(a.assists) || 0)
   )[0];
-}
-
-function formatPlayerName(player) {
-  return player?.name || "Ninguém";
 }
 
 function answerRanking() {
@@ -166,10 +192,10 @@ function answerStats(playerName) {
 🙋 Participações: ${player.participacao || 0}`;
 }
 
+/* =========================================================
+   EVOLUÇÃO
+========================================================= */
 
-/**
- * Get previous month from YYYY-MM.
- */
 function getPreviousPeriodKey(key) {
   const [year, month] = String(key).split("-").map(Number);
 
@@ -182,35 +208,13 @@ function getPreviousPeriodKey(key) {
   return `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
-/**
- * Calculate ranking score using period statistics.
- */
-function getPeriodRankingScore(stats) {
-  if (!stats) return 0;
-
-  return (
-    (Number(stats.goals) || 0) * RANKING_WEIGHTS.goals +
-    (Number(stats.assists) || 0) * RANKING_WEIGHTS.assists +
-    (Number(stats.selecao) || 0) * RANKING_WEIGHTS.selecao +
-    (Number(stats.puskas) || 0) * RANKING_WEIGHTS.puskas +
-    (Number(stats.craque) || 0) * RANKING_WEIGHTS.craque -
-    (Number(stats.bagre) || 0) * 3 +
-    (Number(stats.participacao) || 0)
-  );
-}
-
-/**
- * Get evolution of all players between two periods.
- */
 function getPlayersEvolution(currentKey, previousKey) {
   const currentPeriod = store.monthlyStats?.[currentKey];
   const previousPeriod = store.monthlyStats?.[previousKey];
 
   if (!currentPeriod) return [];
 
-  const players = getPlayers();
-
-  return players.map((player) => {
+  return getPlayers().map((player) => {
     const currentStats =
       currentPeriod.players?.[player.id] || {};
 
@@ -225,6 +229,8 @@ function getPlayersEvolution(currentKey, previousKey) {
 
     return {
       player,
+      currentStats,
+      previousStats,
       currentScore,
       previousScore,
       evolution: currentScore - previousScore
@@ -232,9 +238,6 @@ function getPlayersEvolution(currentKey, previousKey) {
   });
 }
 
-/**
- * Find the player who evolved the most.
- */
 function getMostImprovedPlayer() {
   const currentKey = store.currentPeriodKey();
   const previousKey = getPreviousPeriodKey(currentKey);
@@ -253,9 +256,6 @@ function getMostImprovedPlayer() {
   )[0];
 }
 
-/**
- * Answer who evolved the most this month.
- */
 function answerEvolution() {
   const currentKey = store.currentPeriodKey();
   const previousKey = getPreviousPeriodKey(currentKey);
@@ -296,9 +296,6 @@ O melhor resultado foi de **${player.name}**, com ${currentScore} pontos neste m
 📈 Evolução: **+${evolution} pontos**`;
 }
 
-/**
- * Answer evolution of a specific player.
- */
 function answerPlayerEvolution(player) {
   const currentKey = store.currentPeriodKey();
   const previousKey = getPreviousPeriodKey(currentKey);
@@ -347,36 +344,679 @@ function answerPlayerEvolution(player) {
 🔥 Este mês: ${currentScore} pontos`;
 }
 
-function answerHelp() {
-  return `🤖 **Fala! Eu sou o BolaBot.**
+/* =========================================================
+   CONTEXTO DA PELADA ATUAL
+========================================================= */
 
-Posso analisar os dados da BolaBate+ e responder coisas como:
-
-⚽ Quem fez mais gols?
-🎯 Quem deu mais assistências?
-👑 Quem é o melhor jogador?
-📉 Quem está pior no ranking?
-📊 Mostre os dados de um jogador.
-📈 Quem mais evoluiu esse mês?
-🔥 Como o jogador X evoluiu?
-
-Em breve também vou conseguir montar times e analisar evolução dos jogadores.`;
+function isPeladaLive() {
+  return getPelada()?.status === "live";
 }
 
-/**
- * Try to find a player in question.
- */
-function findPlayerInQuestion(text) {
-  const players = getPlayers();
+function getCurrentMatch() {
+  return getPelada()?.rotation?.currentMatch || null;
+}
 
-  return players.find((player) =>
-    text.includes(normalizeText(player.name))
+function getCurrentTeams() {
+  const pelada = getPelada();
+
+  if (!pelada?.teams) return [];
+
+  return pelada.teams;
+}
+
+function getTeamById(teamId) {
+  return getCurrentTeams().find(
+    (team) => team.id === teamId
+  ) || null;
+}
+
+function getPlayerById(playerId) {
+  return getPlayers().find(
+    (player) => player.id === playerId
+  ) || null;
+}
+
+function getLivePlayerStats(playerId) {
+  const stats =
+    getPelada()?.stats?.[playerId] || {};
+
+  return {
+    goals: Number(stats.goals) || 0,
+    assists: Number(stats.assists) || 0,
+    guestGoals: Number(stats.guestGoals) || 0,
+    guestAssists: Number(stats.guestAssists) || 0
+  };
+}
+
+function getTeamPlayers(team) {
+  if (!team?.playerIds) return [];
+
+  return team.playerIds
+    .map((id) => getPlayerById(id))
+    .filter(Boolean);
+}
+
+function getTeamLiveStats(team) {
+  const players = getTeamPlayers(team);
+
+  return players.reduce(
+    (total, player) => {
+      const stats = getLivePlayerStats(player.id);
+
+      total.goals += stats.goals;
+      total.assists += stats.assists;
+
+      return total;
+    },
+    {
+      goals: 0,
+      assists: 0
+    }
   );
 }
 
+/* =========================================================
+   ANÁLISE DE DESEMPENHO
+========================================================= */
+
 /**
- * BolaBot Main Function.
+ * Métrica interna do BolaBot.
+ *
+ * Não substitui o ranking oficial.
+ * Serve apenas para comparar desempenho dentro
+ * da pelada atual.
  */
+function getLivePerformanceScore(player) {
+  const stats = getLivePlayerStats(player.id);
+
+  return (
+    stats.goals * 3 +
+    stats.assists * 2
+  );
+}
+
+function getLiveContribution(player) {
+  const stats = getLivePlayerStats(player.id);
+
+  return stats.goals + stats.assists;
+}
+
+function getParticipatingPlayers() {
+  const pelada = getPelada();
+
+  if (!pelada?.teams) return [];
+
+  const playerIds = pelada.teams.flatMap(
+    (team) => team.playerIds || []
+  );
+
+  return [...new Set(playerIds)]
+    .map((id) => getPlayerById(id))
+    .filter(Boolean)
+    .filter((player) => {
+      return !pelada.diaristaPlayerIds?.includes(player.id);
+    });
+}
+
+function getBestLivePlayer() {
+  const players = getParticipatingPlayers();
+
+  if (!players.length) return null;
+
+  return [...players].sort(
+    (a, b) =>
+      getLivePerformanceScore(b) -
+      getLivePerformanceScore(a)
+  )[0];
+}
+
+function getMostDecisivePlayer() {
+  const players = getParticipatingPlayers();
+
+  if (!players.length) return null;
+
+  return [...players].sort(
+    (a, b) =>
+      getLiveContribution(b) -
+      getLiveContribution(a)
+  )[0];
+}
+
+function analyzePlayer(player) {
+  if (!player) {
+    return "Não encontrei esse jogador na BolaBate+. 🤖";
+  }
+
+  const liveStats = getLivePlayerStats(player.id);
+  const rankingScore = getRankingScore(player);
+
+  const currentKey = store.currentPeriodKey();
+
+  let monthlyStats = {};
+
+  if (typeof store.getPeriodPlayerStats === "function") {
+    monthlyStats =
+      store.getPeriodPlayerStats(
+        player.id,
+        currentKey
+      ) || {};
+  } else {
+    monthlyStats =
+      store.monthlyStats?.[currentKey]?.players?.[player.id] || {};
+  }
+
+  const monthlyScore =
+    getPeriodRankingScore(monthlyStats);
+
+  const contributions =
+    liveStats.goals + liveStats.assists;
+
+  let conclusion;
+
+  if (contributions >= 4) {
+    conclusion =
+      "está sendo um dos grandes destaques da pelada";
+  } else if (contributions >= 2) {
+    conclusion =
+      "está tendo uma participação ofensiva importante";
+  } else if (contributions === 1) {
+    conclusion =
+      "já conseguiu contribuir diretamente para o ataque";
+  } else {
+    conclusion =
+      "ainda não teve participação direta em gols nesta pelada";
+  }
+
+  return `🧠 **Análise de ${player.name}**
+
+${player.name} ${conclusion}.
+
+🔥 **Pelada atual**
+⚽ ${liveStats.goals} gol${liveStats.goals === 1 ? "" : "s"}
+🎯 ${liveStats.assists} assistência${liveStats.assists === 1 ? "" : "s"}
+💥 ${contributions} participação${contributions === 1 ? "" : "ões"} em gol
+
+📈 **Momento**
+🏆 Ranking geral: ${rankingScore} pontos
+📊 Ranking do período: ${monthlyScore} pontos
+
+💡 ${getPlayerInsight(player, liveStats)}`;
+}
+
+function getPlayerInsight(player, stats) {
+  if (stats.goals >= 2 && stats.assists >= 1) {
+    return `${player.name} está combinando finalização e criação. É o perfil mais completo ofensivamente até agora.`;
+  }
+
+  if (stats.goals >= 2) {
+    return `${player.name} está se destacando principalmente pela capacidade de finalizar.`;
+  }
+
+  if (stats.assists >= 2) {
+    return `${player.name} está se destacando mais pela criação de jogadas do que pela finalização.`;
+  }
+
+  if (stats.goals === 1 && stats.assists === 1) {
+    return `${player.name} está contribuindo tanto na finalização quanto na criação.`;
+  }
+
+  if (stats.goals === 1) {
+    return `${player.name} já deixou sua marca, mas ainda pode aumentar sua influência participando mais das jogadas.`;
+  }
+
+  if (stats.assists === 1) {
+    return `${player.name} já contribuiu com uma assistência, mostrando participação na construção das jogadas.`;
+  }
+
+  return `Ainda é cedo para tirar uma conclusão forte sobre ${player.name}.`;
+}
+
+function answerBestLivePlayer() {
+  if (!isPeladaLive()) {
+    return "Não há uma pelada acontecendo agora para eu analisar. 🤖";
+  }
+
+  const player = getBestLivePlayer();
+
+  if (!player) {
+    return "Ainda não tenho jogadores suficientes para analisar a pelada.";
+  }
+
+  const stats = getLivePlayerStats(player.id);
+  const score = getLivePerformanceScore(player);
+
+  if (score === 0) {
+    return `🧠 Ainda está muito cedo para apontar quem está jogando melhor.
+
+Ninguém teve participação direta em gols nesta pelada ainda.`;
+  }
+
+  return `🧠 **${player.name}** está sendo o destaque até agora.
+
+⚽ ${stats.goals} gol${stats.goals === 1 ? "" : "s"}
+🎯 ${stats.assists} assistência${stats.assists === 1 ? "" : "s"}
+🔥 Índice de desempenho: **${score}**
+
+Estou considerando gols e assistências para medir o desempenho ofensivo desta pelada.`;
+}
+
+function answerMostDecisive() {
+  if (!isPeladaLive()) {
+    return "Não há uma pelada acontecendo agora para analisar.";
+  }
+
+  const player = getMostDecisivePlayer();
+
+  if (!player) {
+    return "Ainda não tenho jogadores suficientes para analisar.";
+  }
+
+  const stats = getLivePlayerStats(player.id);
+  const contribution =
+    stats.goals + stats.assists;
+
+  if (contribution === 0) {
+    return "Ainda ninguém teve participação direta em gol nesta pelada.";
+  }
+
+  return `🔥 **${player.name}** está sendo o mais decisivo até agora.
+
+Participou diretamente de **${contribution} gol${
+    contribution === 1 ? "" : "s"
+  }**, com ${stats.goals} gol${
+    stats.goals === 1 ? "" : "s"
+  } e ${stats.assists} assistência${
+    stats.assists === 1 ? "" : "s"
+  }.`;
+}
+
+/* =========================================================
+   ANÁLISE DOS TIMES
+========================================================= */
+
+function getCurrentMatchTeams() {
+  const match = getCurrentMatch();
+
+  if (!match) return null;
+
+  const teamA = getTeamById(match.teamAId);
+  const teamB = getTeamById(match.teamBId);
+
+  if (!teamA || !teamB) return null;
+
+  return {
+    teamA,
+    teamB
+  };
+}
+
+function calculateTeamPerformance(team) {
+  const stats = getTeamLiveStats(team);
+
+  return (
+    stats.goals * 3 +
+    stats.assists * 2
+  );
+}
+
+function getTeamStars(team) {
+  return getTeamPlayers(team).reduce(
+    (total, player) =>
+      total + (Number(player.stars) || 0),
+    0
+  );
+}
+
+function answerBestTeam() {
+  if (!isPeladaLive()) {
+    return "Não há uma pelada acontecendo agora para eu analisar.";
+  }
+
+  const teams = getCurrentMatchTeams();
+
+  if (!teams) {
+    return "Ainda não existe uma partida em andamento para comparar os times.";
+  }
+
+  const {
+    teamA,
+    teamB
+  } = teams;
+
+  const statsA = getTeamLiveStats(teamA);
+  const statsB = getTeamLiveStats(teamB);
+
+  const performanceA =
+    calculateTeamPerformance(teamA);
+
+  const performanceB =
+    calculateTeamPerformance(teamB);
+
+  if (performanceA === performanceB) {
+    return `⚔️ Os dois times estão equilibrados até agora.
+
+**${teamA.name}**
+⚽ ${statsA.goals} gols
+🎯 ${statsA.assists} assistências
+
+**${teamB.name}**
+⚽ ${statsB.goals} gols
+🎯 ${statsB.assists} assistências`;
+  }
+
+  const better =
+    performanceA > performanceB
+      ? teamA
+      : teamB;
+
+  const betterStats =
+    performanceA > performanceB
+      ? statsA
+      : statsB;
+
+  const other =
+    performanceA > performanceB
+      ? teamB
+      : teamA;
+
+  return `⚔️ **${better.name}** está levando vantagem até agora.
+
+🔥 ${better.name}
+⚽ ${betterStats.goals} gols
+🎯 ${betterStats.assists} assistências
+
+📊 A vantagem vem principalmente da participação ofensiva dos jogadores desse time.
+
+O outro lado é o **${other.name}**.`;
+}
+
+function analyzeCurrentMatch() {
+  if (!isPeladaLive()) {
+    return "Não há uma pelada acontecendo agora. 🤖";
+  }
+
+  const match = getCurrentMatch();
+
+  if (!match) {
+    return "A pelada está aberta, mas ainda não existe uma partida em andamento.";
+  }
+
+  const teams = getCurrentMatchTeams();
+
+  if (!teams) {
+    return "Não consegui identificar os times da partida atual.";
+  }
+
+  const {
+    teamA,
+    teamB
+  } = teams;
+
+  const statsA = getTeamLiveStats(teamA);
+  const statsB = getTeamLiveStats(teamB);
+
+  const scoreA = Number(match.scoreA) || 0;
+  const scoreB = Number(match.scoreB) || 0;
+
+  const player = getMostDecisivePlayer();
+
+  let analysis = "";
+
+  if (scoreA === scoreB) {
+    analysis =
+      "O placar está equilibrado e a partida ainda está aberta.";
+  } else if (Math.abs(scoreA - scoreB) === 1) {
+    analysis =
+      "A diferença é pequena, então qualquer próxima participação pode mudar bastante o jogo.";
+  } else {
+    const winner =
+      scoreA > scoreB ? teamA : teamB;
+
+    analysis =
+      `O **${winner.name}** tem a vantagem no placar e está controlando melhor o resultado.`;
+  }
+
+  let decisiveText = "";
+
+  if (player) {
+    const stats = getLivePlayerStats(player.id);
+    const contribution =
+      stats.goals + stats.assists;
+
+    if (contribution > 0) {
+      decisiveText =
+        `\n\n🔥 **${player.name}** é o jogador mais decisivo até agora, com ${stats.goals} gol${
+          stats.goals === 1 ? "" : "s"
+        } e ${stats.assists} assistência${
+          stats.assists === 1 ? "" : "s"
+        }.`;
+    }
+  }
+
+  return `🧠 **Análise da partida**
+
+⚽ **${teamA.name} ${scoreA} x ${scoreB} ${teamB.name}**
+
+${analysis}${decisiveText}
+
+📊 Participação ofensiva:
+• ${teamA.name}: ${statsA.goals} gols e ${statsA.assists} assistências
+• ${teamB.name}: ${statsB.goals} gols e ${statsB.assists} assistências`;
+}
+
+/* =========================================================
+   COMPARAÇÃO ENTRE JOGADORES
+========================================================= */
+
+function findPlayersInQuestion(text) {
+  const players = getPlayers();
+
+  return players
+    .filter((player) => {
+      const name = normalizeText(player.name);
+
+      return name && text.includes(name);
+    })
+    .sort(
+      (a, b) =>
+        normalizeText(b.name).length -
+        normalizeText(a.name).length
+    );
+}
+
+function comparePlayers(playerA, playerB) {
+  if (!playerA || !playerB) {
+    return "Preciso de dois jogadores para fazer a comparação.";
+  }
+
+  if (playerA.id === playerB.id) {
+    return "Você precisa indicar dois jogadores diferentes para eu comparar.";
+  }
+
+  const statsA = getLivePlayerStats(playerA.id);
+  const statsB = getLivePlayerStats(playerB.id);
+
+  const scoreA = getLivePerformanceScore(playerA);
+  const scoreB = getLivePerformanceScore(playerB);
+
+  const monthlyKey = store.currentPeriodKey();
+
+  let monthlyA = {};
+  let monthlyB = {};
+
+  if (typeof store.getPeriodPlayerStats === "function") {
+    monthlyA =
+      store.getPeriodPlayerStats(
+        playerA.id,
+        monthlyKey
+      ) || {};
+
+    monthlyB =
+      store.getPeriodPlayerStats(
+        playerB.id,
+        monthlyKey
+      ) || {};
+  }
+
+  const periodScoreA =
+    getPeriodRankingScore(monthlyA);
+
+  const periodScoreB =
+    getPeriodRankingScore(monthlyB);
+
+  let winner;
+  let reason;
+
+  if (scoreA !== scoreB) {
+    winner =
+      scoreA > scoreB ? playerA : playerB;
+
+    reason =
+      "está contribuindo mais diretamente para os gols na pelada atual";
+  } else if (periodScoreA !== periodScoreB) {
+    winner =
+      periodScoreA > periodScoreB
+        ? playerA
+        : playerB;
+
+    reason =
+      "tem um desempenho melhor considerando o período atual";
+  } else {
+    winner = null;
+    reason = "os dois apresentam números muito próximos";
+  }
+
+  if (!winner) {
+    return `⚔️ **${playerA.name} x ${playerB.name}**
+
+Os dois estão praticamente empatados no momento.
+
+${playerA.name}: ${statsA.goals} gol${
+      statsA.goals === 1 ? "" : "s"
+    } e ${statsA.assists} assistência${
+      statsA.assists === 1 ? "" : "s"
+    }.
+
+${playerB.name}: ${statsB.goals} gol${
+      statsB.goals === 1 ? "" : "s"
+    } e ${statsB.assists} assistência${
+      statsB.assists === 1 ? "" : "s"
+    }.`;
+  }
+
+  return `⚔️ **${playerA.name} x ${playerB.name}**
+
+🏆 Minha análise atual favorece **${winner.name}**.
+
+🔥 ${winner.name} ${reason}.
+
+**${playerA.name}**
+⚽ ${statsA.goals} gols
+🎯 ${statsA.assists} assistências
+📈 Período: ${periodScoreA} pontos
+
+**${playerB.name}**
+⚽ ${statsB.goals} gols
+🎯 ${statsB.assists} assistências
+📈 Período: ${periodScoreB} pontos`;
+}
+
+/* =========================================================
+   AJUDA
+========================================================= */
+
+function answerHelp() {
+  return `🤖 **Fala! Eu sou o BolaBot.**
+
+Posso analisar os dados da BolaBate+ e também interpretar o que está acontecendo na pelada.
+
+🧠 **Análise**
+• Quem está jogando melhor?
+• Quem está sendo mais decisivo?
+• Analisa o Lucas.
+• Quem está em melhor fase?
+
+⚔️ **Comparações**
+• Lucas ou Djavan?
+• Quem está melhor, Lucas ou João?
+
+🔥 **Partida**
+• Analisa essa partida.
+• Qual time está melhor?
+• Quem está fazendo a diferença?
+
+📈 **Evolução**
+• Quem mais evoluiu esse mês?
+• Como o Lucas evoluiu?
+
+Também continuo respondendo perguntas sobre ranking, gols e assistências. 🤖`;
+}
+
+/* =========================================================
+   BUSCA DE JOGADOR
+========================================================= */
+
+function findPlayerInQuestion(text) {
+  const players = findPlayersInQuestion(text);
+
+  return players[0] || null;
+}
+
+/* =========================================================
+   INTERPRETAÇÃO DA PERGUNTA
+========================================================= */
+
+function isComparisonQuestion(text) {
+  return (
+    text.includes(" ou ") ||
+    text.includes("compare") ||
+    text.includes("comparar") ||
+    text.includes("comparacao") ||
+    text.includes("quem e melhor entre")
+  );
+}
+
+function isPlayerAnalysisQuestion(text) {
+  return (
+    text.includes("jogando melhor") ||
+    text.includes("melhor fase") ||
+    text.includes("em melhor fase") ||
+    text.includes("sendo decisivo") ||
+    text.includes("mais decisivo") ||
+    text.includes("analisa") ||
+    text.includes("analise") ||
+    text.includes("desempenho")
+  );
+}
+
+function isMatchAnalysisQuestion(text) {
+  return (
+    text.includes("analisa essa partida") ||
+    text.includes("analise essa partida") ||
+    text.includes("analisa o jogo") ||
+    text.includes("analise o jogo") ||
+    text.includes("analisa esse jogo") ||
+    text.includes("analise esse jogo") ||
+    text.includes("como esta o jogo") ||
+    text.includes("como ta o jogo")
+  );
+}
+
+function isTeamAnalysisQuestion(text) {
+  return (
+    text.includes("qual time esta melhor") ||
+    text.includes("qual time ta melhor") ||
+    text.includes("qual time esta levando") ||
+    text.includes("qual time ta levando") ||
+    text.includes("time esta melhor") ||
+    text.includes("time ta melhor")
+  );
+}
+
+/* =========================================================
+   BOLA BOT
+========================================================= */
+
 export function askBolaBot(question) {
   if (!question || !question.trim()) {
     return "Digite alguma coisa para eu responder. 🤖";
@@ -384,8 +1024,8 @@ export function askBolaBot(question) {
 
   const text = normalizeText(question);
 
+  /* HELP */
 
-  // Help
   if (
     text.includes("ajuda") ||
     text.includes("o que voce") ||
@@ -395,38 +1035,95 @@ export function askBolaBot(question) {
     return answerHelp();
   }
 
-  // Ask about specific player
-  const mentionedPlayer = findPlayerInQuestion(text);
+  /* SAUDAÇÕES */
 
   if (
-    mentionedPlayer &&
-    (
-      text.includes("evoluiu") ||
-      text.includes("evolucao") ||
-      text.includes("melhorou") ||
-      text.includes("desempenho esse mes") ||
-      text.includes("desempenho neste mes")
-    )
+    text === "oi" ||
+    text === "ola" ||
+    text === "eai" ||
+    text === "e ae" ||
+    text.includes("bom dia") ||
+    text.includes("boa tarde") ||
+    text.includes("boa noite")
   ) {
-    return answerPlayerEvolution(mentionedPlayer);
+    return "Fala! 🤖⚽ Sou o BolaBot. Pergunta alguma coisa sobre a pelada!";
   }
+
+  /* JOGADORES MENCIONADOS */
+
+  const mentionedPlayers =
+    findPlayersInQuestion(text);
+
+  /* COMPARAÇÃO */
 
   if (
-    mentionedPlayer &&
-    (
-      text.includes("dados") ||
-      text.includes("estatistica") ||
-      text.includes("estatisticas") ||
-      text.includes("como esta") ||
-      text.includes("como ele esta") ||
-      text.includes("desempenho") ||
-      text.includes("numeros")
-    )
+    mentionedPlayers.length >= 2 &&
+    isComparisonQuestion(text)
   ) {
-    return answerStats(mentionedPlayer.name);
+    return comparePlayers(
+      mentionedPlayers[0],
+      mentionedPlayers[1]
+    );
   }
 
-  // Best player 
+  /* ANÁLISE DA PARTIDA */
+
+  if (isMatchAnalysisQuestion(text)) {
+    return analyzeCurrentMatch();
+  }
+
+  /* ANÁLISE DO TIME */
+
+  if (isTeamAnalysisQuestion(text)) {
+    return answerBestTeam();
+  }
+
+  /* ANÁLISE DE JOGADOR */
+
+  if (
+    mentionedPlayers.length >= 1 &&
+    isPlayerAnalysisQuestion(text)
+  ) {
+    return analyzePlayer(
+      mentionedPlayers[0]
+    );
+  }
+
+  /* MELHOR JOGADOR DA PELADA */
+
+  if (
+    text.includes("quem esta jogando melhor") ||
+    text.includes("quem ta jogando melhor") ||
+    text.includes("quem joga melhor agora") ||
+    text.includes("destaque da pelada")
+  ) {
+    return answerBestLivePlayer();
+  }
+
+  /* MAIS DECISIVO */
+
+  if (
+    text.includes("quem esta sendo mais decisivo") ||
+    text.includes("quem ta sendo mais decisivo") ||
+    text.includes("mais decisivo") ||
+    text.includes("quem esta fazendo a diferenca") ||
+    text.includes("quem ta fazendo a diferenca")
+  ) {
+    return answerMostDecisive();
+  }
+
+  /* MELHOR FASE */
+
+  if (
+    text.includes("quem esta em melhor fase") ||
+    text.includes("quem ta em melhor fase") ||
+    text.includes("melhor fase")
+  ) {
+    return answerEvolution();
+  }
+
+  /* MELHOR JOGADOR DO RANKING */
+
   if (
     text.includes("melhor jogador") ||
     text.includes("quem e o melhor") ||
@@ -435,7 +1132,8 @@ export function askBolaBot(question) {
     return answerRanking();
   }
 
-  // Worst player 
+  /* PIOR JOGADOR */
+
   if (
     text.includes("pior jogador") ||
     text.includes("quem esta pior") ||
@@ -446,7 +1144,8 @@ export function askBolaBot(question) {
     return answerWorstPlayer();
   }
 
-  // Goals
+  /* GOLS */
+
   if (
     text.includes("mais gols") ||
     text.includes("maior artilheiro") ||
@@ -455,7 +1154,8 @@ export function askBolaBot(question) {
     return answerGoals();
   }
 
-  // Assists
+  /* ASSISTÊNCIAS */
+
   if (
     text.includes("mais assistencias") ||
     text.includes("mais assistencia") ||
@@ -464,7 +1164,8 @@ export function askBolaBot(question) {
     return answerAssists();
   }
 
-  // Evolution
+  /* EVOLUÇÃO */
+
   if (
     text.includes("evoluiu") ||
     text.includes("evolucao") ||
@@ -478,31 +1179,38 @@ export function askBolaBot(question) {
     return answerEvolution();
   }
 
-  // Greetings 
+  /* ESTATÍSTICAS DO JOGADOR */
+
   if (
-    text === "oi" ||
-    text === "ola" ||
-    text === "eai" ||
-    text === "e ae" ||
-    text.includes("bom dia") ||
-    text.includes("boa tarde") ||
-    text.includes("boa noite")
+    mentionedPlayers.length >= 1 &&
+    (
+      text.includes("dados") ||
+      text.includes("estatistica") ||
+      text.includes("estatisticas") ||
+      text.includes("como esta") ||
+      text.includes("como ele esta") ||
+      text.includes("numeros")
+    )
   ) {
-    return "Fala! 🤖⚽ Sou o BolaBot. Pergunta alguma coisa sobre a pelada!";
+    return answerStats(
+      mentionedPlayers[0].name
+    );
   }
+
+  /* FALLBACK */
 
   return `🤔 Ainda não sei responder isso.
 
-Tenta perguntar:
+Você pode tentar:
 
-• "Quem é o melhor jogador?"
-• "Quem fez mais gols?"
-• "Quem deu mais assistências?"
-• "Quem está pior no ranking?"
+• "Quem está jogando melhor?"
+• "Quem está sendo mais decisivo?"
+• "Analisa essa partida"
+• "Qual time está melhor?"
+• "Analisa o Lucas"
+• "Lucas ou Djavan?"
+• "Quem está em melhor fase?"
 • "Quem mais evoluiu esse mês?"
-• "Como o Djavan evoluiu?"
-• "Mostre os dados do jogador"
 
-Estou aprendendo novas funções ainda. 🤖`;
-
+Também posso responder perguntas sobre ranking, gols e assistências. 🤖`;
 }

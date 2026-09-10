@@ -15,7 +15,8 @@ export function renderSettingsView() {
   container.className = "view-container";
 
   function render() {
-    const canChangeTeamSize = store.isAdmin && store.activePelada.status === "idle";
+    const canChangeTeamSize =
+      store.isAdmin && store.activePelada.status === "idle";
 
     container.innerHTML = `
       <div style="margin-bottom: 20px;">
@@ -138,7 +139,7 @@ export function renderSettingsView() {
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-          📱 BolaBate+ v3.1 (Web & Android APK)
+          📱 BolaBate+ v3.2 (Web & Android APK)
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
@@ -165,7 +166,9 @@ export function renderSettingsView() {
         if (!store.isAdmin) {
           showToast("🔒 Apenas o admin pode trocar o formato.");
         } else {
-          showToast("⚠️ Termine ou cancele a pelada atual para trocar o formato.");
+          showToast(
+            "⚠️ Termine ou cancele a pelada atual para trocar o formato.",
+          );
         }
         return;
       }
@@ -305,7 +308,6 @@ export function renderSettingsView() {
         addAdminBtn.textContent = "➕ Cadastrar Admin";
       });
     }
-
   }
 
   render();
