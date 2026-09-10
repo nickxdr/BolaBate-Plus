@@ -2,6 +2,18 @@ import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
 import { getPlayerAchievements } from "../services/achievement.js";
 
+/**
+ * Diaristas (day-rate guests) declutter the roster management screen once their
+ * pelada is over — UNLESS they turn out to have real data: prior participation
+ * as a mensalista (player.participacao, synced from monthlyStats, never counts
+ * diarista appearances) or in any past ranking table. Purely a display filter —
+ * the player record itself is untouched, so history/attendance still work.
+ */
+function isHiddenDiarista(player) {
+  if (Number(player.participacao) > 0) return false;
+  return store.history.some((entry) => (entry.diaristaPlayerIds || []).includes(player.id));
+}
+
 export function renderPlayersView() {
   const container = document.createElement("div");
   container.className = "view-container";
@@ -11,6 +23,7 @@ export function renderPlayersView() {
 
   function getFilteredPlayers() {
     return store.players
+      .filter((p) => !isHiddenDiarista(p))
       .filter((p) => {
         return p.name.toLowerCase().includes(searchTerm.toLowerCase());
       })

@@ -21,10 +21,11 @@ const THEME_KEY = 'bolabate_theme_v1';
 const ADMIN_ONLY_METHODS = [
   'addPlayer', 'updatePlayer', 'deletePlayer',
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
-  'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist',
+  'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion',
+  'setTeamSize',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
-  'startMatchBetween', 'reorderWaitingQueue',
+  'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore',
   'finishPelada', 'updateHistoryAwards', 'cancelPelada', 'deleteHistoryEntry',
   'importFromJson', 'resetToDefaults',
 ];
@@ -41,6 +42,7 @@ class Store {
     this.onBlocked = null;        // set by main.js → shows a toast
     this.onCloudStatus = null;    // set by main.js → UI status updates
     this.players = this.loadPlayers();
+    this.teamSize = this.loadTeamSize(); // 5 (default) or 6 — league-wide match format, synced via cloud
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
     this.monthlyStats = this.loadMonthlyStats();
@@ -88,6 +90,31 @@ class Store {
       console.error('Error loading players:', e);
     }
     return JSON.parse(JSON.stringify(INITIAL_PLAYERS));
+  }
+
+  loadTeamSize() {
+    try {
+      const raw = Number(localStorage.getItem(STORAGE_KEY + '_team_size'));
+      return raw === 6 ? 6 : 5;
+    } catch (e) {
+      return 5;
+    }
+  }
+
+  /**
+   * League-wide match format — 5v5 (default) or 6v6. Reshapes team assembly, the mini-pitch
+   * formation and the completeness checks everywhere else in the pelada flow, so it's blocked
+   * while a pelada is being set up or is live to avoid corrupting an in-progress roster.
+   */
+  setTeamSize(size) {
+    const next = Number(size) === 6 ? 6 : 5;
+    if (next === this.teamSize) return { success: true };
+    if (this.activePelada.status !== 'idle') {
+      return { success: false, error: 'Termine ou cancele a pelada atual antes de trocar o formato.' };
+    }
+    this.teamSize = next;
+    this.save();
+    return { success: true };
   }
 
   loadPelada() {
@@ -142,6 +169,20 @@ class Store {
     scheduleCloudPush(this);
   }
 
+  /**
+   * Same as save() but skips notify() — for hot-path mutations (goal/assist counters, match
+   * timer, score correction) whose caller already patches the affected DOM nodes directly
+   * (see peladaView's patch* functions). notify() drives main.js's global re-render, which
+   * tears down and rebuilds the entire mounted view; doing that on every single tap during a
+   * live match is what caused the whole screen to visibly flash. Persistence and cloud sync
+   * (and therefore every OTHER client's own notify) are unaffected — this only skips the
+   * redundant local re-render of a change this tab already reflected itself.
+   */
+  saveQuiet() {
+    this.persistLocal();
+    scheduleCloudPush(this);
+  }
+
   /** Writes only to localStorage — used for offline cache & cloud snapshots. */
   persistLocal() {
     try {
@@ -150,6 +191,7 @@ class Store {
       localStorage.setItem(STORAGE_KEY + '_history', JSON.stringify(this.history));
       localStorage.setItem(STORAGE_KEY + '_monthly', JSON.stringify(this.monthlyStats || {}));
       localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey || '');
+      localStorage.setItem(STORAGE_KEY + '_team_size', String(this.teamSize));
       localStorage.setItem(THEME_KEY, this.theme);
     } catch (e) {
       console.error('Error saving state:', e);
@@ -420,8 +462,36 @@ class Store {
 
     rotation.waitingTeamIds = rotation.waitingTeamIds.filter(id => id !== teamAId && id !== teamBId);
     rotation.currentMatch = this.createMatch(teamAId, teamBId);
+    const reclaimedGuests = this.reclaimGuestsForTeams([teamAId, teamBId]);
     this.save();
-    return { success: true };
+    return { success: true, reclaimedGuests };
+  }
+
+  /** A player's true roster team — ignores any guest slot they may currently be filling elsewhere. */
+  getHomeTeamId(playerId) {
+    const team = this.activePelada.teams.find(t => t.playerIds.includes(playerId));
+    return team ? team.id : null;
+  }
+
+  /**
+   * A guest can't play for their adoptive team once their OWN team takes the pitch for
+   * real — pulls back any guest whose home team is among `teamIds`, freeing them to play
+   * for their real team. Returns the removed slots so the UI can prompt for a new
+   * substitute on whichever team just lost its guest.
+   */
+  reclaimGuestsForTeams(teamIds) {
+    const idSet = new Set((teamIds || []).filter(Boolean));
+    if (idSet.size === 0) return [];
+    const reclaimed = [];
+    this.activePelada.guestSlots = (this.activePelada.guestSlots || []).filter(slot => {
+      const homeTeamId = this.getHomeTeamId(slot.guestPlayerId);
+      if (homeTeamId && idSet.has(homeTeamId)) {
+        reclaimed.push(slot);
+        return false;
+      }
+      return true;
+    });
+    return reclaimed;
   }
 
   /**
@@ -446,7 +516,7 @@ class Store {
     if (!match || match.timerRunning) return;
     match.timerRunning = true;
     match.timerEndsAt = Date.now() + match.timerRemainingMs;
-    this.save();
+    this.saveQuiet();
   }
 
   pauseMatchTimer() {
@@ -455,7 +525,7 @@ class Store {
     match.timerRemainingMs = Math.max(0, match.timerEndsAt - Date.now());
     match.timerRunning = false;
     match.timerEndsAt = null;
-    this.save();
+    this.saveQuiet();
   }
 
   /** Ends the current match, applies the winner-stays / 3-in-a-row / draw rules, and pulls in the next team(s). */
@@ -533,8 +603,12 @@ class Store {
       ? this.createMatch(nextTeamAId, nextTeamBId)
       : null;
 
+    // Only the newly-entering team(s) can possibly have a guest to reclaim — the team
+    // that stayed on was already on the pitch, so its guests (if any) were already pulled.
+    const reclaimedGuests = rotation.currentMatch ? this.reclaimGuestsForTeams(incomingIds) : [];
+
     this.save();
-    return { success: true, winnerId, teamAId, teamBId, scoreA, scoreB };
+    return { success: true, winnerId, teamAId, teamBId, scoreA, scoreB, reclaimedGuests };
   }
 
   /** Finds which team a player currently belongs to (original roster or an active guest slot). */
@@ -551,6 +625,27 @@ class Store {
     if (!match || !teamId) return;
     if (teamId === match.teamAId) match.scoreA = Math.max(0, match.scoreA + delta);
     else if (teamId === match.teamBId) match.scoreB = Math.max(0, match.scoreB + delta);
+  }
+
+  /**
+   * Manually adjusts a team's match score without attributing it to any player —
+   * used for own goals (gol contra) and score corrections, since the goal/assist
+   * counters are always tied to a specific player and can't represent those.
+   */
+  adjustMatchScore(teamId, delta) {
+    const match = this.activePelada.rotation?.currentMatch;
+    if (!match || !teamId) return;
+    this.bumpMatchScore(teamId, delta);
+
+    this.activePelada.events.unshift({
+      id: 'ev_' + Date.now(),
+      type: 'manual-adjustment',
+      teamId,
+      delta,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+
+    this.saveQuiet();
   }
 
   recordGoal(playerId, teamId, isGuest = false) {
@@ -575,7 +670,7 @@ class Store {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
 
-    this.save();
+    this.saveQuiet();
   }
 
   recordAssist(playerId, teamId, isGuest = false) {
@@ -598,7 +693,7 @@ class Store {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
 
-    this.save();
+    this.saveQuiet();
   }
 
   removeGoal(playerId, isGuest = false) {
@@ -613,7 +708,7 @@ class Store {
       }
     }
     this.bumpMatchScore(this.findPlayerTeamId(playerId), -1);
-    this.save();
+    this.saveQuiet();
   }
 
   removeAssist(playerId, isGuest = false) {
@@ -627,7 +722,7 @@ class Store {
         this.activePelada.stats[playerId].assists -= 1;
       }
     }
-    this.save();
+    this.saveQuiet();
   }
 
   // Handle a player leaving early
@@ -647,6 +742,22 @@ class Store {
     this.activePelada.guestSlots = (this.activePelada.guestSlots || []).filter(
       slot => slot.departedPlayerId !== playerId
     );
+    this.save();
+  }
+
+  /**
+   * Fills a team that started under-strength (fewer than 5 rostered players — e.g. the total
+   * headcount didn't divide evenly across teams) with a guest from the waiting queue. Uses the
+   * same guestSlots mechanism as a departure substitute, but with no specific player being
+   * replaced — departedPlayerId stays null, and reclaimGuestsForTeams() pulls this guest back
+   * exactly like any other once their real team takes the pitch.
+   */
+  assignTeamCompletion(teamId, guestPlayerId) {
+    if (!guestPlayerId || !teamId) return;
+    this.activePelada.guestSlots.push({ departedPlayerId: null, guestPlayerId, teamId });
+    if (!this.activePelada.stats[guestPlayerId]) {
+      this.activePelada.stats[guestPlayerId] = { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
+    }
     this.save();
   }
 
@@ -800,7 +911,11 @@ class Store {
       const agg = this.getYearSnapshot(year);
       return agg.players?.[playerId] || emptyPlayerStats();
     }
-    return this.monthlyStats?.[key]?.players?.[playerId] || emptyPlayerStats();
+    const period = this.monthlyStats?.[key] || { players: {} };
+    const merged = key === this.currentPeriodKey()
+      ? this.mergeOverlayIntoPeriod(period, this.getLiveStatsOverlay())
+      : period;
+    return merged.players?.[playerId] || emptyPlayerStats();
   }
 
   isAnnualSelected() {
@@ -818,6 +933,12 @@ class Store {
         addPlayerStats(agg[pid], stats);
       });
     });
+    if (Number(year) === new Date().getFullYear()) {
+      Object.entries(this.getLiveStatsOverlay()).forEach(([pid, stats]) => {
+        if (!agg[pid]) agg[pid] = emptyPlayerStats();
+        addPlayerStats(agg[pid], stats);
+      });
+    }
     return { players: agg, matchIds: [], generatedAt: null };
   }
 
@@ -895,7 +1016,47 @@ class Store {
     const key = this.getPeriodKey(year, month);
     const empty = { players: {}, matchIds: [], generatedAt: null };
     const period = (this.monthlyStats && this.monthlyStats[key]) ? this.monthlyStats[key] : empty;
+    if (key === this.currentPeriodKey()) {
+      return this.mergeOverlayIntoPeriod(period, this.getLiveStatsOverlay());
+    }
     return period;
+  }
+
+  /**
+   * Goals/assists only get folded into monthlyStats when the admin taps "Terminar pelada"
+   * (finishPelada). To make the ranking table react the instant a goal/assist is recorded —
+   * instead of only once the match ends — this computes the live pelada's not-yet-committed
+   * contribution (per participating, non-diarista player: 1 game + their current goals/assists)
+   * so it can be merged into a period snapshot for display, without touching stored data.
+   */
+  getLiveStatsOverlay() {
+    const overlay = {};
+    if (this.activePelada.status !== 'live') return overlay;
+    const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
+    const participatingPlayerIds = new Set();
+    this.activePelada.teams.forEach(team => {
+      team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
+    });
+    participatingPlayerIds.forEach(pid => {
+      if (diaristaIds.has(pid)) return;
+      const pStats = this.activePelada.stats[pid];
+      const entry = emptyPlayerStats();
+      entry.participacao = 1;
+      entry.goals = Number(pStats?.goals) || 0;
+      entry.assists = Number(pStats?.assists) || 0;
+      overlay[pid] = entry;
+    });
+    return overlay;
+  }
+
+  /** Returns a new period object with `overlay`'s per-player deltas added in — never mutates the stored period. */
+  mergeOverlayIntoPeriod(period, overlay) {
+    if (!overlay || Object.keys(overlay).length === 0) return period;
+    const merged = { ...period, players: { ...(period.players || {}) } };
+    Object.entries(overlay).forEach(([pid, stats]) => {
+      merged.players[pid] = addPlayerStats({ ...(merged.players[pid] || emptyPlayerStats()) }, stats);
+    });
+    return merged;
   }
 
   ensurePeriodExists(year, month) {

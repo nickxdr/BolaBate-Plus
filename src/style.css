@@ -665,25 +665,26 @@ body {
 
 .mini-pitch-scoreboard {
   position: absolute;
-  top: 8px;
+  top: 3px;
   left: 50%;
   z-index: 2;
   transform: translateX(-50%);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   background: rgba(8, 12, 20, 0.85);
   border: 1px solid rgba(16, 185, 129, 0.5);
-  border-radius: 20px;
-  padding: 4px 12px;
+  border-radius: 10px;
+  padding: 3px 12px;
   pointer-events: none;
 }
 
 .mini-pitch-score {
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 900;
   color: #F9FAFB;
-  line-height: 1;
+  line-height: 1.15;
 }
 
 .mini-pitch-score span {
@@ -692,10 +693,11 @@ body {
 }
 
 .mini-pitch-timer {
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 700;
   color: var(--accent-gold);
   font-variant-numeric: tabular-nums;
+  line-height: 1.15;
 }
 
 .mini-pitch-streak {
@@ -741,6 +743,71 @@ body {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Manual score adjustment (own goals / corrections) — deliberately understated,
+   this is an exception path, not the main way to record goals. */
+.match-score-adjust {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.match-score-adjust-label {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.match-score-adjust-team {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+}
+
+.match-score-adjust-team-name {
+  font-weight: 700;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.btn-adjust-score {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.btn-adjust-score:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-highlight);
+}
+
+@media (max-width: 640px) {
+  /* Stack label + each team on its own full-width row — wrapping mid-row left
+     "Time 3" starting flush at the edge while "Time 1" sat indented after the label. */
+  .match-score-adjust {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .match-score-adjust-team {
+    width: 100%;
+  }
 }
 
 /* Live Pelada: Waiting Queue */
@@ -1002,6 +1069,71 @@ body {
   padding: 2px 6px;
   border-radius: 6px;
   margin-left: 6px;
+}
+
+/* Sized to match a real .team-player-row in the live 2-team view (header line + counters
+   row), so the "team needs completion" slot reads as an empty player slot, not a banner. */
+.btn-complete-team {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 116px;
+  margin-top: 4px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 2px dashed var(--accent-purple);
+  background: rgba(139, 92, 246, 0.08);
+  color: #A78BFA;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.btn-complete-team:hover {
+  background: rgba(139, 92, 246, 0.16);
+}
+
+.btn-complete-team:active {
+  transform: scale(0.98);
+}
+
+.team-incomplete-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 116px;
+  margin-top: 4px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 2px dashed var(--accent-purple);
+  background: rgba(139, 92, 246, 0.08);
+  color: #A78BFA;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Settings: Match Format (5x5 / 6x6) selector cards */
+.format-option-card {
+  cursor: pointer;
+  border: 2px solid var(--border-color);
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.format-option-card.active {
+  border-color: var(--pitch-green);
+}
+
+.format-option-card:active {
+  transform: scale(0.98);
+}
+
+.format-option-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 /* Live Counters (Goals / Assists) */
@@ -1465,6 +1597,13 @@ body {
   padding: 2px 6px;
   border-radius: 6px;
   margin-left: 6px;
+}
+
+@media (max-width: 640px) {
+  /* Match history rows are already tight on smaller devices — keep just the 💰 there. */
+  .history-player-row .diarista-badge-label {
+    display: none;
+  }
 }
 
 /* Toast Notification */

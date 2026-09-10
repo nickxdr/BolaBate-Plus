@@ -2,13 +2,16 @@
  * Team Balancer & Suggestions Service for BolaBate+
  */
 
+const AVG_STAR_TARGET = 4.0; // assumed average player rating, used to derive the target team total
+
 /**
- * Auto-balances players into K teams of 5 players targeting ~20 stars per team.
+ * Auto-balances players into K teams of `teamSize` players targeting ~(teamSize * 4★) per team.
  * Uses a greedy snake draft followed by pairwise swap optimization.
  */
-export function autoBalanceTeams(players, teamCount = 4) {
+export function autoBalanceTeams(players, teamCount = 4, teamSize = 5) {
   const k = Math.max(3, Math.min(6, teamCount));
-  const totalSlotsNeeded = k * 5;
+  const totalSlotsNeeded = k * teamSize;
+  const targetStars = teamSize * AVG_STAR_TARGET;
 
     // Clone and shuffle players before sorting by stars.
   // This randomizes the order of players with equal star ratings.
@@ -61,10 +64,10 @@ export function autoBalanceTeams(players, teamCount = 4) {
   }
 
   // Step 2: Optimization via local swaps (Hill Climbing)
-  // Target: minimize variance from 20.0 stars and minimize max - min star difference
+  // Target: minimize variance from targetStars and minimize max - min star difference
   function evaluateScore(tms) {
     let score = 0;
-    const target = 20.0;
+    const target = targetStars;
     for (const t of tms) {
       score += Math.pow(t.totalStars - target, 2);
     }
@@ -125,13 +128,13 @@ export function autoBalanceTeams(players, teamCount = 4) {
 }
 
 /**
- * Distributes players into K teams of 5 purely at random (no star balancing).
+ * Distributes players into K teams of `teamSize` purely at random (no star balancing).
  * Used for the initial team assembly; users can still rebalance manually or
  * with the "Equilibrar Automaticamente" button.
  */
-export function randomizeTeams(players, teamCount = 4) {
+export function randomizeTeams(players, teamCount = 4, teamSize = 5) {
   const k = Math.max(3, Math.min(6, teamCount));
-  const totalSlotsNeeded = k * 5;
+  const totalSlotsNeeded = k * teamSize;
 
   // Clone the pool and shuffle with Fisher–Yates
   const pool = [...players].slice(0, totalSlotsNeeded);
@@ -160,21 +163,23 @@ export function randomizeTeams(players, teamCount = 4) {
 }
 
 /**
- * Gives smart player suggestions to fill remaining slots in a team to get as close as possible to 20 stars.
+ * Gives smart player suggestions to fill remaining slots in a team to get as close as possible
+ * to the target star total (teamSize * 4★).
  *
- * @param {Array} currentTeamPlayers - Players currently in the team (1 to 4 players)
+ * @param {Array} currentTeamPlayers - Players currently in the team (1 to teamSize-1 players)
  * @param {Array} availablePlayers - Unassigned players who are present
- * @returns {Array} List of suggestions ranked by how close they bring the team to the ~20★ goal
+ * @param {number} teamSize - Players per team (5 or 6)
+ * @returns {Array} List of suggestions ranked by how close they bring the team to the star goal
  */
-export function getSmartSuggestions(currentTeamPlayers, availablePlayers) {
+export function getSmartSuggestions(currentTeamPlayers, availablePlayers, teamSize = 5) {
   const currentCount = currentTeamPlayers.length;
-  if (currentCount === 0 || currentCount >= 5 || availablePlayers.length === 0) {
+  if (currentCount === 0 || currentCount >= teamSize || availablePlayers.length === 0) {
     return [];
   }
 
   const currentStars = currentTeamPlayers.reduce((acc, p) => acc + Number(p.stars), 0);
-  const remainingSlots = 5 - currentCount;
-  const targetTotal = 20.0;
+  const remainingSlots = teamSize - currentCount;
+  const targetTotal = teamSize * AVG_STAR_TARGET;
   const remainingBudget = targetTotal - currentStars;
   const idealStarPerPlayer = remainingBudget / remainingSlots;
 
@@ -185,14 +190,14 @@ export function getSmartSuggestions(currentTeamPlayers, availablePlayers) {
     const projectedRemainingSlots = remainingSlots - 1;
     let projectedFinalIfAvg = projectedTotal;
     if (projectedRemainingSlots > 0) {
-      projectedFinalIfAvg += projectedRemainingSlots * 4.0; // Assume 4.0 average for remaining
+      projectedFinalIfAvg += projectedRemainingSlots * AVG_STAR_TARGET;
     }
 
     return {
       player,
       diff,
       projectedFinal: Number(projectedFinalIfAvg.toFixed(1)),
-      reason: generateSuggestionReason(player.stars, idealStarPerPlayer, remainingSlots)
+      reason: generateSuggestionReason(player.stars, idealStarPerPlayer, targetTotal)
     };
   });
 
@@ -202,10 +207,10 @@ export function getSmartSuggestions(currentTeamPlayers, availablePlayers) {
   return scored.slice(0, 4); // return top 4 best matches
 }
 
-function generateSuggestionReason(playerStars, idealStar, remainingSlots) {
+function generateSuggestionReason(playerStars, idealStar, targetTotal) {
   const diff = playerStars - idealStar;
   if (Math.abs(diff) <= 0.3) {
-    return 'Encaixe ideal para atingir ~20★';
+    return `Encaixe ideal para atingir ~${targetTotal}★`;
   } else if (diff > 0.3) {
     return 'Eleva o nível do time (+força)';
   } else {

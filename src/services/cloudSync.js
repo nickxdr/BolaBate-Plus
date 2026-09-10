@@ -147,6 +147,7 @@ function serialize(store) {
     activePelada: store.activePelada,
     history: store.history,
     monthlyStats: store.monthlyStats,
+    teamSize: store.teamSize,
     savedAt: new Date().toISOString(),
     savedBy: auth.currentUser ? auth.currentUser.uid : "unknown",
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -172,6 +173,9 @@ function applyRemote(data) {
     }
     if (data.monthlyStats && typeof data.monthlyStats === "object") {
       store.monthlyStats = data.monthlyStats;
+    }
+    if (data.teamSize === 5 || data.teamSize === 6) {
+      store.teamSize = data.teamSize;
     }
     store.hydrateMonthlyStats();
     store.syncCareerStatsFromMonthly({ silent: true });

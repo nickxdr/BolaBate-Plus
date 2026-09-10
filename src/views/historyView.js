@@ -298,7 +298,7 @@ function renderTeamsSection(entry) {
 
       return `
         <div class="history-player-row${hasActivity ? ' active' : ''}${isDiarista ? ' diarista' : ''}">
-          <span class="history-player-name">${escapeHtml(player.name)}${isDiarista ? ' <span class="diarista-badge">💰 Diarista</span>' : ''}</span>
+          <span class="history-player-name">${escapeHtml(player.name)}${isDiarista ? ' <span class="diarista-badge">💰 <span class="diarista-badge-label">Diarista</span></span>' : ''}</span>
           <span class="history-player-stats">
             <span class="history-player-stat goals">⚽ ${goals}</span>
             <span class="history-player-stat assists">👟 ${assists}</span>

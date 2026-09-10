@@ -45,8 +45,31 @@ function renderWaitingForAdmin(container) {
 // ----------------------------------------------------
 // 1. Pelada Initial Configuration: Team count & Attendance
 // ----------------------------------------------------
+
+/** Below this many present players, no team count (not even the minimum, 3) can be fielded. */
+function minPeladaPlayers(teamSize) {
+  return 3 * teamSize;
+}
+
+/** Minimum headcount that justifies `n` teams — more than what `n - 1` teams could hold. */
+function minPlayersForTeamCount(n, teamSize) {
+  return n <= 3 ? minPeladaPlayers(teamSize) : teamSize * (n - 1) + 1;
+}
+
+/** Auto-downgrades (never upgrades) from the admin's chosen team count when attendance falls short — e.g. 5-a-side with 5 times needs 21-25 players; below that it steps down to 4, then 3 if needed. */
+function computeEffectiveTeamCount(selectedTeamCount, presentCount, teamSize) {
+  let n = selectedTeamCount;
+  while (n > 3 && presentCount < minPlayersForTeamCount(n, teamSize)) {
+    n -= 1;
+  }
+  return n;
+}
+
 function renderPeladaConfig(container, onNavigate) {
   let teamCount = Math.max(3, Math.min(6, store.activePelada.teamCount || 4));
+  // No button starts pressed — only highlight the admin's own click until then (or once
+  // attendance is ready, the real computed outcome, handled in the highlight logic below).
+  let hasPickedTeamCount = false;
   // Start with a completely clean list: NO pre-selected players
   let selectedIds = new Set();
   let diaristaIds = new Set();
@@ -54,13 +77,17 @@ function renderPeladaConfig(container, onNavigate) {
   let filterText = "";
 
   function update() {
-    const neededPlayers = teamCount * 5; // Recalculated dynamically on every teamCount change!
+    const teamSize = store.teamSize;
+    const minPlayers = minPeladaPlayers(teamSize);
+    const maxPlayers = teamCount * teamSize; // admin's chosen ceiling — selection is still capped here
     const players = store.players.filter((p) =>
       p.name.toLowerCase().includes(filterText.toLowerCase()),
     );
 
     const count = selectedIds.size;
-    const isReady = count === neededPlayers;
+    const isReady = count >= minPlayers && count <= maxPlayers;
+    const effectiveTeamCount = computeEffectiveTeamCount(teamCount, count, teamSize);
+    const wasAutoAdjusted = isReady && effectiveTeamCount !== teamCount;
 
     container.innerHTML = `
       <div style="margin-bottom: 20px;">
@@ -68,7 +95,7 @@ function renderPeladaConfig(container, onNavigate) {
           ⚽ Organizar Nova Pelada
         </h1>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Defina o número de times (5 jogadores por time) e selecione os atletas presentes.
+          Escolha o número máximo de times (${teamSize} jogadores por time) e selecione os atletas presentes. Se faltar gente para esse número, o app reduz os times automaticamente.
         </p>
       </div>
 
@@ -79,13 +106,23 @@ function renderPeladaConfig(container, onNavigate) {
         </h2>
         <div class="team-count-grid">
           ${[3, 4, 5, 6]
-            .map(
-              (num) => `
-            <button class="btn ${teamCount === num ? "btn-primary" : "btn-secondary"} btn-team-count" data-count="${num}">
+            .map((num) => {
+              // Before there are enough players yet, every tier would cascade down to
+              // the same effective count (3), which would make clicking feel broken —
+              // so highlight the admin's own click until we're actually ready, then
+              // switch to showing the real (possibly auto-downgraded) outcome. Nothing
+              // is highlighted at all until the admin clicks a button or attendance is ready.
+              const highlightCount = isReady
+                ? effectiveTeamCount
+                : hasPickedTeamCount
+                  ? teamCount
+                  : null;
+              return `
+            <button class="btn ${highlightCount === num ? "btn-primary" : "btn-secondary"} btn-team-count" data-count="${num}">
               ${num} Times
             </button>
-          `,
-            )
+          `;
+            })
             .join("")}
         </div>
       </div>
@@ -97,15 +134,30 @@ function renderPeladaConfig(container, onNavigate) {
             <h2 style="font-size: 1.05rem; font-weight: 700;">
               2. Quem está presente?
             </h2>
-            <div style="font-size: 0.85rem; color: ${isReady ? "var(--pitch-green)" : count > neededPlayers ? "var(--accent-red)" : "var(--accent-gold)"}; font-weight: 700; margin-top: 2px;">
-              ${count} de ${neededPlayers} jogadores selecionados
-              ${count < neededPlayers ? `(faltam ${neededPlayers - count})` : count > neededPlayers ? `(excesso de ${count - neededPlayers})` : "✓ Pronto!"}
+            <div style="font-size: 0.85rem; color: ${isReady ? "var(--pitch-green)" : count > maxPlayers ? "var(--accent-red)" : "var(--accent-gold)"}; font-weight: 700; margin-top: 2px;">
+              ${count} jogador${count === 1 ? "" : "es"} selecionado${count === 1 ? "" : "s"}
+              ${
+                count < minPlayers
+                  ? `(faltam ${minPlayers - count} para o mínimo de ${minPlayers})`
+                  : count > maxPlayers
+                    ? `(excesso de ${count - maxPlayers})`
+                    : `✓ Pronto para ${effectiveTeamCount} ${effectiveTeamCount === 1 ? "time" : "times"}!`
+              }
             </div>
+            ${
+              wasAutoAdjusted
+                ? `
+              <div style="font-size: 0.76rem; color: var(--accent-gold); margin-top: 2px;">
+                🔄 Ajustado automaticamente de ${teamCount} para ${effectiveTeamCount} times (jogadores insuficientes para ${teamCount}).
+              </div>
+            `
+                : ""
+            }
           </div>
 
           <div class="attendance-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button id="btn-quick-fill" class="btn btn-secondary btn-sm" title="Seleciona os primeiros ${neededPlayers} jogadores">
-              Completar ${neededPlayers}
+            <button id="btn-quick-fill" class="btn btn-secondary btn-sm" title="Seleciona os primeiros ${maxPlayers} jogadores">
+              Completar ${maxPlayers}
             </button>
             <button id="btn-clear-selection" class="btn btn-secondary btn-sm">
               Limpar
@@ -158,13 +210,17 @@ function renderPeladaConfig(container, onNavigate) {
 
         <div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
           <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady || !store.isAdmin ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ""}>
-            ${store.isAdmin ? `Avançar para Montagem dos Times (${count}/${neededPlayers})` : "🔒 Apenas o admin pode iniciar a pelada"}
+            ${store.isAdmin ? `Avançar para Montagem dos Times (${count} jogadores → ${effectiveTeamCount} times)` : "🔒 Apenas o admin pode iniciar a pelada"}
           </button>
           ${
             !isReady
               ? `
             <p style="font-size: 0.78rem; text-align: center; color: var(--text-muted);">
-              Selecione exatamente ${neededPlayers} jogadores para poder avançar.
+              ${
+                count < minPlayers
+                  ? `Selecione pelo menos ${minPlayers} jogadores para poder avançar.`
+                  : `Você selecionou mais jogadores do que o máximo de ${maxPlayers} para ${teamCount} times — remova ${count - maxPlayers} ou aumente o número de times.`
+              }
             </p>
           `
               : ""
@@ -177,6 +233,7 @@ function renderPeladaConfig(container, onNavigate) {
     container.querySelectorAll(".btn-team-count").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         teamCount = parseInt(e.currentTarget.getAttribute("data-count"), 10);
+        hasPickedTeamCount = true;
         store.activePelada.teamCount = teamCount;
         update();
       });
@@ -198,7 +255,7 @@ function renderPeladaConfig(container, onNavigate) {
     container.querySelector("#btn-quick-fill").addEventListener("click", () => {
       selectedIds.clear();
       diaristaIds.clear();
-      const pool = [...store.players].slice(0, neededPlayers);
+      const pool = [...store.players].slice(0, maxPlayers);
       pool.forEach((p) => selectedIds.add(p.id));
       update();
     });
@@ -220,9 +277,9 @@ function renderPeladaConfig(container, onNavigate) {
           selectedIds.delete(pid);
           diaristaIds.delete(pid);
         } else {
-          if (selectedIds.size >= neededPlayers) {
+          if (selectedIds.size >= maxPlayers) {
             showToast(
-              `Você já selecionou o limite de ${neededPlayers} jogadores!`,
+              `Você já selecionou o limite de ${maxPlayers} jogadores!`,
             );
             return;
           }
@@ -251,7 +308,7 @@ function renderPeladaConfig(container, onNavigate) {
     if (isReady && store.isAdmin && advanceBtn) {
       advanceBtn.addEventListener("click", () => {
         store.startPeladaSetup(
-          teamCount,
+          effectiveTeamCount,
           Array.from(selectedIds),
           Array.from(diaristaIds),
         );
@@ -280,7 +337,7 @@ function renderSetupTeams(container, onNavigate) {
     pelada.teams.every((t) => t.playerIds.length === 0)
   ) {
     // If not distributed, split players randomly (user can still auto-balance later)
-    const randomized = randomizeTeams(presentPlayers, pelada.teamCount);
+    const randomized = randomizeTeams(presentPlayers, pelada.teamCount, store.teamSize);
     pelada.teams = randomized.map((b, i) => ({
       id: `team-${i + 1}`,
       name: `Time ${i + 1}`,
@@ -297,6 +354,8 @@ function renderSetupTeams(container, onNavigate) {
   }
 
   function render() {
+    const teamSize = store.teamSize;
+    const targetStars = teamSize * 4.0;
     const assignedIds = getAssignedPlayerIds();
     const unassignedPlayers = presentPlayers.filter(
       (p) => !assignedIds.has(p.id),
@@ -310,7 +369,7 @@ function renderSetupTeams(container, onNavigate) {
             ⚖️ Equilíbrio dos Times
           </h1>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
-            Meta por time: ~20.0★ total (5 jogadores).
+            Meta por time: ~${targetStars.toFixed(1)}★ total (${teamSize} jogadores).
           </p>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
             Arraste e solte para trocar ou equilibrar.
@@ -362,20 +421,20 @@ function renderSetupTeams(container, onNavigate) {
               .map((id) => store.getPlayer(id))
               .filter(Boolean);
             const totalStars = teamPlayers.reduce((sum, p) => sum + p.stars, 0);
-            const slotsRemaining = 5 - teamPlayers.length;
+            const slotsRemaining = teamSize - teamPlayers.length;
 
-            // Meter styling: closer to 20 is perfect
-            const diffFrom20 = Math.abs(totalStars - 20.0);
+            // Meter styling: closer to the target is perfect
+            const diffFromTarget = Math.abs(totalStars - targetStars);
             let pillClass = "good";
-            if (teamPlayers.length === 5) {
-              if (diffFrom20 <= 1.5) pillClass = "perfect";
-              else if (diffFrom20 > 3.0) pillClass = "skewed";
+            if (teamPlayers.length === teamSize) {
+              if (diffFromTarget <= 1.5) pillClass = "perfect";
+              else if (diffFromTarget > 3.0) pillClass = "skewed";
             }
 
-            // Check if halfway done (e.g. 2, 3 or 4 players) to offer smart suggestions
-            const isHalfway = teamPlayers.length >= 2 && teamPlayers.length < 5;
+            // Check if halfway done (e.g. 2 to teamSize-1 players) to offer smart suggestions
+            const isHalfway = teamPlayers.length >= 2 && teamPlayers.length < teamSize;
             const suggestions = isHalfway
-              ? getSmartSuggestions(teamPlayers, unassignedPlayers)
+              ? getSmartSuggestions(teamPlayers, unassignedPlayers, teamSize)
               : [];
 
             return `
@@ -387,7 +446,7 @@ function renderSetupTeams(container, onNavigate) {
                 </div>
                 <div class="team-meter">
                   <span class="team-meter-pill ${pillClass}">
-                    ${totalStars.toFixed(1)} ★ (${teamPlayers.length}/5)
+                    ${totalStars.toFixed(1)} ★ (${teamPlayers.length}/${teamSize})
                   </span>
                 </div>
               </div>
@@ -476,7 +535,7 @@ function renderSetupTeams(container, onNavigate) {
 
     // Bind auto-balance button
     container.querySelector("#btn-rebalance").addEventListener("click", () => {
-      const balanced = autoBalanceTeams(presentPlayers, pelada.teamCount);
+      const balanced = autoBalanceTeams(presentPlayers, pelada.teamCount, store.teamSize);
       pelada.teams = balanced.map((b, i) => ({
         id: `team-${i + 1}`,
         name: pelada.teams[i]?.name || `Time ${i + 1}`,
@@ -505,9 +564,10 @@ function renderSetupTeams(container, onNavigate) {
       }
 
       // Redistribute the same players across the existing teams
+      const teamSize = store.teamSize;
       pelada.teams = pelada.teams.map((team, teamIndex) => ({
         ...team,
-        playerIds: currentPlayerIds.slice(teamIndex * 5, (teamIndex + 1) * 5),
+        playerIds: currentPlayerIds.slice(teamIndex * teamSize, (teamIndex + 1) * teamSize),
       }));
 
       store.updatePeladaTeams(pelada.teams);
@@ -568,7 +628,7 @@ function renderSetupTeams(container, onNavigate) {
       const targetTeam = pelada.teams.find((t) => t.id === targetTeamId);
       if (!sourceTeam || !targetTeam) return;
 
-      if (targetTeam.playerIds.length < 5) {
+      if (targetTeam.playerIds.length < store.teamSize) {
         // Direct move if vacancy
         sourceTeam.playerIds = sourceTeam.playerIds.filter(
           (id) => id !== playerId,
@@ -709,7 +769,7 @@ function renderSetupTeams(container, onNavigate) {
         const teamId = e.currentTarget.getAttribute("data-team-id");
         const pid = e.currentTarget.getAttribute("data-player-id");
         const team = pelada.teams.find((t) => t.id === teamId);
-        if (team && team.playerIds.length < 5) {
+        if (team && team.playerIds.length < store.teamSize) {
           team.playerIds.push(pid);
           store.updatePeladaTeams(pelada.teams);
           render();
@@ -744,6 +804,142 @@ function renderLivePelada(container, onNavigate) {
   // Teams the admin has tapped to kick off the very first match — only relevant while
   // rotation.currentMatch is still null. Persists across re-renders of this same mount.
   let pendingMatchSelection = [];
+
+  // ----------------------------------------------------
+  // Surgical DOM patches for the hot-loop actions (goal, assist, timer, score
+  // correction) — these fire constantly during a live match, and a full `render()`
+  // (container.innerHTML = ...) on every single tap visibly flashes the whole screen.
+  // Same fix already applied to the per-second timer tick (see ensureMatchTimerTicking)
+  // and the cloud-status badge (see Store#_setCloudStatus) — patch just the DOM nodes
+  // that actually changed instead of rebuilding everything.
+  // ----------------------------------------------------
+
+  function patchPlayerCounters(playerId, isGuest) {
+    const pStat = store.activePelada.stats[playerId] || {};
+    const goalVal = isGuest ? pStat.guestGoals || 0 : pStat.goals || 0;
+    const assistVal = isGuest ? pStat.guestAssists || 0 : pStat.assists || 0;
+    const goalBtnSelector = isGuest ? ".btn-increase-guest-goal" : ".btn-increase-goal";
+    const assistBtnSelector = isGuest
+      ? ".btn-increase-guest-assist"
+      : ".btn-increase-assist";
+
+    container
+      .querySelectorAll(`${goalBtnSelector}[data-id="${playerId}"]`)
+      .forEach((btn) => {
+        const span = btn.previousElementSibling;
+        if (span?.classList.contains("count")) span.textContent = goalVal;
+      });
+    container
+      .querySelectorAll(`${assistBtnSelector}[data-id="${playerId}"]`)
+      .forEach((btn) => {
+        const span = btn.previousElementSibling;
+        if (span?.classList.contains("count")) span.textContent = assistVal;
+      });
+  }
+
+  function patchScoreboard() {
+    const match = pelada.rotation?.currentMatch;
+    if (!match) return;
+    const scoreEl = container.querySelector(".mini-pitch-score");
+    if (scoreEl) scoreEl.innerHTML = `${match.scoreA} <span>×</span> ${match.scoreB}`;
+    refreshMatchControls();
+  }
+
+  function patchTimeline() {
+    const listEl = container.querySelector(".pelada-timeline-list");
+    if (!listEl) {
+      // First event of the match — the timeline card doesn't exist in the DOM yet,
+      // so it needs one full render to be created. Every event after this patches.
+      render();
+      return;
+    }
+    listEl.innerHTML = renderTimelineEntries(pelada);
+  }
+
+  /** Regenerates just the timer/finish button row + its status labels, and rebinds them. */
+  function refreshMatchControls() {
+    const match = pelada.rotation?.currentMatch;
+    if (!match) return;
+    const barEl = container.querySelector(".match-controls-buttons");
+    const infoEl = container.querySelector(".match-controls-info");
+    if (!barEl) return;
+
+    const remainingMs = match.timerRunning
+      ? Math.max(0, match.timerEndsAt - Date.now())
+      : match.timerRemainingMs;
+    const canFinish = match.scoreA >= 2 || match.scoreB >= 2 || remainingMs <= 0;
+    const notStarted =
+      !match.timerRunning && match.timerRemainingMs === match.timerDurationMs;
+    const timeUp = remainingMs <= 0;
+
+    if (infoEl) {
+      infoEl.innerHTML = `
+        ${timeUp ? '<span class="match-timeup-label">⏱️ Tempo esgotado!</span>' : ""}
+        ${!timeUp && canFinish ? '<span class="match-ready-label">✅ Pronto para finalizar (2 gols)</span>' : ""}
+      `;
+    }
+
+    barEl.innerHTML = `
+      ${
+        match.timerRunning
+          ? `<button id="btn-pause-timer" class="btn btn-secondary">⏸️ Pausar</button>`
+          : timeUp
+            ? ""
+            : `<button id="btn-start-timer" class="btn btn-secondary">${notStarted ? "▶️ Iniciar" : "▶️ Retomar"}</button>`
+      }
+      <button id="btn-finish-match" class="btn btn-gold" ${canFinish ? "" : "disabled"}>
+        🏁 Finalizar
+      </button>
+    `;
+    bindMatchControls();
+  }
+
+  /** Binds the timer/finish buttons — called after the initial render and after every refreshMatchControls() patch. */
+  function bindMatchControls() {
+    const startTimerBtn = container.querySelector("#btn-start-timer");
+    if (startTimerBtn) {
+      startTimerBtn.addEventListener("click", () => {
+        store.startMatchTimer();
+        refreshMatchControls();
+      });
+    }
+
+    const pauseTimerBtn = container.querySelector("#btn-pause-timer");
+    if (pauseTimerBtn) {
+      pauseTimerBtn.addEventListener("click", () => {
+        store.pauseMatchTimer();
+        refreshMatchControls();
+      });
+    }
+
+    // Bind Finish Match — applies the winner-stays / draw / 3-streak rotation rules.
+    // This changes which teams are on the pitch, so it still warrants a full render().
+    const finishMatchBtn = container.querySelector("#btn-finish-match");
+    if (finishMatchBtn) {
+      finishMatchBtn.addEventListener("click", () => {
+        const result = store.endCurrentMatch();
+        if (result.success) {
+          const teamAName =
+            pelada.teams.find((t) => t.id === result.teamAId)?.name || "Time A";
+          const teamBName =
+            pelada.teams.find((t) => t.id === result.teamBId)?.name || "Time B";
+          if (result.winnerId) {
+            const winnerName =
+              pelada.teams.find((t) => t.id === result.winnerId)?.name ||
+              "Vencedor";
+            const hi = Math.max(result.scoreA, result.scoreB);
+            const lo = Math.min(result.scoreA, result.scoreB);
+            showToast(`🏆 ${winnerName} venceu por ${hi}×${lo}!`);
+          } else {
+            showToast(
+              `🤝 Empate! ${teamAName} ${result.scoreA}×${result.scoreB} ${teamBName}`,
+            );
+          }
+        }
+        handleReclaimedGuests(result.reclaimedGuests, render);
+      });
+    }
+  }
 
   function render() {
     const rotation = pelada.rotation;
@@ -799,23 +995,8 @@ function renderLivePelada(container, onNavigate) {
           <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 10px; color: var(--text-muted);">
             ⏱️ Linha do Tempo da Pelada
           </h3>
-          <div style="display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto;">
-            ${pelada.events
-              .slice(0, 10)
-              .map((ev) => {
-                const player = store.getPlayer(ev.playerId);
-                const name = player ? player.name : "Atleta";
-                return `
-                <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
-                  <span>
-                    ${ev.type === "goal" ? "⚽ GOL de" : "👟 ASSISTÊNCIA de"} <strong>${escapeHtml(name)}</strong>
-                    ${ev.isGuest ? '<span class="guest-badge" style="font-size: 0.65rem;">(Convidado)</span>' : ""}
-                  </span>
-                  <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
-                </div>
-              `;
-              })
-              .join("")}
+          <div class="pelada-timeline-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto;">
+            ${renderTimelineEntries(pelada)}
           </div>
         </div>
       `
@@ -833,13 +1014,16 @@ function renderLivePelada(container, onNavigate) {
       }
     `;
 
-    // Bind Goal / Assist clicks
+    // Bind Goal / Assist clicks — patched in place (see patchPlayerCounters/patchScoreboard
+    // above) instead of a full render(), since these fire constantly during a live match.
     container.querySelectorAll(".btn-increase-goal").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
         store.recordGoal(pid, teamId, false);
-        render();
+        patchPlayerCounters(pid, false);
+        patchScoreboard();
+        patchTimeline();
       });
     });
 
@@ -847,7 +1031,8 @@ function renderLivePelada(container, onNavigate) {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
         store.removeGoal(pid, false);
-        render();
+        patchPlayerCounters(pid, false);
+        patchScoreboard();
       });
     });
 
@@ -856,7 +1041,8 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
         store.recordAssist(pid, teamId, false);
-        render();
+        patchPlayerCounters(pid, false);
+        patchTimeline();
       });
     });
 
@@ -864,7 +1050,7 @@ function renderLivePelada(container, onNavigate) {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
         store.removeAssist(pid, false);
-        render();
+        patchPlayerCounters(pid, false);
       });
     });
 
@@ -874,7 +1060,9 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
         store.recordGoal(pid, teamId, true);
-        render();
+        patchPlayerCounters(pid, true);
+        patchScoreboard();
+        patchTimeline();
       });
     });
 
@@ -882,7 +1070,8 @@ function renderLivePelada(container, onNavigate) {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
         store.removeGoal(pid, true);
-        render();
+        patchPlayerCounters(pid, true);
+        patchScoreboard();
       });
     });
 
@@ -891,7 +1080,8 @@ function renderLivePelada(container, onNavigate) {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
         store.recordAssist(pid, teamId, true);
-        render();
+        patchPlayerCounters(pid, true);
+        patchTimeline();
       });
     });
 
@@ -899,7 +1089,7 @@ function renderLivePelada(container, onNavigate) {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
         store.removeAssist(pid, true);
-        render();
+        patchPlayerCounters(pid, true);
       });
     });
 
@@ -908,7 +1098,15 @@ function renderLivePelada(container, onNavigate) {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
         const teamId = e.currentTarget.getAttribute("data-team");
-        openDepartureModal(pid, teamId, render);
+        openSubstituteModal(pid, teamId, render);
+      });
+    });
+
+    // Bind "team needs completion" pill (fewer than 5 active players)
+    container.querySelectorAll(".btn-complete-team").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const teamId = e.currentTarget.getAttribute("data-team");
+        openCompletionModal(teamId, render);
       });
     });
 
@@ -931,49 +1129,20 @@ function renderLivePelada(container, onNavigate) {
       });
     }
 
-    // Bind Match Timer controls
-    const startTimerBtn = container.querySelector("#btn-start-timer");
-    if (startTimerBtn) {
-      startTimerBtn.addEventListener("click", () => {
-        store.startMatchTimer();
-        render();
-      });
-    }
+    // Bind Match Timer & Finish Match controls (see refreshMatchControls/bindMatchControls
+    // above — this is the same binding used after every subsequent patch, defined once).
+    bindMatchControls();
 
-    const pauseTimerBtn = container.querySelector("#btn-pause-timer");
-    if (pauseTimerBtn) {
-      pauseTimerBtn.addEventListener("click", () => {
-        store.pauseMatchTimer();
-        render();
+    // Bind manual score adjustment (own goals / corrections — not tied to a player)
+    container.querySelectorAll(".btn-adjust-score").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const teamId = e.currentTarget.getAttribute("data-team");
+        const delta = Number(e.currentTarget.getAttribute("data-delta"));
+        store.adjustMatchScore(teamId, delta);
+        patchScoreboard();
+        patchTimeline();
       });
-    }
-
-    // Bind Finish Match — applies the winner-stays / draw / 3-streak rotation rules
-    const finishMatchBtn = container.querySelector("#btn-finish-match");
-    if (finishMatchBtn) {
-      finishMatchBtn.addEventListener("click", () => {
-        const result = store.endCurrentMatch();
-        if (result.success) {
-          const teamAName =
-            pelada.teams.find((t) => t.id === result.teamAId)?.name || "Time A";
-          const teamBName =
-            pelada.teams.find((t) => t.id === result.teamBId)?.name || "Time B";
-          if (result.winnerId) {
-            const winnerName =
-              pelada.teams.find((t) => t.id === result.winnerId)?.name ||
-              "Vencedor";
-            const hi = Math.max(result.scoreA, result.scoreB);
-            const lo = Math.min(result.scoreA, result.scoreB);
-            showToast(`🏆 ${winnerName} venceu por ${hi}×${lo}!`);
-          } else {
-            showToast(
-              `🤝 Empate! ${teamAName} ${result.scoreA}×${result.scoreB} ${teamBName}`,
-            );
-          }
-        }
-        render();
-      });
-    }
+    });
 
     // Bind Waiting Queue departure toggle
     container.querySelectorAll(".waiting-player-toggle").forEach((btn) => {
@@ -1025,7 +1194,7 @@ function renderLivePelada(container, onNavigate) {
           pendingMatchSelection = [];
           showToast("Confronto iniciado! Boa sorte aos dois times!");
         }
-        render();
+        handleReclaimedGuests(result?.reclaimedGuests, render);
       });
     }
 
@@ -1115,27 +1284,82 @@ function renderLivePelada(container, onNavigate) {
 // ----------------------------------------------------
 // Early Departure & Guest Substitute Modal
 // ----------------------------------------------------
-function openDepartureModal(departingPlayerId, teamId, onDone) {
-  const departingPlayer = store.getPlayer(departingPlayerId);
-  if (!departingPlayer) return;
 
-  // Find candidate players from other teams who can act as guest
+/**
+ * After a match ends/starts, any guest whose real team just took the pitch was pulled
+ * back automatically (store.reclaimGuestsForTeams) — this reopens the substitute picker
+ * for whichever team(s) just lost their guest that way, one at a time, then re-renders.
+ */
+function handleReclaimedGuests(reclaimedGuests, onAllDone) {
+  if (!reclaimedGuests || reclaimedGuests.length === 0) {
+    onAllDone();
+    return;
+  }
+
   const pelada = store.activePelada;
-  const otherTeamsPlayers = [];
-  pelada.teams.forEach((t) => {
-    if (t.id !== teamId) {
-      t.playerIds.forEach((pid) => {
-        if (!pelada.departedPlayerIds.includes(pid)) {
-          const p = store.getPlayer(pid);
-          if (p) otherTeamsPlayers.push(p);
-        }
-      });
+  reclaimedGuests.forEach((slot) => {
+    const guest = store.getPlayer(slot.guestPlayerId);
+    const team = pelada.teams.find((t) => t.id === slot.teamId);
+    showToast(
+      `⚠️ ${guest?.name || "O convidado"} voltou para o time dele, que entrou em campo — ${team?.name || "o time"} precisa de um novo substituto.`,
+    );
+  });
+
+  let index = 0;
+  function openNext() {
+    if (index >= reclaimedGuests.length) {
+      onAllDone();
+      return;
     }
+    const slot = reclaimedGuests[index];
+    index += 1;
+    if (slot.departedPlayerId) {
+      openSubstituteModal(slot.departedPlayerId, slot.teamId, openNext, {
+        isReclaim: true,
+      });
+    } else {
+      // This guest was completing a team that started under-strength (no one
+      // specific to replace) — reopen the completion picker instead.
+      openCompletionModal(slot.teamId, openNext, { isReclaim: true });
+    }
+  }
+  openNext();
+}
+
+function openSubstituteModal(
+  departingPlayerId,
+  teamId,
+  onDone,
+  { isReclaim = false } = {},
+) {
+  const departingPlayer = store.getPlayer(departingPlayerId);
+  if (!departingPlayer) {
+    onDone();
+    return;
+  }
+
+  // Only players from teams currently sitting in the waiting queue can guest in — pulling
+  // someone from the live opponent (or any team not actually free) doesn't make sense.
+  // Also skip anyone already guesting elsewhere, so nobody gets double-booked.
+  const pelada = store.activePelada;
+  const waitingTeamIds = new Set(pelada.rotation?.waitingTeamIds || []);
+  const alreadyGuesting = new Set(
+    (pelada.guestSlots || []).map((g) => g.guestPlayerId),
+  );
+  const candidatePlayers = [];
+  pelada.teams.forEach((t) => {
+    if (!waitingTeamIds.has(t.id)) return;
+    t.playerIds.forEach((pid) => {
+      if (pelada.departedPlayerIds.includes(pid)) return;
+      if (alreadyGuesting.has(pid)) return;
+      const p = store.getPlayer(pid);
+      if (p) candidatePlayers.push(p);
+    });
   });
 
   const substituteSuggestions = getSubstituteSuggestions(
     departingPlayer,
-    otherTeamsPlayers,
+    candidatePlayers,
   );
 
   const modalContainer = document.getElementById("modal-container");
@@ -1143,26 +1367,32 @@ function openDepartureModal(departingPlayerId, teamId, onDone) {
     <div class="modal-overlay" id="departure-overlay">
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title">🚪 Saída: ${escapeHtml(departingPlayer.name)}</h2>
+          <h2 class="modal-title">${isReclaim ? "🔄 Novo substituto necessário" : `🚪 Saída: ${escapeHtml(departingPlayer.name)}`}</h2>
           <button class="modal-close" id="departure-modal-close">&times;</button>
         </div>
 
         <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
-          ${escapeHtml(departingPlayer.name)} está saindo mais cedo. Os gols e assistências que ele fez até agora <strong>permanecem salvos</strong>.
+          ${
+            isReclaim
+              ? `O substituto de ${escapeHtml(departingPlayer.name)} voltou a jogar pelo próprio time, que entrou em campo. Escolha outro substituto da fila ou deixe o time desfalcado.`
+              : `${escapeHtml(departingPlayer.name)} está saindo mais cedo. Os gols e assistências que ele fez até agora <strong>permanecem salvos</strong>.`
+          }
         </p>
 
         <div class="card" style="background: var(--bg-card-subtle); padding: 14px; margin-bottom: 16px;">
           <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--pitch-green);">
-            💡 Sugestão de Substitutos para Completar o Time:
+            💡 Sugestão de Substitutos da Fila de Espera:
           </h3>
           <p style="font-size: 0.78rem; color: var(--text-dim); margin-bottom: 10px;">
-            Atletas de outros times com nível similar de estrelas (${departingPlayer.stars}★):
+            Atletas de times aguardando na fila, com nível similar de estrelas (${departingPlayer.stars}★):
           </p>
 
           <div style="display: flex; flex-direction: column; gap: 8px;">
-            ${substituteSuggestions
-              .map(
-                (s) => `
+            ${
+              substituteSuggestions.length > 0
+                ? substituteSuggestions
+                    .map(
+                      (s) => `
               <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-card); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
                 <div>
                   <strong>${escapeHtml(s.player.name)}</strong>
@@ -1174,8 +1404,14 @@ function openDepartureModal(departingPlayerId, teamId, onDone) {
                 </button>
               </div>
             `,
-              )
-              .join("")}
+                    )
+                    .join("")
+                : `
+              <p style="font-size: 0.8rem; color: var(--text-dim); text-align: center; padding: 8px 0;">
+                Nenhum atleta disponível na fila de espera no momento.
+              </p>
+            `
+            }
 
             <div style="text-align: center; margin-top: 8px;">
               <button id="btn-no-substitute" class="btn btn-secondary btn-sm">
@@ -1199,7 +1435,7 @@ function openDepartureModal(departingPlayerId, teamId, onDone) {
     if (e.target === overlay) close();
   });
 
-  // Mark player departed
+  // Mark player departed (idempotent — already true when reopened after a reclaim)
   store.markPlayerDeparted(departingPlayerId, teamId);
 
   // Substitute buttons
@@ -1220,7 +1456,143 @@ function openDepartureModal(departingPlayerId, teamId, onDone) {
     .querySelector("#btn-no-substitute")
     .addEventListener("click", () => {
       close();
-      showToast(`${departingPlayer.name} registrado como saído.`);
+      if (!isReclaim)
+        showToast(`${departingPlayer.name} registrado como saído.`);
+      onDone();
+    });
+}
+
+/**
+ * Lets the admin fill a team that started under-strength (fewer than 5 active players — the
+ * total headcount just didn't divide evenly, no one specific left) with a guest from the
+ * waiting queue. Suggestions are ranked by how well each candidate balances the team's star
+ * total (getSmartSuggestions), same logic as the setup-phase "closer to 20★" hints — unlike
+ * the departure substitute modal, there's no single departing player's rating to match against.
+ */
+function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
+  const pelada = store.activePelada;
+  const team = pelada.teams.find((t) => t.id === teamId);
+  if (!team) {
+    onDone();
+    return;
+  }
+
+  const activeOriginalPlayers = team.playerIds
+    .filter((pid) => !(pelada.departedPlayerIds || []).includes(pid))
+    .map((pid) => store.getPlayer(pid))
+    .filter(Boolean);
+  const activeGuestPlayers = (pelada.guestSlots || [])
+    .filter((g) => g.teamId === teamId)
+    .map((g) => store.getPlayer(g.guestPlayerId))
+    .filter(Boolean);
+  const currentTeamPlayers = [...activeOriginalPlayers, ...activeGuestPlayers];
+
+  // Only players from teams currently sitting in the waiting queue can guest in, and nobody
+  // already guesting elsewhere — same eligibility rule as the departure substitute flow.
+  const waitingTeamIds = new Set(pelada.rotation?.waitingTeamIds || []);
+  const alreadyGuesting = new Set(
+    (pelada.guestSlots || []).map((g) => g.guestPlayerId),
+  );
+  const candidatePlayers = [];
+  pelada.teams.forEach((t) => {
+    if (!waitingTeamIds.has(t.id)) return;
+    t.playerIds.forEach((pid) => {
+      if (pelada.departedPlayerIds.includes(pid)) return;
+      if (alreadyGuesting.has(pid)) return;
+      const p = store.getPlayer(pid);
+      if (p) candidatePlayers.push(p);
+    });
+  });
+
+  const suggestions = getSmartSuggestions(currentTeamPlayers, candidatePlayers, store.teamSize);
+
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="completion-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">${isReclaim ? "🔄 Novo reforço necessário" : `➕ Completar ${escapeHtml(team.name)}`}</h2>
+          <button class="modal-close" id="completion-modal-close">&times;</button>
+        </div>
+
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
+          ${
+            isReclaim
+              ? `O reforço de ${escapeHtml(team.name)} voltou a jogar pelo próprio time, que entrou em campo. Escolha outro reforço da fila ou deixe o time desfalcado.`
+              : `${escapeHtml(team.name)} está com apenas ${currentTeamPlayers.length}/${store.teamSize} jogadores. Escolha um reforço da fila de espera para completar o time.`
+          }
+        </p>
+
+        <div class="card" style="background: var(--bg-card-subtle); padding: 14px; margin-bottom: 16px;">
+          <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--pitch-green);">
+            💡 Sugestões (equilíbrio de estrelas do time):
+          </h3>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${
+              suggestions.length > 0
+                ? suggestions
+                    .map(
+                      (s) => `
+              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-card); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div>
+                  <strong>${escapeHtml(s.player.name)}</strong>
+                  <span class="star-badge" style="font-size: 0.72rem; margin-left: 6px;">${s.player.stars}★</span>
+                  <div style="font-size: 0.72rem; color: var(--text-dim);">${s.reason}</div>
+                </div>
+                <button class="btn btn-primary btn-sm btn-select-completion" data-guest-id="${s.player.id}">
+                  Escolher
+                </button>
+              </div>
+            `,
+                    )
+                    .join("")
+                : `
+              <p style="font-size: 0.8rem; color: var(--text-dim); text-align: center; padding: 8px 0;">
+                Nenhum atleta disponível na fila de espera no momento.
+              </p>
+            `
+            }
+
+            <div style="text-align: center; margin-top: 8px;">
+              <button id="btn-no-completion" class="btn btn-secondary btn-sm">
+                Não completar agora (deixar o time com ${currentTeamPlayers.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#completion-overlay");
+  modalContainer
+    .querySelector("#completion-modal-close")
+    .addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  modalContainer.querySelectorAll(".btn-select-completion").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const guestId = e.currentTarget.getAttribute("data-guest-id");
+      store.assignTeamCompletion(teamId, guestId);
+      const guest = store.getPlayer(guestId);
+      close();
+      showToast(
+        `${guest?.name} entrou para completar o ${team.name}! Gols dele não pontuam no ranking.`,
+      );
+      onDone();
+    });
+  });
+
+  modalContainer
+    .querySelector("#btn-no-completion")
+    .addEventListener("click", () => {
+      close();
       onDone();
     });
 }
@@ -1330,29 +1702,58 @@ function openFinishPeladaModal(onNavigate) {
 // ----------------------------------------------------
 // Match Pitch — the two teams currently facing off, score & timer
 // ----------------------------------------------------
-// 5-a-side formation, goalkeeper not shown here: 2 back, 1 middle, 2 front
-const FORMATION_SLOTS = ["BACK1", "BACK2", "MID", "FRONT1", "FRONT2"];
-const FORMATION_COORDS = {
+// 5-a-side formation (default), goalkeeper not shown here: 2 back, 1 middle, 2 front
+const FORMATION_SLOTS_5 = ["BACK1", "BACK2", "MID", "FRONT1", "FRONT2"];
+const FORMATION_COORDS_5 = {
   BACK1: { x: 30, y: 25 },
   BACK2: { x: 30, y: 75 },
   MID: { x: 55, y: 50 },
   FRONT1: { x: 78, y: 25 },
   FRONT2: { x: 78, y: 75 },
 };
-// Which formation slots satisfy each selectable "favoritePosition" (there's no goalkeeper option)
-const POSITION_PREFERENCE_SLOTS = {
+const POSITION_PREFERENCE_SLOTS_5 = {
   Fixo: ["BACK1", "BACK2"],
   Ala: ["MID"],
   Pivô: ["FRONT1", "FRONT2"],
 };
 
-/** Places 5 teammates onto formation slots, honoring favoritePosition where possible; the rest fill in (deterministically, so the layout doesn't jitter on every re-render). */
-function assignFormationSlots(players) {
+// 6-a-side formation: 3 evenly-spaced columns (back/mid/front), 2 players per column —
+// avoids the single-center MID slot of the 5-a-side layout, which would otherwise sit
+// right on top of a 6th player with nowhere else clean to go.
+const FORMATION_SLOTS_6 = ["BACK1", "BACK2", "MID1", "MID2", "FRONT1", "FRONT2"];
+const FORMATION_COORDS_6 = {
+  BACK1: { x: 22, y: 25 },
+  BACK2: { x: 22, y: 75 },
+  MID1: { x: 50, y: 25 },
+  MID2: { x: 50, y: 75 },
+  FRONT1: { x: 78, y: 25 },
+  FRONT2: { x: 78, y: 75 },
+};
+const POSITION_PREFERENCE_SLOTS_6 = {
+  Fixo: ["BACK1", "BACK2"],
+  Ala: ["MID1", "MID2"],
+  Pivô: ["FRONT1", "FRONT2"],
+};
+
+function getFormationSlots(teamSize) {
+  return teamSize === 6 ? FORMATION_SLOTS_6 : FORMATION_SLOTS_5;
+}
+function getFormationCoordsMap(teamSize) {
+  return teamSize === 6 ? FORMATION_COORDS_6 : FORMATION_COORDS_5;
+}
+function getPositionPreferenceSlots(teamSize) {
+  return teamSize === 6 ? POSITION_PREFERENCE_SLOTS_6 : POSITION_PREFERENCE_SLOTS_5;
+}
+
+/** Places teammates onto formation slots (5 or 6, per teamSize), honoring favoritePosition where possible; the rest fill in (deterministically, so the layout doesn't jitter on every re-render). */
+function assignFormationSlots(players, teamSize) {
+  const slots = getFormationSlots(teamSize);
+  const preferenceSlots = getPositionPreferenceSlots(teamSize);
   const bySlot = {};
   let remaining = [...players];
 
   remaining.slice().forEach((player) => {
-    const candidates = POSITION_PREFERENCE_SLOTS[player.favoritePosition] || [];
+    const candidates = preferenceSlots[player.favoritePosition] || [];
     const openSlot = candidates.find((slot) => !bySlot[slot]);
     if (openSlot) {
       bySlot[openSlot] = player;
@@ -1360,20 +1761,20 @@ function assignFormationSlots(players) {
     }
   });
 
-  const openSlots = FORMATION_SLOTS.filter((slot) => !bySlot[slot]);
+  const openSlots = slots.filter((slot) => !bySlot[slot]);
   const fillers = [...remaining].sort((a, b) => a.id.localeCompare(b.id));
   openSlots.forEach((slot, i) => {
     if (fillers[i]) bySlot[slot] = fillers[i];
   });
 
-  return FORMATION_SLOTS.map((slot) => ({ slot, player: bySlot[slot] })).filter(
+  return slots.map((slot) => ({ slot, player: bySlot[slot] })).filter(
     (entry) => entry.player,
   );
 }
 
 /** Mirrors the formation horizontally for the right-hand team, since both sides face the center. */
-function getFormationCoords(slot, isLeft) {
-  const coord = FORMATION_COORDS[slot];
+function getFormationCoords(slot, isLeft, teamSize) {
+  const coord = getFormationCoordsMap(teamSize)[slot];
   return isLeft ? coord : { x: 100 - coord.x, y: coord.y };
 }
 
@@ -1441,7 +1842,7 @@ function renderMatchPanel(
             const hasStreak =
               rotation.streakTeamId === team.id && rotation.streakCount > 0;
             const isLeft = teamIndex === 0;
-            const positions = assignFormationSlots(teamPlayers);
+            const positions = assignFormationSlots(teamPlayers, store.teamSize);
             return `
             <div class="mini-pitch-lane">
               <div class="mini-pitch-lane-header">
@@ -1450,7 +1851,7 @@ function renderMatchPanel(
               </div>
               ${positions
                 .map(({ slot, player }) => {
-                  const { x, y } = getFormationCoords(slot, isLeft);
+                  const { x, y } = getFormationCoords(slot, isLeft, store.teamSize);
                   return `
                   <div class="mini-pitch-position" style="left: ${x}%; top: ${y}%;">
                     <div class="mini-pitch-chip" style="border-color: ${team.color};" title="${escapeHtml(player.name)}">
@@ -1488,6 +1889,21 @@ function renderMatchPanel(
             🏁 Finalizar
           </button>
         </div>
+
+        <div class="match-score-adjust">
+          <span class="match-score-adjust-label" title="Gols e assistências sempre precisam de um jogador — use isto para gol contra ou correções de placar.">⚠️ Gol contra / correção de placar:</span>
+          ${[teamA, teamB]
+            .map(
+              (team) => `
+            <div class="match-score-adjust-team">
+              <span class="match-score-adjust-team-name" style="color: ${team.color};">${escapeHtml(team.name)}</span>
+              <button class="btn-adjust-score" data-team="${team.id}" data-delta="-1" title="Remover 1 gol de ${escapeHtml(team.name)}">−</button>
+              <button class="btn-adjust-score" data-team="${team.id}" data-delta="1" title="Adicionar 1 gol para ${escapeHtml(team.name)}">+</button>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
       </div>
     `
         : ""
@@ -1504,6 +1920,8 @@ function renderActiveTeamCard(pelada, team) {
   const activeGuests = (pelada.guestSlots || []).filter(
     (g) => g.teamId === team.id,
   );
+  const completeness = store.getTeamCompleteness(team.id);
+  const shortfall = Math.max(0, store.teamSize - completeness);
 
   return `
     <div class="team-card" style="border-top: 4px solid ${team.color};">
@@ -1613,7 +2031,7 @@ function renderActiveTeamCard(pelada, team) {
                   <span class="guest-badge">⚡ Convidado</span>
                 </div>
                 <span style="font-size: 0.72rem; color: var(--text-dim);">
-                  Substituindo ${departedPlayer ? departedPlayer.name : "colega"}
+                  ${departedPlayer ? `Substituindo ${departedPlayer.name}` : "Completando o time"}
                 </span>
               </div>
 
@@ -1646,6 +2064,21 @@ function renderActiveTeamCard(pelada, team) {
           `;
           })
           .join("")}
+
+        <!-- Team needs completion: fewer than 5 active players (started under-strength or a completer got reclaimed) -->
+        ${
+          shortfall > 0
+            ? store.isAdmin
+              ? `
+          <button class="btn-complete-team" data-team="${team.id}">
+            ➕ Time incompleto (${completeness}/${store.teamSize}) — sugerir jogador para completar
+          </button>
+        `
+              : `
+          <div class="team-incomplete-note">⚠️ Time incompleto (${completeness}/${store.teamSize})</div>
+        `
+            : ""
+        }
       </div>
     </div>
   `;
@@ -1690,7 +2123,7 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
                 ${store.isAdmin ? '<span class="waiting-team-drag-handle" title="Arraste para reordenar">⠿</span>' : ""}
                 <span class="waiting-team-position">${idx + 1}º</span>
                 <span style="font-weight: 800;">${escapeHtml(team.name)}</span>
-                <span class="waiting-team-completeness ${completeness < 5 ? "incomplete" : ""}">${completeness}/5 disponíveis</span>
+                <span class="waiting-team-completeness ${completeness < store.teamSize ? "incomplete" : ""}">${completeness}/${store.teamSize} disponíveis</span>
                 ${
                   store.isAdmin
                     ? `
@@ -1789,4 +2222,39 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Shared by the full render and the surgical per-goal/assist DOM patch (see renderLivePelada's
+ * patchTimeline) so the timeline's markup only ever lives in one place.
+ */
+function renderTimelineEntries(pelada) {
+  return (pelada.events || [])
+    .slice(0, 10)
+    .map((ev) => {
+      if (ev.type === "manual-adjustment") {
+        const team = pelada.teams.find((t) => t.id === ev.teamId);
+        const teamName = team ? team.name : "Time";
+        return `
+          <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
+            <span>
+              ⚠️ Ajuste manual: <strong>${escapeHtml(teamName)}</strong> ${ev.delta > 0 ? "+1" : "-1"} (gol contra / correção)
+            </span>
+            <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
+          </div>
+        `;
+      }
+      const player = store.getPlayer(ev.playerId);
+      const name = player ? player.name : "Atleta";
+      return `
+        <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
+          <span>
+            ${ev.type === "goal" ? "⚽ GOL de" : "👟 ASSISTÊNCIA de"} <strong>${escapeHtml(name)}</strong>
+            ${ev.isGuest ? '<span class="guest-badge" style="font-size: 0.65rem;">(Convidado)</span>' : ""}
+          </span>
+          <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
+        </div>
+      `;
+    })
+    .join("");
 }

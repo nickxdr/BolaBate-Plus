@@ -3,7 +3,6 @@ import { showToast } from "./rankingView.js";
 import {
   loginAdmin,
   logoutAdmin,
-  pushStateNow,
   listAdmins,
   addAdminAccount,
   removeAdminAccount,
@@ -16,6 +15,8 @@ export function renderSettingsView() {
   container.className = "view-container";
 
   function render() {
+    const canChangeTeamSize = store.isAdmin && store.activePelada.status === "idle";
+
     container.innerHTML = `
       <div style="margin-bottom: 20px;">
         <h1 style="font-size: 1.6rem; font-weight: 800; display: flex; align-items: center; gap: 8px;">
@@ -50,26 +51,34 @@ export function renderSettingsView() {
         </div>
       </div>
 
-      <!-- Reset & Default Data Card -->
+      <!-- Match Format Card -->
       <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-          🔄 Restaurar Dados Padrão
+          ⚽ Formato da Pelada
         </h2>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-          Restaura a tabela com os dados originais do app.
+          Escolha entre o tradicional 5x5 (padrão do app) e o 6x6. Times, sugestões de equilíbrio e o campinho ao vivo se ajustam automaticamente ao número de jogadores por time.
         </p>
 
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div id="team-size-5-btn" class="card format-option-card ${store.teamSize === 5 ? "active" : ""} ${!canChangeTeamSize ? "disabled" : ""}" style="padding: 14px; text-align: center; margin-bottom: 0;">
+            <div style="font-size: 1.5rem; margin-bottom: 6px;">5️⃣</div>
+            <strong style="font-size: 0.95rem;">5x5</strong>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">(Padrão)</div>
+          </div>
+
+          <div id="team-size-6-btn" class="card format-option-card ${store.teamSize === 6 ? "active" : ""} ${!canChangeTeamSize ? "disabled" : ""}" style="padding: 14px; text-align: center; margin-bottom: 0;">
+            <div style="font-size: 1.5rem; margin-bottom: 6px;">6️⃣</div>
+            <strong style="font-size: 0.95rem;">6x6</strong>
+          </div>
+        </div>
+
         ${
-          store.isAdmin
-            ? `<button id="btn-reset-default" class="btn btn-danger btn-sm">
-          Restaurar Dados Originais da Planilha
-        </button>`
-            : `<button id="btn-reset-default" class="btn btn-danger btn-sm" disabled style="opacity: 0.45; cursor: not-allowed;" title="Somente o administrador pode restaurar os dados">
-          🔒 Restaurar Dados Originais da Planilha
-        </button>
-        <p style="font-size: 0.78rem; color: var(--text-muted); margin-top: 8px;">
-          🔒 Disponível apenas para o administrador (entre na seção ☁️ Nuvem &amp; Administrador).
-        </p>`
+          !store.isAdmin
+            ? `<p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 10px;">Apenas o admin pode trocar o formato.</p>`
+            : store.activePelada.status !== "idle"
+              ? `<p style="font-size: 0.78rem; color: var(--accent-gold); margin-top: 10px;">⚠️ Termine ou cancele a pelada atual para trocar o formato.</p>`
+              : ""
         }
       </div>
 
@@ -86,11 +95,8 @@ export function renderSettingsView() {
             ✅ Logado como <strong>Administrador</strong> — suas alterações são sincronizadas automaticamente com a nuvem.
           </p>
           <div style="display: flex; flex-direction: column; gap: 12px;">
-            <button id="btn-cloud-push" class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-              ⬆️ Enviar dados locais para a nuvem
-            </button>
             <button id="btn-admin-logout" class="btn btn-secondary">
-              🚪 Sair do modo admin (voltar a somente leitura)
+              🚪 Sair do modo admin
             </button>
           </div>
 
@@ -132,7 +138,7 @@ export function renderSettingsView() {
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-          📱 BolaBate+ v3.0 (Web & Android APK)
+          📱 BolaBate+ v3.1 (Web & Android APK)
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
@@ -152,6 +158,31 @@ export function renderSettingsView() {
         store.setTheme("light");
         render();
       });
+
+    // Bind Match Format (5x5 / 6x6)
+    function handleTeamSizeClick(size) {
+      if (!canChangeTeamSize) {
+        if (!store.isAdmin) {
+          showToast("🔒 Apenas o admin pode trocar o formato.");
+        } else {
+          showToast("⚠️ Termine ou cancele a pelada atual para trocar o formato.");
+        }
+        return;
+      }
+      const result = store.setTeamSize(size);
+      if (result?.success) {
+        showToast(`⚽ Formato alterado para ${size}x${size}!`);
+      } else if (result?.error) {
+        showToast("❌ " + result.error);
+      }
+      render();
+    }
+    container
+      .querySelector("#team-size-5-btn")
+      .addEventListener("click", () => handleTeamSizeClick(5));
+    container
+      .querySelector("#team-size-6-btn")
+      .addEventListener("click", () => handleTeamSizeClick(6));
 
     // Bind Cloud & Admin
     const loginBtn = container.querySelector("#btn-admin-login");
@@ -190,22 +221,6 @@ export function renderSettingsView() {
         } catch (err) {
           showToast("❌ Erro ao sair: " + err.message);
         }
-      });
-    }
-
-    const pushBtn = container.querySelector("#btn-cloud-push");
-    if (pushBtn) {
-      pushBtn.addEventListener("click", async () => {
-        pushBtn.disabled = true;
-        pushBtn.textContent = "Enviando...";
-        try {
-          await pushStateNow(store);
-          showToast("☁️ Dados enviados para a nuvem com sucesso!");
-        } catch (err) {
-          showToast("❌ Erro ao enviar: " + err.message);
-        }
-        pushBtn.disabled = false;
-        pushBtn.textContent = "⬆️ Enviar dados locais para a nuvem";
       });
     }
 
@@ -291,73 +306,6 @@ export function renderSettingsView() {
       });
     }
 
-    // Bind Reset — opens a confirmation modal (admin only)
-    container
-      .querySelector("#btn-reset-default")
-      .addEventListener("click", () => {
-        if (!store.isAdmin) {
-          showToast("🔒 Apenas o administrador pode restaurar os dados.");
-          return;
-        }
-        openResetConfirmModal(render);
-      });
-  }
-
-  /** Confirmation modal for the "restore original data" action. */
-  function openResetConfirmModal(onDone) {
-    const modalContainer = document.getElementById("modal-container");
-    modalContainer.innerHTML = `
-      <div class="modal-overlay" id="reset-modal-overlay">
-        <div class="modal-content" style="max-width: 460px;">
-          <div class="modal-header">
-            <h2 class="modal-title" style="color: var(--accent-red);">⚠️ Restaurar dados originais?</h2>
-            <button class="modal-close" id="reset-modal-close" title="Fechar">✕</button>
-          </div>
-
-          <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">
-            <p style="margin-bottom: 10px;">
-              Isso vai <strong>apagar TODOS os dados atuais</strong> e restaurar a planilha original:
-            </p>
-            <ul style="margin: 0 0 12px 18px; padding: 0;">
-              <li>Jogadores adicionados serão <strong>removidos</strong></li>
-              <li>Estatísticas editadas voltarão ao padrão</li>
-              <li>Histórico de peladas será apagado</li>
-            </ul>
-            <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">
-              A mudança será sincronizada com a nuvem para todos os usuários. <strong>Essa ação não pode ser desfeita.</strong>
-            </p>
-          </div>
-
-          <div style="display: flex; gap: 10px; justify-content: flex-end;">
-            <button id="reset-modal-cancel" class="btn btn-secondary">Cancelar</button>
-            <button id="reset-modal-confirm" class="btn btn-danger">Sim, apagar tudo</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const close = () => {
-      modalContainer.innerHTML = "";
-    };
-    const overlay = modalContainer.querySelector("#reset-modal-overlay");
-    modalContainer
-      .querySelector("#reset-modal-close")
-      .addEventListener("click", close);
-    modalContainer
-      .querySelector("#reset-modal-cancel")
-      .addEventListener("click", close);
-    overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) close();
-    });
-
-    modalContainer
-      .querySelector("#reset-modal-confirm")
-      .addEventListener("click", () => {
-        store.resetToDefaults();
-        close();
-        onDone();
-        showToast("Dados restaurados para a planilha original!");
-      });
   }
 
   render();

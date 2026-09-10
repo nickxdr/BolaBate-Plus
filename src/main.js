@@ -63,10 +63,6 @@ function initApp() {
               : ""
           }
 
-          <button id="quick-theme-toggle" class="btn btn-secondary btn-sm" style="border-radius: 50%; width: 34px; height: 34px; padding: 0;" title="Alternar tema">
-            ${store.theme === "dark" ? "☀️" : "🌙"}
-          </button>
-
           <span id="cloud-status-badge" class="btn btn-secondary btn-sm" style="font-size: 0.68rem; padding: 4px 8px; cursor: default;">🟡 Conectando...</span>
         </div>
       </header>
@@ -157,14 +153,6 @@ function initApp() {
         navigateTo("pelada");
       });
     }
-
-    const quickThemeBtn = app.querySelector("#quick-theme-toggle");
-    quickThemeBtn.addEventListener("click", () => {
-      const nextTheme = store.theme === "dark" ? "light" : "dark";
-      store.setTheme(nextTheme);
-      renderShell();
-      renderCurrentView();
-    });
 
     // Restore cloud status badge after shell re-render
     if (store.onCloudStatus) store.onCloudStatus(store.cloudStatus);
