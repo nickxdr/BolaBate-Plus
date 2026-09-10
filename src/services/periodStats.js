@@ -1,5 +1,5 @@
 // Helpers to build and aggregate period (YYYY-MM) statistics from history entries
-export const STAT_FIELDS = ['goals', 'assists', 'selecao', 'puskas', 'craque', 'bagre', 'participacao'];
+export const STAT_FIELDS = ['goals', 'assists', 'selecao', 'puskas', 'craque', 'bagre', 'participacao', 'wins', 'draws', 'losses'];
 
 export function pad(n) {
   return String(n).padStart(2, '0');
@@ -30,7 +30,7 @@ export function parseDateToPeriod(dateValue) {
 }
 
 export function emptyPlayerStats() {
-  return { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0, wins: 0, losses: 0 };
+  return { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0, wins: 0, draws: 0, losses: 0 };
 }
 
 export function createEmptyPeriod() {
@@ -52,6 +52,7 @@ export function addPlayerStats(target, source, { includeGuest = false } = {}) {
   dest.bagre += Number(source.bagre) || 0;
   dest.participacao += Number(source.participacao) || 0;
   dest.wins += Number(source.wins) || 0;
+  dest.draws += Number(source.draws) || 0;
   dest.losses += Number(source.losses) || 0;
   return dest;
 }
@@ -76,6 +77,7 @@ export function applyHistoryEntryToPeriod(period, entry) {
     period.players[pid].assists += Number(stats.assists) || 0;
     period.players[pid].participacao += 1;
     period.players[pid].wins += Number(team?.wins) || 0;
+    period.players[pid].draws += Number(team?.draws) || 0;
     period.players[pid].losses += Number(team?.losses) || 0;
   });
 
@@ -126,6 +128,7 @@ export function removeHistoryEntryFromPeriod(period, entry) {
     target.assists = Math.max(0, target.assists - (Number(stats.assists) || 0));
     target.participacao = Math.max(0, target.participacao - 1);
     target.wins = Math.max(0, target.wins - (Number(team?.wins) || 0));
+    target.draws = Math.max(0, target.draws - (Number(team?.draws) || 0));
     target.losses = Math.max(0, target.losses - (Number(team?.losses) || 0));
   });
 

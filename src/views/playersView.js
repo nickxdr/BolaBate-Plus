@@ -608,6 +608,9 @@ export function renderPlayersView() {
       "puskas",
       "craque",
       "bagre",
+      "wins",
+      "draws",
+      "losses",
     ].reduce((result, field) => {
       result[field] = months.reduce(
         (sum, month) => sum + (Number(month.stats[field]) || 0),
@@ -615,6 +618,9 @@ export function renderPlayersView() {
       );
       return result;
     }, {});
+    const totalMatches = totals.wins + totals.draws + totals.losses;
+    const winRate = totalMatches > 0 ? Math.round((totals.wins / totalMatches) * 100) : 0;
+    const winRateTone = winRate >= 60 ? "win-rate-high" : winRate >= 40 ? "win-rate-medium" : "win-rate-low";
     const frequentCompanions = getFrequentCompanions(id);
     const positions = ["Fixo", "Ala", "Pivô"];
     const achievements = getPlayerAchievements(id);
@@ -695,6 +701,13 @@ export function renderPlayersView() {
               "Prêmios",
               totals.selecao + totals.puskas + totals.craque + totals.bagre,
               "awards",
+            )}
+
+            ${profileMetric(
+              "📈",
+              `Aproveitamento (${totals.wins}V / ${totals.draws}E / ${totals.losses}D)`,
+              `${winRate}%`,
+              `win-rate ${winRateTone}`,
             )}
 
           </div>

@@ -2170,7 +2170,7 @@ body {
 
 .profile-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-bottom: 22px;
 }
@@ -2268,6 +2268,9 @@ body {
 .profile-metric.goals .profile-metric-value { color: var(--pitch-green); }
 .profile-metric.assists .profile-metric-value { color: var(--accent-blue); }
 .profile-metric.awards .profile-metric-value { color: var(--accent-gold); }
+.profile-metric.win-rate-high .profile-metric-value { color: var(--pitch-green); }
+.profile-metric.win-rate-medium .profile-metric-value { color: var(--accent-gold); }
+.profile-metric.win-rate-low .profile-metric-value { color: var(--accent-red); }
 
 .profile-section-heading {
   display: flex;

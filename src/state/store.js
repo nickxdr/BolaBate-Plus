@@ -339,6 +339,7 @@ class Store {
 
     this.save();
     return true;
+      target.draws = Number(stats.draws) || 0;
   }
 
   deletePlayer(id) {
@@ -421,15 +422,19 @@ class Store {
     return match ? Number(match[1]) : 0;
   }
 
-  /** Counts match wins & losses per team from the rotation log — a draw counts for neither side. Used to archive the record into history when the pelada ends. */
+  /** Counts match results per team from the rotation log. Used to archive the record into history when the pelada ends. */
   getTeamRecordFromLog(log) {
     const record = {};
     const bump = (teamId, field) => {
-      if (!record[teamId]) record[teamId] = { wins: 0, losses: 0 };
+      if (!record[teamId]) record[teamId] = { wins: 0, draws: 0, losses: 0 };
       record[teamId][field] += 1;
     };
     (log || []).forEach(entry => {
-      if (!entry.winnerId) return; // draw — counts for neither side
+      if (!entry.winnerId) {
+        bump(entry.teamAId, 'draws');
+        bump(entry.teamBId, 'draws');
+        return;
+      }
       const loserId = entry.winnerId === entry.teamAId ? entry.teamBId : entry.teamAId;
       bump(entry.winnerId, 'wins');
       bump(loserId, 'losses');
@@ -841,7 +846,30 @@ class Store {
     });
 
     const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
-    const teamRecord = this.getTeamRecordFromLog(this.activePelada.rotation?.log);
+    const rotation = this.activePelada.rotation;
+    const rotationLog = [...(rotation?.log || [])];
+    const currentMatch = rotation?.currentMatch;
+    if (currentMatch) {
+      const remainingMs = currentMatch.timerRunning
+        ? Math.max(0, currentMatch.timerEndsAt - Date.now())
+        : currentMatch.timerRemainingMs;
+      const canFinish = currentMatch.scoreA >= 2 || currentMatch.scoreB >= 2 || remainingMs <= 0;
+      if (canFinish) {
+        const winnerId = currentMatch.scoreA > currentMatch.scoreB
+          ? currentMatch.teamAId
+          : currentMatch.scoreB > currentMatch.scoreA
+            ? currentMatch.teamBId
+            : null;
+        rotationLog.unshift({
+          teamAId: currentMatch.teamAId,
+          teamBId: currentMatch.teamBId,
+          scoreA: currentMatch.scoreA,
+          scoreB: currentMatch.scoreB,
+          winnerId,
+        });
+      }
+    }
+    const teamRecord = this.getTeamRecordFromLog(rotationLog);
 
     const now = new Date();
     const historyEntry = this.normalizeHistoryEntry({
@@ -852,6 +880,7 @@ class Store {
       teams: JSON.parse(JSON.stringify(this.activePelada.teams)).map(team => ({
         ...team,
         wins: teamRecord[team.id]?.wins || 0,
+        draws: teamRecord[team.id]?.draws || 0,
         losses: teamRecord[team.id]?.losses || 0,
       })),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
@@ -885,6 +914,7 @@ class Store {
       const record = teamRecord[teamByPlayer[pid]?.id];
       periodStats.participacao += 1;
       periodStats.wins += Number(record?.wins) || 0;
+      periodStats.draws += Number(record?.draws) || 0;
       periodStats.losses += Number(record?.losses) || 0;
       if (pStats) {
         periodStats.goals += Number(pStats.goals) || 0;
@@ -936,6 +966,7 @@ class Store {
     });
 
     this.mergeHistoryIntoMonthly();
+    this.syncWinLossStatsFromHistory();
   }
 
   mergeHistoryIntoMonthly() {
@@ -945,6 +976,20 @@ class Store {
       this.ensurePeriodByKey(key);
       if (entry.id && this.monthlyStats[key].matchIds.includes(entry.id)) return;
       applyHistoryEntryToPeriod(this.monthlyStats[key], entry);
+    });
+  }
+
+  syncWinLossStatsFromHistory() {
+    const historicalStats = aggregateHistoryToMonthly(this.history || []);
+    Object.entries(historicalStats).forEach(([key, period]) => {
+      const targetPeriod = this.ensurePeriodByKey(key);
+      Object.entries(period.players || {}).forEach(([playerId, stats]) => {
+        const target = targetPeriod.players[playerId] || emptyPlayerStats();
+        target.wins = Number(stats.wins) || 0;
+        target.draws = Number(stats.draws) || 0;
+        target.losses = Number(stats.losses) || 0;
+        targetPeriod.players[playerId] = target;
+      });
     });
   }
 
@@ -1093,16 +1138,25 @@ class Store {
     if (this.activePelada.status !== 'live') return overlay;
     const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
     const participatingPlayerIds = new Set();
+    const teamByPlayer = {};
     this.activePelada.teams.forEach(team => {
-      team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
+      team.playerIds.forEach(pid => {
+        participatingPlayerIds.add(pid);
+        teamByPlayer[pid] = team.id;
+      });
     });
+    const teamRecord = this.getTeamRecordFromLog(this.activePelada.rotation?.log);
     participatingPlayerIds.forEach(pid => {
       if (diaristaIds.has(pid)) return;
       const pStats = this.activePelada.stats[pid];
+      const record = teamRecord[teamByPlayer[pid]];
       const entry = emptyPlayerStats();
       entry.participacao = 1;
       entry.goals = Number(pStats?.goals) || 0;
       entry.assists = Number(pStats?.assists) || 0;
+      entry.wins = Number(record?.wins) || 0;
+      entry.draws = Number(record?.draws) || 0;
+      entry.losses = Number(record?.losses) || 0;
       overlay[pid] = entry;
     });
     return overlay;
@@ -1194,6 +1248,7 @@ class Store {
           color: team.color || this.getTeamColor(index),
           playerIds: Array.isArray(team.playerIds) ? [...team.playerIds] : [],
           wins: Number(team.wins) || 0,
+          draws: Number(team.draws) || 0,
           // Peladas finished before this field existed have no way to retroactively
           // know their losses (the rotation log itself isn't archived) — defaults to 0.
           losses: Number(team.losses) || 0,
