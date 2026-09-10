@@ -42,8 +42,10 @@ App **mobile-first** (PWA instalável) para organizar peladas de futebol 5v5, eq
 
 - **Chat flutuante** disponível em todas as telas: pergunte qualquer coisa sobre a liga em linguagem natural.
 - **Respostas com dados reais** (via `store`), sem APIs externas:
-  - 🏆 Melhor e pior jogador do ranking.
-  - ⚽ Artilheiro e 👟 maior assistente.
+  - 🏆 Melhor e pior jogador do ranking geral (todos os tempos).
+  - 👑 "Quem foi o melhor do ano?" / "Quem foi o melhor do mês?" — melhor jogador do ranking anual ou do mês em contexto (respeita o período selecionado na Tabela da Liga).
+  - ⚽ Artilheiro e 👟 maior assistente — geral (todos os tempos) ou com escopo: "no ano?" / "no mês?" (respeita o período selecionado na Tabela da Liga).
+  - 📉 Pior do ranking — geral ou com escopo: "Quem foi o pior do ano? / do mês?".
   - 📊 Estatísticas completas de um jogador específico.
 - **Evolução mensal** (com base nas estatísticas por período):
   - 📈 "Quem mais evoluiu esse mês?" — compara os pontos do mês atual com o anterior.

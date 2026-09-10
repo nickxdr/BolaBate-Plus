@@ -2718,20 +2718,72 @@ body {
 
 /* Quick suggestions */
 
+.bolabot-suggestions-nav {
+  display: flex;
+
+  align-items: center;
+
+  gap: 4px;
+
+  padding: 0 8px 10px;
+}
+
 .bolabot-suggestions {
   display: flex;
+
+  flex: 1;
+
+  min-width: 0;
 
   gap: 7px;
 
   overflow-x: auto;
 
-  padding: 0 16px 10px;
+  padding: 2px;
 
   scrollbar-width: none;
+
+  scroll-behavior: smooth;
 }
 
 .bolabot-suggestions::-webkit-scrollbar {
   display: none;
+}
+
+.bolabot-suggestions-nav-btn {
+  flex-shrink: 0;
+
+  width: 30px;
+  height: 30px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 50%;
+
+  background: var(--bg-card-subtle);
+
+  border: 1px solid var(--border-color);
+
+  color: var(--text-muted);
+
+  font-size: 0.7rem;
+
+  cursor: pointer;
+
+  transition: all 0.15s ease;
+}
+
+.bolabot-suggestions-nav-btn:hover:not(:disabled) {
+  color: var(--pitch-green);
+  border-color: var(--pitch-green);
+  background: var(--pitch-green-glow);
+}
+
+.bolabot-suggestions-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .bolabot-suggestion {
@@ -2968,9 +3020,9 @@ body {
     padding: 12px;
   }
 
-  .bolabot-suggestions {
-    padding-left: 12px;
-    padding-right: 12px;
+  .bolabot-suggestions-nav {
+    padding-left: 6px;
+    padding-right: 6px;
   }
 }
 

@@ -127,6 +127,53 @@ function handleSuggestion(question) {
   sendMessage(question);
 }
 
+function scrollSuggestions(direction) {
+  const track = document.querySelector("#bolabot-suggestions");
+
+  if (!track) return;
+
+  const amount = Math.max(track.clientWidth * 0.8, 160);
+
+  track.scrollBy({
+    left: direction * amount,
+    behavior: "smooth"
+  });
+}
+
+function updateSuggestionsNav() {
+  const track = document.querySelector("#bolabot-suggestions");
+  const prev = document.querySelector("#bolabot-sugg-prev");
+  const next = document.querySelector("#bolabot-sugg-next");
+
+  if (!track || !prev || !next) return;
+
+  const maxScroll = track.scrollWidth - track.clientWidth;
+  const canScroll = maxScroll > 4;
+
+  prev.disabled = !canScroll || track.scrollLeft <= 4;
+  next.disabled = !canScroll || track.scrollLeft >= maxScroll - 4;
+}
+
+function initSuggestionsNav() {
+  const track = document.querySelector("#bolabot-suggestions");
+  const prev = document.querySelector("#bolabot-sugg-prev");
+  const next = document.querySelector("#bolabot-sugg-next");
+
+  if (!track || !prev || !next) return;
+
+  prev.addEventListener("click", () => scrollSuggestions(-1));
+  next.addEventListener("click", () => scrollSuggestions(1));
+
+  track.addEventListener("scroll", updateSuggestionsNav, { passive: true });
+
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(updateSuggestionsNav);
+    observer.observe(track);
+  }
+
+  updateSuggestionsNav();
+}
+
 export function renderBolaBotView() {
   return `
     <!-- Botão flutuante -->
@@ -181,36 +228,89 @@ export function renderBolaBotView() {
         ${renderMessages()}
       </div>
 
-      <div class="bolabot-suggestions">
+      <div class="bolabot-suggestions-nav">
+        <button
+          id="bolabot-sugg-prev"
+          class="bolabot-suggestions-nav-btn"
+          type="button"
+          aria-label="Rolar sugestões para a esquerda"
+          title="Anteriores"
+        >
+          ◀
+        </button>
+
+        <div
+          class="bolabot-suggestions"
+          id="bolabot-suggestions"
+        >
 
         <button
           class="bolabot-suggestion"
-          data-question="Quem é o melhor jogador?"
+          data-question="Quem foi o melhor do ano?"
         >
-          👑 Melhor jogador
+          👑 Melhor do ano
         </button>
 
         <button
           class="bolabot-suggestion"
-          data-question="Quem fez mais gols?"
+          data-question="Quem foi o melhor do mês?"
         >
-          ⚽ Mais gols
+          📅 Melhor do mês
         </button>
 
         <button
           class="bolabot-suggestion"
-          data-question="Quem deu mais assistências?"
+          data-question="Quem fez mais gols no ano?"
         >
-          🎯 Mais assistências
+          ⚽ Gols do ano
         </button>
 
         <button
           class="bolabot-suggestion"
-          data-question="Quem está pior no ranking?"
+          data-question="Quem fez mais gols no mês?"
         >
-          📉 Pior ranking
+          ⚽ Gols do mês
         </button>
 
+        <button
+          class="bolabot-suggestion"
+          data-question="Quem deu mais assistências no ano?"
+        >
+          🎯 Assist. do ano
+        </button>
+
+        <button
+          class="bolabot-suggestion"
+          data-question="Quem deu mais assistências no mês?"
+        >
+          🎯 Assist. do mês
+        </button>
+
+        <button
+          class="bolabot-suggestion"
+          data-question="Quem foi o pior do ano?"
+        >
+          📉 Pior do ano
+        </button>
+
+        <button
+          class="bolabot-suggestion"
+          data-question="Quem foi o pior do mês?"
+        >
+          📉 Pior do mês
+        </button>
+
+        </div>
+
+        <button
+          id="bolabot-sugg-next"
+          class="bolabot-suggestions-nav-btn"
+          type="button"
+          aria-label="Rolar sugestões para a direita"
+          title="Próximas"
+        >
+          ▶
+        </button>
       </div>
 
       <div class="bolabot-input-area">
@@ -271,6 +371,8 @@ export function initBolaBotView() {
         handleSuggestion(button.dataset.question);
       });
     });
+
+  initSuggestionsNav();
 
   if (isOpen) {
     openBolaBot();

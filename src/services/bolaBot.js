@@ -1,4 +1,5 @@
 import { store } from "../state/store.js";
+import { statsHaveActivity } from "./periodStats.js";
 
 /**
  * BolaBot
@@ -82,36 +83,6 @@ function getBestPlayer() {
   )[0];
 }
 
-function getWorstPlayer() {
-  const players = getPlayers();
-
-  if (!players.length) return null;
-
-  return [...players].sort(
-    (a, b) => getRankingScore(a) - getRankingScore(b)
-  )[0];
-}
-
-function getTopScorer() {
-  const players = getPlayers();
-
-  if (!players.length) return null;
-
-  return [...players].sort(
-    (a, b) => (Number(b.goals) || 0) - (Number(a.goals) || 0)
-  )[0];
-}
-
-function getTopAssist() {
-  const players = getPlayers();
-
-  if (!players.length) return null;
-
-  return [...players].sort(
-    (a, b) => (Number(b.assists) || 0) - (Number(a.assists) || 0)
-  )[0];
-}
-
 function answerRanking() {
   const player = getBestPlayer();
 
@@ -121,48 +92,270 @@ function answerRanking() {
 
   const score = getRankingScore(player);
 
-  return `👑 O melhor jogador atualmente é **${formatPlayerName(
+  return `👑 No ranking geral (todos os tempos), o melhor jogador é **${formatPlayerName(
     player
-  )}**, com ${score} pontos no ranking.`;
+  )}**, com ${score} pontos.`;
 }
 
-function answerWorstPlayer() {
-  const player = getWorstPlayer();
+/* =========================================================
+   ESCOPO DE PERÍODO (ANO / MÊS)
+========================================================= */
 
-  if (!player) {
-    return "Ainda não tenho jogadores suficientes para analisar o ranking.";
-  }
+const MONTH_NAMES = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro"
+];
 
-  const score = getRankingScore(player);
+/** Ano em contexto: o que estiver selecionado na Tabela da Liga, ou o ano atual do dispositivo. */
+function getContextYear() {
+  const key = String(store.selectedPeriodKey || store.currentPeriodKey());
 
-  return `📉 Atualmente, **${formatPlayerName(
-    player
-  )}** está na última posição do ranking, com ${score} pontos.`;
+  return Number(key.split("-")[0]) || new Date().getFullYear();
 }
 
-function answerGoals() {
-  const player = getTopScorer();
+/** Mês em contexto (YYYY-MM): o mês selecionado na Tabela da Liga quando ela está em modo mensal, senão o mês atual. */
+function getContextPeriodKey() {
+  const key = String(store.selectedPeriodKey || "");
+  const month = key.split("-")[1];
 
-  if (!player) {
-    return "Ainda não tenho dados de gols.";
-  }
+  if (month && month !== "anual") return key;
 
-  return `⚽ Quem mais fez gols é **${formatPlayerName(player)}**, com ${
-    player.goals || 0
-  } gol${player.goals === 1 ? "" : "s"}.`;
+  return store.currentPeriodKey();
 }
 
-function answerAssists() {
-  const player = getTopAssist();
+function formatMonthLabel(periodKey) {
+  const [year, month] = String(periodKey).split("-").map(Number);
+  const name = MONTH_NAMES[month - 1];
 
-  if (!player) {
-    return "Ainda não tenho dados de assistências.";
+  return name ? `${name} de ${year}` : String(periodKey);
+}
+
+/** Jogadores com atividade num snapshot, ordenados com os mesmos critérios da Tabela da Liga (pontos, gols, craque, assistências). */
+function getRankedPlayersFromSnapshot(snapshot) {
+  return getPlayers()
+    .map((player) => {
+      const stats = snapshot?.players?.[player.id];
+
+      return {
+        player,
+        stats,
+        score: getPeriodRankingScore(stats)
+      };
+    })
+    .filter((entry) => statsHaveActivity(entry.stats))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if ((b.stats.goals || 0) !== (a.stats.goals || 0)) {
+        return (b.stats.goals || 0) - (a.stats.goals || 0);
+      }
+      if ((b.stats.craque || 0) !== (a.stats.craque || 0)) {
+        return (b.stats.craque || 0) - (a.stats.craque || 0);
+      }
+
+      return (b.stats.assists || 0) - (a.stats.assists || 0);
+    });
+}
+
+/** Meses que realmente têm dados, do mais recente para o mais antigo — para orientar quando uma consulta vem vazia. */
+function getRecentMonthsWithData(limit = 3) {
+  return Object.keys(store.monthlyStats || {})
+    .sort()
+    .slice(-limit)
+    .reverse();
+}
+
+const SCOPE_YEAR = "year";
+const SCOPE_MONTH = "month";
+
+// Palavras que situam a pergunta no ano inteiro ou num mês específico (já sem acentos, via normalizeText).
+const YEAR_HINTS = [
+  "do ano",
+  "no ano",
+  "deste ano",
+  "desse ano",
+  "nesse ano",
+  "esse ano",
+  "este ano",
+  "do anual"
+];
+
+const MONTH_HINTS = [
+  "do mes",
+  "no mes",
+  "deste mes",
+  "desse mes",
+  "nesse mes",
+  "esse mes",
+  "este mes"
+];
+
+/**
+ * De qual período a pergunta trata, conforme as palavras usadas: SCOPE_YEAR para
+ * "no ano", SCOPE_MONTH para "no mês", ou null quando nenhum é citado (aí a resposta
+ * cobre todos os tempos).
+ */
+function detectPeriodScope(text) {
+  const mentionsYear = YEAR_HINTS.some((hint) => text.includes(hint));
+  const mentionsMonth = MONTH_HINTS.some((hint) => text.includes(hint));
+
+  if (mentionsYear && !mentionsMonth) return SCOPE_YEAR;
+  if (mentionsMonth && !mentionsYear) return SCOPE_MONTH;
+
+  return null;
+}
+
+/**
+ * Resolve de qual snapshot a resposta deve ler: o acumulado do ano, o do mês, ou
+ * (quando scope é null) os totais de carreira. Ano/mês respeitam o período
+ * selecionado na Tabela da Liga e, no período atual, já incluem os gols/assistências
+ * da pelada ao vivo que ainda não foram commitados.
+ */
+function resolvePeriodScope(scope) {
+  if (scope === SCOPE_YEAR) {
+    const year = getContextYear();
+
+    return { snapshot: store.getYearSnapshot(year), label: String(year) };
   }
 
-  return `🎯 Quem mais deu assistências é **${formatPlayerName(
-    player
-  )}**, com ${player.assists || 0} assistência${
-    player.assists === 1 ? "" : "s"
+  if (scope === SCOPE_MONTH) {
+    const key = getContextPeriodKey();
+    const [year, month] = String(key).split("-").map(Number);
+
+    return {
+      snapshot: store.getPeriodSnapshot(year, month),
+      label: formatMonthLabel(key)
+    };
+  }
+
+  const players = {};
+
+  getPlayers().forEach((player) => {
+    players[player.id] = player;
+  });
+
+  return { snapshot: { players }, label: null };
+}
+
+/** Jogadores com atividade num snapshot, ordenados por uma única estatística (empate vai para o melhor no geral). */
+function getPlayersByStat(snapshot, field) {
+  return getPlayers()
+    .map((player) => {
+      const stats = snapshot?.players?.[player.id] || {};
+
+      return {
+        player,
+        stats,
+        value: Number(stats[field]) || 0,
+        score: getPeriodRankingScore(stats)
+      };
+    })
+    .filter((entry) => statsHaveActivity(entry.stats))
+    .sort((a, b) => (b.value - a.value) || (b.score - a.score));
+}
+
+function answerBestOfYear() {
+  const { snapshot, label } = resolvePeriodScope(SCOPE_YEAR);
+  const best = getRankedPlayersFromSnapshot(snapshot)[0];
+
+  if (!best) {
+    return `📅 Ainda não tenho dados registrados em ${label} para montar o ranking do ano.`;
+  }
+
+  return `👑 O melhor jogador de **${label}** é **${best.player.name}**, com ${best.score} pontos no ranking anual.
+
+⚽ Gols: ${best.stats.goals || 0}
+🎯 Assistências: ${best.stats.assists || 0}
+🙋 Participações: ${best.stats.participacao || 0}`;
+}
+
+function answerBestOfMonth() {
+  const { snapshot, label } = resolvePeriodScope(SCOPE_MONTH);
+  const best = getRankedPlayersFromSnapshot(snapshot)[0];
+
+  if (!best) {
+    const months = getRecentMonthsWithData();
+
+    const hint = months.length
+      ? `\n\nMeses com dados: ${months.map(formatMonthLabel).join(", ")}.`
+      : "";
+
+    return `📅 Ainda não tenho dados registrados em ${label}.${hint}`;
+  }
+
+  return `👑 O melhor jogador de **${label}** é **${best.player.name}**, com ${best.score} pontos no ranking do mês.
+
+⚽ Gols: ${best.stats.goals || 0}
+🎯 Assistências: ${best.stats.assists || 0}
+🙋 Participações: ${best.stats.participacao || 0}`;
+}
+
+function answerWorstPlayer(scope) {
+  const { snapshot, label } = resolvePeriodScope(scope);
+  const ranked = getRankedPlayersFromSnapshot(snapshot);
+  const worst = ranked[ranked.length - 1];
+
+  if (!worst) {
+    return scope
+      ? `📉 Não tenho dados de ranking em ${label}.`
+      : "Ainda não tenho jogadores suficientes para analisar o ranking.";
+  }
+
+  if (!scope) {
+    return `📉 Atualmente, **${formatPlayerName(
+      worst.player
+    )}** está na última posição do ranking, com ${worst.score} pontos.`;
+  }
+
+  return `📉 Em **${label}**, o pior do ranking é **${formatPlayerName(
+    worst.player
+  )}**, com ${worst.score} pontos.`;
+}
+
+function answerGoals(scope) {
+  const { snapshot, label } = resolvePeriodScope(scope);
+  const best = getPlayersByStat(snapshot, "goals")[0];
+
+  if (!best) {
+    return scope
+      ? `⚽ Ainda não tenho dados de gols em ${label}.`
+      : "Ainda não tenho dados de gols.";
+  }
+
+  const goals = best.value;
+
+  return `⚽ Quem mais fez gols${
+    scope ? ` em **${label}**` : ""
+  } é **${formatPlayerName(best.player)}**, com ${goals} gol${
+    goals === 1 ? "" : "s"
+  }.`;
+}
+
+function answerAssists(scope) {
+  const { snapshot, label } = resolvePeriodScope(scope);
+  const best = getPlayersByStat(snapshot, "assists")[0];
+
+  if (!best) {
+    return scope
+      ? `🎯 Ainda não tenho dados de assistências em ${label}.`
+      : "Ainda não tenho dados de assistências.";
+  }
+
+  const assists = best.value;
+
+  return `🎯 Quem mais deu assistências${
+    scope ? ` em **${label}**` : ""
+  } é **${formatPlayerName(best.player)}**, com ${assists} assistência${
+    assists === 1 ? "" : "s"
   }.`;
 }
 
@@ -949,6 +1142,12 @@ Posso analisar os dados da BolaBate+ e também interpretar o que está acontecen
 • Quem mais evoluiu esse mês?
 • Como o Lucas evoluiu?
 
+🏆 **Ranking (por ano ou por mês)**
+• Quem foi o melhor do ano? / do mês?
+• Quem fez mais gols no ano? / no mês?
+• Quem deu mais assistências no ano? / no mês?
+• Quem foi o pior do ano? / do mês?
+
 Também continuo respondendo perguntas sobre ranking, gols e assistências. 🤖`;
 }
 
@@ -1089,6 +1288,25 @@ export function askBolaBot(question) {
     );
   }
 
+  /* MELHOR JOGADOR DO ANO / DO MÊS */
+
+  if (
+    text.includes("melhor do ano") ||
+    text.includes("melhor no ano") ||
+    text.includes("melhor jogador do ano") ||
+    text.includes("melhor do anual")
+  ) {
+    return answerBestOfYear();
+  }
+
+  if (
+    text.includes("melhor do mes") ||
+    text.includes("melhor no mes") ||
+    text.includes("melhor jogador do mes")
+  ) {
+    return answerBestOfMonth();
+  }
+
   /* MELHOR JOGADOR DA PELADA */
 
   if (
@@ -1130,6 +1348,36 @@ export function askBolaBot(question) {
     text.includes("melhor do ranking")
   ) {
     return answerRanking();
+  }
+
+  /* PIOR / GOLS / ASSISTÊNCIAS COM ESCOPO DE ANO OU MÊS */
+
+  const periodScope = detectPeriodScope(text);
+
+  if (periodScope) {
+    if (
+      text.includes("mais gols") ||
+      text.includes("maior artilheiro") ||
+      text.includes("artilheiro")
+    ) {
+      return answerGoals(periodScope);
+    }
+
+    if (
+      text.includes("mais assistencias") ||
+      text.includes("mais assistencia") ||
+      text.includes("melhor assistente")
+    ) {
+      return answerAssists(periodScope);
+    }
+
+    if (
+      text.includes("pior") ||
+      text.includes("ultimo do ranking") ||
+      text.includes("ultima do ranking")
+    ) {
+      return answerWorstPlayer(periodScope);
+    }
   }
 
   /* PIOR JOGADOR */
@@ -1211,6 +1459,10 @@ Você pode tentar:
 • "Lucas ou Djavan?"
 • "Quem está em melhor fase?"
 • "Quem mais evoluiu esse mês?"
+• "Quem foi o melhor do ano? / do mês?"
+• "Quem fez mais gols no ano? / no mês?"
+• "Quem deu mais assistências no ano? / no mês?"
+• "Quem foi o pior do ano? / do mês?"
 
 Também posso responder perguntas sobre ranking, gols e assistências. 🤖`;
 }
