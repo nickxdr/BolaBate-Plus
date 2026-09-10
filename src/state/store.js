@@ -445,6 +445,7 @@ class Store {
       team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
     });
 
+    const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
     const now = new Date();
     const historyEntry = this.normalizeHistoryEntry({
       id: 'pelada_' + now.getTime(),
@@ -453,6 +454,8 @@ class Store {
       teamCount: this.activePelada.teamCount,
       teams: JSON.parse(JSON.stringify(this.activePelada.teams)),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
+      matches: JSON.parse(JSON.stringify(this.activePelada.rotation?.log || [])),
+      diaristaPlayerIds: Array.from(diaristaIds),
       awards: {
         craqueId: null,
         selecaoIds: [],
@@ -729,6 +732,17 @@ class Store {
         }))
         : [],
       stats: entry.stats && typeof entry.stats === 'object' ? entry.stats : {},
+      matches: Array.isArray(entry.matches)
+        ? entry.matches.map(match => ({
+          teamAId: match.teamAId || null,
+          teamBId: match.teamBId || null,
+          scoreA: Number(match.scoreA) || 0,
+          scoreB: Number(match.scoreB) || 0,
+          winnerId: match.winnerId || null,
+          time: match.time || null,
+        }))
+        : [],
+      diaristaPlayerIds: Array.isArray(entry.diaristaPlayerIds) ? [...entry.diaristaPlayerIds] : [],
       awards: {
         craqueId: awards.craqueId || null,
         selecaoIds: Array.isArray(awards.selecaoIds) ? [...awards.selecaoIds] : [],
