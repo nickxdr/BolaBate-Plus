@@ -8,6 +8,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from "firebase/firestore";
+import { Capacitor } from "@capacitor/core";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyAQpRUQKM3-S_EKsbkPu3bEEUbWU0K0mPs",
@@ -25,9 +26,18 @@ export const ADMIN_UID = "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
 // cloudSync.js, which picks "cloud/state-dev" instead of "cloud/state" when
 // this is true. Add other standing preview hostnames here if you create more.
 const DEV_HOSTNAMES = ["localhost", "127.0.0.1", "bola-bate-plus-develop.vercel.app"];
+
+// Capacitor's Android/iOS WebView serves the packaged app from "https://localhost" by
+// default (capacitor.config.json sets no explicit server.hostname) — the exact same
+// hostname used above to detect the local `npm run dev` server. Without this check,
+// every built APK/IPA would be misdetected as dev and silently write to
+// cloud/state-dev instead of the real cloud/state, no matter how it was built.
+const isNativeApp = Capacitor.isNativePlatform();
+
 export const IS_DEV_ENVIRONMENT =
-  Boolean(import.meta.env.DEV) ||
-  (typeof window !== "undefined" && DEV_HOSTNAMES.includes(window.location.hostname));
+  !isNativeApp &&
+  (Boolean(import.meta.env.DEV) ||
+    (typeof window !== "undefined" && DEV_HOSTNAMES.includes(window.location.hostname)));
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
