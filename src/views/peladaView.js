@@ -932,27 +932,34 @@ function renderLivePelada(container, onNavigate) {
     const finishMatchBtn = container.querySelector("#btn-finish-match");
     if (finishMatchBtn) {
       finishMatchBtn.addEventListener("click", () => {
-        const result = store.endCurrentMatch();
-        if (result.success) {
-          playSound("whistleEnd");
-          const teamAName =
-            pelada.teams.find((t) => t.id === result.teamAId)?.name || "Time A";
-          const teamBName =
-            pelada.teams.find((t) => t.id === result.teamBId)?.name || "Time B";
-          if (result.winnerId) {
-            const winnerName =
-              pelada.teams.find((t) => t.id === result.winnerId)?.name ||
-              "Vencedor";
-            const hi = Math.max(result.scoreA, result.scoreB);
-            const lo = Math.min(result.scoreA, result.scoreB);
-            showToast(`🏆 ${winnerName} venceu por ${hi}×${lo}!`);
-          } else {
-            showToast(
-              `🤝 Empate! ${teamAName} ${result.scoreA}×${result.scoreB} ${teamBName}`,
-            );
+        const match = pelada.rotation?.currentMatch;
+        if (!match) return;
+        const teamA = pelada.teams.find((t) => t.id === match.teamAId);
+        const teamB = pelada.teams.find((t) => t.id === match.teamBId);
+
+        openConfirmFinishMatchModal(match, teamA, teamB, () => {
+          const result = store.endCurrentMatch();
+          if (result.success) {
+            playSound("whistleEnd");
+            const teamAName =
+              pelada.teams.find((t) => t.id === result.teamAId)?.name || "Time A";
+            const teamBName =
+              pelada.teams.find((t) => t.id === result.teamBId)?.name || "Time B";
+            if (result.winnerId) {
+              const winnerName =
+                pelada.teams.find((t) => t.id === result.winnerId)?.name ||
+                "Vencedor";
+              const hi = Math.max(result.scoreA, result.scoreB);
+              const lo = Math.min(result.scoreA, result.scoreB);
+              showToast(`🏆 ${winnerName} venceu por ${hi}×${lo}!`);
+            } else {
+              showToast(
+                `🤝 Empate! ${teamAName} ${result.scoreA}×${result.scoreB} ${teamBName}`,
+              );
+            }
           }
-        }
-        handleReclaimedGuests(result.reclaimedGuests, render);
+          handleReclaimedGuests(result.reclaimedGuests, render);
+        });
       });
     }
   }
@@ -1718,6 +1725,65 @@ function openFinishPeladaModal(onNavigate) {
       if (typeof onNavigate === "function") {
         onNavigate("ranking");
       }
+    });
+}
+
+/** Confirmation modal for "Finalizar" on the current match — asked before endCurrentMatch()
+ *  commits the result and advances the winner-stays rotation, since that's not reversible
+ *  from here (unlike a goal/assist, which has an undo button right next to it). */
+function openConfirmFinishMatchModal(match, teamA, teamB, onConfirm) {
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="confirm-finish-match-overlay">
+      <div class="modal-content" style="max-width: 420px;">
+        <div class="modal-header">
+          <h2 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+            🏁 Finalizar Partida?
+          </h2>
+          <button class="modal-close" id="confirm-finish-match-close">&times;</button>
+        </div>
+
+        <div style="background: var(--bg-card-subtle); border-radius: 12px; padding: 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 14px;">
+          <div style="flex: 1; text-align: center;">
+            <div style="font-size: 0.82rem; font-weight: 700; color: ${teamA?.color || "var(--text-main)"};">${escapeHtml(teamA?.name || "Time A")}</div>
+          </div>
+          <div style="font-size: 1.6rem; font-weight: 900; white-space: nowrap;">${match.scoreA} <span style="color: var(--text-dim);">×</span> ${match.scoreB}</div>
+          <div style="flex: 1; text-align: center;">
+            <div style="font-size: 0.82rem; font-weight: 700; color: ${teamB?.color || "var(--text-main)"};">${escapeHtml(teamB?.name || "Time B")}</div>
+          </div>
+        </div>
+
+        <p style="font-size: 0.86rem; color: var(--text-muted); margin-bottom: 18px; line-height: 1.5;">
+          Isso encerra a partida com o placar acima e avança o rodízio de times (vitória, empate ou 3 vitórias seguidas). Confira o placar antes de continuar.
+        </p>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" id="confirm-finish-match-cancel">Cancelar</button>
+          <button type="button" class="btn btn-gold" id="confirm-finish-match-confirm">🏁 Sim, Finalizar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#confirm-finish-match-overlay");
+  modalContainer
+    .querySelector("#confirm-finish-match-close")
+    .addEventListener("click", close);
+  modalContainer
+    .querySelector("#confirm-finish-match-cancel")
+    .addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  modalContainer
+    .querySelector("#confirm-finish-match-confirm")
+    .addEventListener("click", () => {
+      close();
+      onConfirm();
     });
 }
 
