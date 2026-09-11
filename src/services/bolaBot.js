@@ -55,6 +55,20 @@ function getRankingScore(player) {
   );
 }
 
+/** Lista "A, B e C" com os nomes em negrito (usado nas respostas com empate). */
+function formatTiedNames(entries) {
+  const names = entries.map((entry) => `**${formatPlayerName(entry.player)}**`);
+
+  if (names.length <= 2) return names.join(" e ");
+
+  return `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
+}
+
+/** Verbo singular/plural conforme a quantidade de empatados. */
+function pluralize(count, singular, plural) {
+  return count === 1 ? singular : plural;
+}
+
 function getPeriodRankingScore(stats) {
   if (!stats) return 0;
 
@@ -84,17 +98,27 @@ function getBestPlayer() {
 }
 
 function answerRanking() {
-  const player = getBestPlayer();
+  const players = getPlayers();
 
-  if (!player) {
+  if (!players.length) {
     return "Ainda não tenho jogadores suficientes para analisar o ranking.";
   }
 
-  const score = getRankingScore(player);
+  const ranked = [...players]
+    .map((player) => ({ player, score: getRankingScore(player) }))
+    .sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  const tied = ranked.filter((entry) => entry.score === best.score);
 
-  return `👑 No ranking geral (todos os tempos), o melhor jogador é **${formatPlayerName(
-    player
-  )}**, com ${score} pontos.`;
+  if (tied.length === 1) {
+    return `👑 No ranking geral (todos os tempos), o melhor jogador é **${formatPlayerName(
+      best.player
+    )}**, com ${best.score} pontos.`;
+  }
+
+  return `👑 No ranking geral (todos os tempos), ${formatTiedNames(
+    tied
+  )} estão empatados como melhores, com ${best.score} pontos. 🤝`;
 }
 
 /* =========================================================
@@ -177,6 +201,97 @@ function getRecentMonthsWithData(limit = 3) {
 const SCOPE_YEAR = "year";
 const SCOPE_MONTH = "month";
 
+// Nomes de meses (já sem acentos, via normalizeText) para detectar o mês em
+// qualquer posição: "gol agosto", "de agosto", "em julho de 2025", etc.
+const MONTH_NAME_TO_NUMBER = {
+  janeiro: 1,
+  jan: 1,
+  fevereiro: 2,
+  fev: 2,
+  marco: 3,
+  mar: 3,
+  abril: 4,
+  abr: 4,
+  maio: 5,
+  mai: 5,
+  junho: 6,
+  jun: 6,
+  julho: 7,
+  jul: 7,
+  agosto: 8,
+  ago: 8,
+  setembro: 9,
+  set: 9,
+  sep: 9,
+  outubro: 10,
+  out: 10,
+  novembro: 11,
+  nov: 11,
+  dezembro: 12,
+  dez: 12
+};
+
+/**
+ * Mês explicitamente citado ("gol agosto", "de agosto", "em julho de 2025",
+ * "do mes passado"). Retorna "YYYY-MM" ou null. "passado"/"anterior" e
+ * "atual"/"este" resolvem em relação ao mês em contexto; sem ano, usa o ano
+ * em contexto. A comparação é por token inteiro, então "mais" não vira "mai"
+ * e "sete" não vira "set".
+ */
+function detectExplicitMonthKey(text) {
+  if (!text) return null;
+
+  const contextKey = getContextPeriodKey();
+  const [contextYear, contextMonth] = String(contextKey).split("-").map(Number);
+  const now = new Date();
+  const fallbackYear = Number.isFinite(contextYear) ? contextYear : now.getFullYear();
+  const fallbackMonth = Number.isFinite(contextMonth) ? contextMonth : now.getMonth() + 1;
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const shift = (year, month, delta) => {
+    const total = year * 12 + (month - 1) + delta;
+    const y = Math.floor(total / 12);
+    return `${y}-${pad((total % 12) + 1)}`;
+  };
+
+  if (
+    text.includes("mes passado") ||
+    text.includes("mes anterior") ||
+    text.includes("ultimo mes")
+  ) {
+    return shift(fallbackYear, fallbackMonth, -1);
+  }
+
+  if (
+    text.includes("mes atual") ||
+    text.includes("este mes") ||
+    text.includes("esse mes")
+  ) {
+    return `${fallbackYear}-${pad(fallbackMonth)}`;
+  }
+
+  const tokens = String(text).split(/[^a-z0-9]+/).filter(Boolean);
+
+  for (let i = 0; i < tokens.length; i++) {
+    const month = MONTH_NAME_TO_NUMBER[tokens[i]];
+
+    if (!month) continue;
+
+    let year = fallbackYear;
+    const after = tokens[i + 1] === "de" ? tokens[i + 2] : tokens[i + 1];
+
+    if (after && /^(19\d{2}|20\d{2}|21\d{2})$/.test(after)) {
+      const parsed = Number(after);
+
+      if (parsed >= 2000 && parsed <= 2200) year = parsed;
+    }
+
+    return `${year}-${pad(month)}`;
+  }
+
+  return null;
+}
+
 // Palavras que situam a pergunta no ano inteiro ou num mês específico (já sem acentos, via normalizeText).
 const YEAR_HINTS = [
   "do ano",
@@ -200,9 +315,27 @@ const MONTH_HINTS = [
 ];
 
 /**
+ * Ano explicitamente citado ("de 2025", "em 2024"). Retorna o número ou null.
+ * Ignora anos fora de uma faixa plausível para não confundir com placares.
+ */
+function detectExplicitYear(text) {
+  if (!text) return null;
+
+  const match = text.match(/(?:\bde|\bdo|\bno|\bem|\bpara)?\s*\b(19\d{2}|20\d{2}|21\d{2})\b/);
+
+  if (!match) return null;
+
+  const year = Number(match[1]);
+
+  if (!Number.isFinite(year) || year < 2000 || year > 2200) return null;
+
+  return year;
+}
+
+/**
  * De qual período a pergunta trata, conforme as palavras usadas: SCOPE_YEAR para
- * "no ano", SCOPE_MONTH para "no mês", ou null quando nenhum é citado (aí a resposta
- * cobre todos os tempos).
+ * "no ano", SCOPE_MONTH para "no mês" (ou quando um mês/ano explícito é citado),
+ * ou null quando nenhum é citado (aí a resposta cobre todos os tempos).
  */
 function detectPeriodScope(text) {
   const mentionsYear = YEAR_HINTS.some((hint) => text.includes(hint));
@@ -210,6 +343,10 @@ function detectPeriodScope(text) {
 
   if (mentionsYear && !mentionsMonth) return SCOPE_YEAR;
   if (mentionsMonth && !mentionsYear) return SCOPE_MONTH;
+
+  // "artilheiro de agosto", "pior em julho de 2025": o mês/ano explícito define o escopo.
+  if (detectExplicitMonthKey(text)) return SCOPE_MONTH;
+  if (detectExplicitYear(text)) return SCOPE_YEAR;
 
   return null;
 }
@@ -219,16 +356,19 @@ function detectPeriodScope(text) {
  * (quando scope é null) os totais de carreira. Ano/mês respeitam o período
  * selecionado na Tabela da Liga e, no período atual, já incluem os gols/assistências
  * da pelada ao vivo que ainda não foram commitados.
+ *
+ * Se `text` citar um mês explícito ("de agosto", "do mês passado"), ele tem
+ * prioridade sobre o mês em contexto.
  */
-function resolvePeriodScope(scope) {
+function resolvePeriodScope(scope, text) {
   if (scope === SCOPE_YEAR) {
-    const year = getContextYear();
+    const year = detectExplicitYear(text) ?? getContextYear();
 
     return { snapshot: store.getYearSnapshot(year), label: String(year) };
   }
 
   if (scope === SCOPE_MONTH) {
-    const key = getContextPeriodKey();
+    const key = detectExplicitMonthKey(text) || getContextPeriodKey();
     const [year, month] = String(key).split("-").map(Number);
 
     return {
@@ -263,24 +403,43 @@ function getPlayersByStat(snapshot, field) {
     .sort((a, b) => (b.value - a.value) || (b.score - a.score));
 }
 
-function answerBestOfYear() {
-  const { snapshot, label } = resolvePeriodScope(SCOPE_YEAR);
-  const best = getRankedPlayersFromSnapshot(snapshot)[0];
+function answerBestOfYear(text) {
+  const { snapshot, label } = resolvePeriodScope(SCOPE_YEAR, text);
+  const ranked = getRankedPlayersFromSnapshot(snapshot);
+  const best = ranked[0];
 
   if (!best) {
     return `📅 Ainda não tenho dados registrados em ${label} para montar o ranking do ano.`;
   }
 
-  return `👑 O melhor jogador de **${label}** é **${best.player.name}**, com ${best.score} pontos no ranking anual.
+  const tied = ranked.filter((entry) => entry.score === best.score);
+  const noun = pluralize(tied.length, "O melhor jogador", "Os melhores jogadores");
+  const verb = pluralize(tied.length, "é", "são");
+
+  if (tied.length === 1) {
+    return `👑 ${noun} de **${label}** ${verb} **${best.player.name}**, com ${best.score} pontos no ranking anual.
 
 ⚽ Gols: ${best.stats.goals || 0}
 🎯 Assistências: ${best.stats.assists || 0}
 🙋 Participações: ${best.stats.participacao || 0}`;
+  }
+
+  const details = tied
+    .map(
+      (entry) =>
+        `• **${formatPlayerName(entry.player)}** — ⚽ ${entry.stats.goals || 0} | 🎯 ${entry.stats.assists || 0} | 🙋 ${entry.stats.participacao || 0}`
+    )
+    .join("\n");
+
+  return `👑 ${noun} de **${label}** ${verb} ${formatTiedNames(tied)}, com ${best.score} pontos no ranking anual. 🤝 Empate!
+
+${details}`;
 }
 
-function answerBestOfMonth() {
-  const { snapshot, label } = resolvePeriodScope(SCOPE_MONTH);
-  const best = getRankedPlayersFromSnapshot(snapshot)[0];
+function answerBestOfMonth(text) {
+  const { snapshot, label } = resolvePeriodScope(SCOPE_MONTH, text);
+  const ranked = getRankedPlayersFromSnapshot(snapshot);
+  const best = ranked[0];
 
   if (!best) {
     const months = getRecentMonthsWithData();
@@ -292,15 +451,32 @@ function answerBestOfMonth() {
     return `📅 Ainda não tenho dados registrados em ${label}.${hint}`;
   }
 
-  return `👑 O melhor jogador de **${label}** é **${best.player.name}**, com ${best.score} pontos no ranking do mês.
+  const tied = ranked.filter((entry) => entry.score === best.score);
+  const noun = pluralize(tied.length, "O melhor jogador", "Os melhores jogadores");
+  const verb = pluralize(tied.length, "é", "são");
+
+  if (tied.length === 1) {
+    return `👑 ${noun} de **${label}** ${verb} **${best.player.name}**, com ${best.score} pontos no ranking do mês.
 
 ⚽ Gols: ${best.stats.goals || 0}
 🎯 Assistências: ${best.stats.assists || 0}
 🙋 Participações: ${best.stats.participacao || 0}`;
+  }
+
+  const details = tied
+    .map(
+      (entry) =>
+        `• **${formatPlayerName(entry.player)}** — ⚽ ${entry.stats.goals || 0} | 🎯 ${entry.stats.assists || 0} | 🙋 ${entry.stats.participacao || 0}`
+    )
+    .join("\n");
+
+  return `👑 ${noun} de **${label}** ${verb} ${formatTiedNames(tied)}, com ${best.score} pontos no ranking do mês. 🤝 Empate!
+
+${details}`;
 }
 
-function answerWorstPlayer(scope) {
-  const { snapshot, label } = resolvePeriodScope(scope);
+function answerWorstPlayer(scope, text) {
+  const { snapshot, label } = resolvePeriodScope(scope, text);
   const ranked = getRankedPlayersFromSnapshot(snapshot);
   const worst = ranked[ranked.length - 1];
 
@@ -310,20 +486,31 @@ function answerWorstPlayer(scope) {
       : "Ainda não tenho jogadores suficientes para analisar o ranking.";
   }
 
+  const tied = ranked.filter((entry) => entry.score === worst.score);
+
   if (!scope) {
-    return `📉 Atualmente, **${formatPlayerName(
-      worst.player
-    )}** está na última posição do ranking, com ${worst.score} pontos.`;
+    if (tied.length === 1) {
+      return `📉 Atualmente, **${formatPlayerName(
+        worst.player
+      )}** está na última posição do ranking, com ${worst.score} pontos.`;
+    }
+
+    return `📉 Atualmente, ${formatTiedNames(tied)} estão empatados na última posição do ranking, com ${worst.score} pontos. 🤝`;
   }
 
-  return `📉 Em **${label}**, o pior do ranking é **${formatPlayerName(
-    worst.player
-  )}**, com ${worst.score} pontos.`;
+  if (tied.length === 1) {
+    return `📉 Em **${label}**, o pior do ranking é **${formatPlayerName(
+      worst.player
+    )}**, com ${worst.score} pontos.`;
+  }
+
+  return `📉 Em **${label}**, ${formatTiedNames(tied)} estão empatados como piores do ranking, com ${worst.score} pontos. 🤝`;
 }
 
-function answerGoals(scope) {
-  const { snapshot, label } = resolvePeriodScope(scope);
-  const best = getPlayersByStat(snapshot, "goals")[0];
+function answerGoals(scope, text) {
+  const { snapshot, label } = resolvePeriodScope(scope, text);
+  const ranked = getPlayersByStat(snapshot, "goals");
+  const best = ranked[0];
 
   if (!best) {
     return scope
@@ -332,17 +519,24 @@ function answerGoals(scope) {
   }
 
   const goals = best.value;
+  const tied = ranked.filter((entry) => entry.value === goals);
+  const goalWord = pluralize(goals, "gol", "gols");
+
+  if (tied.length === 1) {
+    return `⚽ Quem mais fez gols${
+      scope ? ` em **${label}**` : ""
+    } é **${formatPlayerName(best.player)}**, com ${goals} ${goalWord}.`;
+  }
 
   return `⚽ Quem mais fez gols${
     scope ? ` em **${label}**` : ""
-  } é **${formatPlayerName(best.player)}**, com ${goals} gol${
-    goals === 1 ? "" : "s"
-  }.`;
+  } — empate com ${goals} ${goalWord} cada: ${formatTiedNames(tied)}. 🤝`;
 }
 
-function answerAssists(scope) {
-  const { snapshot, label } = resolvePeriodScope(scope);
-  const best = getPlayersByStat(snapshot, "assists")[0];
+function answerAssists(scope, text) {
+  const { snapshot, label } = resolvePeriodScope(scope, text);
+  const ranked = getPlayersByStat(snapshot, "assists");
+  const best = ranked[0];
 
   if (!best) {
     return scope
@@ -351,12 +545,18 @@ function answerAssists(scope) {
   }
 
   const assists = best.value;
+  const tied = ranked.filter((entry) => entry.value === assists);
+  const assistWord = pluralize(assists, "assistência", "assistências");
+
+  if (tied.length === 1) {
+    return `🎯 Quem mais deu assistências${
+      scope ? ` em **${label}**` : ""
+    } é **${formatPlayerName(best.player)}**, com ${assists} ${assistWord}.`;
+  }
 
   return `🎯 Quem mais deu assistências${
     scope ? ` em **${label}**` : ""
-  } é **${formatPlayerName(best.player)}**, com ${assists} assistência${
-    assists === 1 ? "" : "s"
-  }.`;
+  } — empate com ${assists} ${assistWord} cada: ${formatTiedNames(tied)}. 🤝`;
 }
 
 function answerStats(playerName) {
@@ -1288,23 +1488,88 @@ export function askBolaBot(question) {
     );
   }
 
-  /* MELHOR JOGADOR DO ANO / DO MÊS */
+  /* MELHOR JOGADOR DO ANO / DO MÊS (mês explícito tipo "melhor de agosto" cai aqui também) */
 
   if (
     text.includes("melhor do ano") ||
     text.includes("melhor no ano") ||
     text.includes("melhor jogador do ano") ||
-    text.includes("melhor do anual")
+    text.includes("melhor do anual") ||
+    detectExplicitYear(text)
   ) {
-    return answerBestOfYear();
+    return answerBestOfYear(text);
   }
 
+  const explicitMonthKey = detectExplicitMonthKey(text);
+
+  // Palavra solta ("gol", "assistencia", "pior"...) + mês citado ("gol agosto"):
+  // o mês explícito define o mês da resposta, sem exigir "de/no/para".
+  const mentionsGoalsWord =
+    text.includes("mais gols") ||
+    text.includes("maior artilheiro") ||
+    text.includes("artilheiro") ||
+    text.includes("gols") ||
+    text.includes("gol ") ||
+    text === "gol" ||
+    text.endsWith(" gol");
+  const mentionsAssistsWord =
+    text.includes("mais assistencias") ||
+    text.includes("mais assistencia") ||
+    text.includes("melhor assistente") ||
+    text.includes("assistencias") ||
+    text.includes("assistencia") ||
+    text.includes("assists") ||
+    text.includes("assist ");
+  const mentionsWorstWord =
+    text.includes("pior") ||
+    text.includes("ultimo do ranking") ||
+    text.includes("ultima do ranking");
+  const mentionsBestWord = text.includes("melhor");
+
+  // Palavra-chave sozinha ("gol", "pior", "melhor"...) vale como pergunta do
+  // mês atual — mas sem roubar rotas próprias: "melhor jogador" é o geral,
+  // "melhor fase" é evolução, "mais decisivo" é análise de pelada.
+  const isBareKeyword =
+    /^(gols?|artilheiro|artilharia|assistencias?|assists?|pior|melhor)\??!?$/u.test(
+      text
+    );
+
+  if (isBareKeyword) {
+    const word = text.replace(/[?!]+$/, "");
+
+    if (word === "melhor") return answerBestOfMonth(text);
+    if (word === "pior") return answerWorstPlayer(SCOPE_MONTH, text);
+    if (word === "gols" || word === "gol" || word.startsWith("artilh"))
+      return answerGoals(SCOPE_MONTH, text);
+    return answerAssists(SCOPE_MONTH, text);
+  }
+
+  if (explicitMonthKey && !detectExplicitYear(text)) {
+    if (mentionsBestWord && !mentionsGoalsWord && !mentionsAssistsWord && !mentionsWorstWord) {
+      return answerBestOfMonth(text);
+    }
+
+    if (mentionsGoalsWord && !mentionsAssistsWord && !mentionsWorstWord && !mentionsBestWord) {
+      return answerGoals(SCOPE_MONTH, text);
+    }
+
+    if (mentionsAssistsWord && !mentionsGoalsWord && !mentionsWorstWord && !mentionsBestWord) {
+      return answerAssists(SCOPE_MONTH, text);
+    }
+
+    if (mentionsWorstWord && !mentionsGoalsWord && !mentionsAssistsWord && !mentionsBestWord) {
+      return answerWorstPlayer(SCOPE_MONTH, text);
+    }
+  }
+
+  // "melhor de agosto", "melhor em julho": o mês explícito define o mês da resposta.
   if (
     text.includes("melhor do mes") ||
     text.includes("melhor no mes") ||
-    text.includes("melhor jogador do mes")
+    text.includes("melhor jogador do mes") ||
+    (explicitMonthKey && mentionsBestWord)
   ) {
-    return answerBestOfMonth();
+    return answerBestOfMonth(text);
   }
 
   /* MELHOR JOGADOR DA PELADA */
@@ -1340,27 +1605,37 @@ export function askBolaBot(question) {
     return answerEvolution();
   }
 
-  /* MELHOR JOGADOR DO RANKING */
+  /* MELHOR JOGADOR DO RANKING (geral só com "todos os tempos"/geral; sem período = mês atual) */
 
   if (
     text.includes("melhor jogador") ||
     text.includes("quem e o melhor") ||
     text.includes("melhor do ranking")
   ) {
-    return answerRanking();
+    if (
+      text.includes("todos os tempos") ||
+      text.includes("geral") ||
+      text.includes("historia")
+    ) {
+      return answerRanking();
+    }
+
+    return answerBestOfMonth(text);
   }
 
-  /* PIOR / GOLS / ASSISTÊNCIAS COM ESCOPO DE ANO OU MÊS */
+  /* PIOR / GOLS / ASSISTÊNCIAS COM ESCOPO DE ANO OU MÊS (inclui mês explícito: "artilheiro de agosto") */
 
   const periodScope = detectPeriodScope(text);
 
-  if (periodScope) {
+  if (periodScope || explicitMonthKey) {
+    const scope = periodScope || SCOPE_MONTH;
+
     if (
       text.includes("mais gols") ||
       text.includes("maior artilheiro") ||
       text.includes("artilheiro")
     ) {
-      return answerGoals(periodScope);
+      return answerGoals(scope, text);
     }
 
     if (
@@ -1368,7 +1643,7 @@ export function askBolaBot(question) {
       text.includes("mais assistencia") ||
       text.includes("melhor assistente")
     ) {
-      return answerAssists(periodScope);
+      return answerAssists(scope, text);
     }
 
     if (
@@ -1376,40 +1651,65 @@ export function askBolaBot(question) {
       text.includes("ultimo do ranking") ||
       text.includes("ultima do ranking")
     ) {
-      return answerWorstPlayer(periodScope);
+      return answerWorstPlayer(scope, text);
     }
   }
 
-  /* PIOR JOGADOR */
+  /* PIOR JOGADOR (geral só com "todos os tempos"/geral; sem período = mês atual) */
 
   if (
     text.includes("pior jogador") ||
     text.includes("quem esta pior") ||
     text.includes("quem ta pior") ||
+    text.includes("quem e o pior") ||
     text.includes("ultimo do ranking") ||
     text.includes("ultima do ranking")
   ) {
-    return answerWorstPlayer();
+    if (
+      text.includes("todos os tempos") ||
+      text.includes("geral") ||
+      text.includes("historia")
+    ) {
+      return answerWorstPlayer();
+    }
+
+    return answerWorstPlayer(SCOPE_MONTH, text);
   }
 
-  /* GOLS */
+  /* GOLS (sem período = mês atual; geral só com "todos os tempos"/geral) */
 
   if (
     text.includes("mais gols") ||
     text.includes("maior artilheiro") ||
     text.includes("artilheiro")
   ) {
-    return answerGoals();
+    if (
+      text.includes("todos os tempos") ||
+      text.includes("geral") ||
+      text.includes("historia")
+    ) {
+      return answerGoals();
+    }
+
+    return answerGoals(SCOPE_MONTH, text);
   }
 
-  /* ASSISTÊNCIAS */
+  /* ASSISTÊNCIAS (sem período = mês atual; geral só com "todos os tempos"/geral) */
 
   if (
     text.includes("mais assistencias") ||
     text.includes("mais assistencia") ||
     text.includes("melhor assistente")
   ) {
-    return answerAssists();
+    if (
+      text.includes("todos os tempos") ||
+      text.includes("geral") ||
+      text.includes("historia")
+    ) {
+      return answerAssists();
+    }
+
+    return answerAssists(SCOPE_MONTH, text);
   }
 
   /* EVOLUÇÃO */
