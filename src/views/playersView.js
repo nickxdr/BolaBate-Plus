@@ -34,12 +34,18 @@ export function renderPlayersView() {
 
   let searchTerm = "";
   let sortBy = "name"; // 'name' | 'stars-desc' | 'stars-asc'
+  let positionFilter = "all"; // 'all' | 'Fixo' | 'Ala' | 'Pivô' | 'none'
 
   function getFilteredPlayers() {
     return store.players
       .filter((p) => !isHiddenDiarista(p))
       .filter((p) => {
         return p.name.toLowerCase().includes(searchTerm.toLowerCase());
+      })
+      .filter((p) => {
+        if (positionFilter === "all") return true;
+        if (positionFilter === "none") return !p.favoritePosition;
+        return p.favoritePosition === positionFilter;
       })
       .sort((a, b) => {
         if (sortBy === "name") return a.name.localeCompare(b.name);
@@ -81,6 +87,23 @@ export function renderPlayersView() {
             placeholder="Buscar jogador por nome..."
             value="${escapeHtml(searchTerm)}"
           />
+
+          <div class="players-sort">
+            <span class="players-sort-label">
+              Posição:
+            </span>
+
+            <select
+              id="player-position-filter"
+              class="input-field players-sort-select"
+            >
+              <option value="all" ${positionFilter === "all" ? "selected" : ""}>Todas</option>
+              <option value="Fixo" ${positionFilter === "Fixo" ? "selected" : ""}>Fixo</option>
+              <option value="Ala" ${positionFilter === "Ala" ? "selected" : ""}>Ala</option>
+              <option value="Pivô" ${positionFilter === "Pivô" ? "selected" : ""}>Pivô</option>
+              <option value="none" ${positionFilter === "none" ? "selected" : ""}>Não definida</option>
+            </select>
+          </div>
 
           <div class="players-sort">
             <span class="players-sort-label">
@@ -221,6 +244,13 @@ export function renderPlayersView() {
 
     sortSelect.addEventListener("change", (e) => {
       sortBy = e.target.value;
+      render();
+    });
+
+    const positionSelect = container.querySelector("#player-position-filter");
+
+    positionSelect.addEventListener("change", (e) => {
+      positionFilter = e.target.value;
       render();
     });
 
