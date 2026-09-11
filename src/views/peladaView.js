@@ -1250,6 +1250,21 @@ function renderLivePelada(container, onNavigate) {
       );
     });
 
+    // Bind team substitution — swaps a waiting team into the still-not-started match.
+    container.querySelectorAll(".btn-substitute-queued-team").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const queuedTeamId = e.currentTarget.getAttribute("data-queued-team");
+        const replaceTeamId = e.currentTarget.getAttribute("data-replace-team");
+        const result = store.substituteQueuedTeam(queuedTeamId, replaceTeamId);
+        if (result?.success) {
+          showToast("🔁 Time substituído antes do início da partida!");
+          handleReclaimedGuests(result.reclaimedGuests, render);
+        } else if (result?.error) {
+          showToast("❌ " + result.error);
+        }
+      });
+    });
+
     // Drag & drop reordering of the waiting queue (desktop) — drop inserts the dragged team
     // right before the drop target, matching the up/down buttons' "top = next up" semantics.
     let draggedQueueTeamId = null;
@@ -2196,6 +2211,18 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
   const departed = new Set(pelada.departedPlayerIds || []);
   const pickingFirstMatch = store.isAdmin && !rotation.currentMatch;
 
+  // Lets the admin swap out an automatically-assigned team before the match actually starts.
+  const match = rotation.currentMatch;
+  const matchNotStarted =
+    !!match &&
+    !match.timerRunning &&
+    match.timerRemainingMs === match.timerDurationMs &&
+    match.scoreA === 0 &&
+    match.scoreB === 0;
+  const canSubstitute = store.isAdmin && matchNotStarted;
+  const currentMatchTeamA = match ? pelada.teams.find((t) => t.id === match.teamAId) : null;
+  const currentMatchTeamB = match ? pelada.teams.find((t) => t.id === match.teamBId) : null;
+
   return `
     <div class="card" style="margin-top: 20px;">
       <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
@@ -2257,6 +2284,24 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
                 <button class="btn ${isSelected ? "btn-primary" : "btn-secondary"} btn-sm btn-toggle-match-selection" data-team="${team.id}" style="margin-top: 8px; width: 100%;">
                   ${isSelected ? "✅ Selecionado para o 1º confronto" : "Escalar para o 1º confronto"}
                 </button>
+              `
+                  : ""
+              }
+              ${
+                canSubstitute
+                  ? `
+                <div class="waiting-team-sub-btns">
+                  ${[currentMatchTeamA, currentMatchTeamB]
+                    .filter(Boolean)
+                    .map(
+                      (matchTeam) => `
+                    <button class="btn btn-secondary btn-sm btn-substitute-queued-team" data-queued-team="${team.id}" data-replace-team="${matchTeam.id}" title="Substituir ${escapeHtml(matchTeam.name)} por ${escapeHtml(team.name)}, já que a partida ainda não começou">
+                      🔁 Entrar no lugar de ${escapeHtml(matchTeam.name)}
+                    </button>
+                  `,
+                    )
+                    .join("")}
+                </div>
               `
                   : ""
               }

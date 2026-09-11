@@ -105,7 +105,10 @@ export const AVATAR_TABS = [
     key: "top",
     label: "💇 Cabelo",
     schemaKey: "top",
+    // Nullable so a shaved head / bald look is on the table too — a common masculine
+    // choice that isn't covered by any of DiceBear's drawn hairstyle shapes.
     options: enumOptions("top").filter((o) => !FEMININE_TOP_STYLES.has(o.value)),
+    nullable: true,
   },
   { key: "eyes", label: "👀 Olhos", schemaKey: "eyes", options: enumOptions("eyes") },
   { key: "eyebrows", label: "🤨 Sobrancelhas", schemaKey: "eyebrows", options: enumOptions("eyebrows") },
@@ -124,12 +127,18 @@ export const AVATAR_TABS = [
   },
 ];
 
-// Color swatches, shown as their own tab (skin, hair, clothing, background). Kept short
-// and curated rather than every DiceBear default, since these are shown as tap targets.
+// DiceBear's own skin palette (7 tones) leans on a few stylized/cartoon shades (orange,
+// yellow) and skips a lot of the real range in between and at the darker end — these
+// fill those gaps in so there's a fuller, more realistic spread to choose from.
+const EXTRA_SKIN_COLORS = ["ffe4c4", "f1c27d", "c68642", "8d5524", "3b2219"];
+
+// Color swatches, shown as their own tab (skin, hair, clothing, hat, background). Kept
+// short and curated rather than every DiceBear default, since these are shown as tap targets.
 export const AVATAR_COLOR_TABS = [
-  { key: "skinColor", label: "🎨 Pele", colors: SCHEMA.skinColor.default },
+  { key: "skinColor", label: "🎨 Pele", colors: [...SCHEMA.skinColor.default, ...EXTRA_SKIN_COLORS] },
   { key: "hairColor", label: "🎨 Cor do Cabelo", colors: SCHEMA.hairColor.default },
   { key: "clothesColor", label: "🎨 Cor da Roupa", colors: SCHEMA.clothesColor.default },
+  { key: "hatColor", label: "🧢 Cor do Boné/Gorro", colors: SCHEMA.hatColor.default },
   { key: "backgroundColor", label: "🖼️ Fundo", colors: [...SCHEMA.clothesColor.default, "transparent"] },
 ];
 
@@ -148,6 +157,7 @@ export const DEFAULT_AVATAR_CONFIG = {
   facialHairColor: "4a312c",
   accessoriesColor: "262e33",
   clothesColor: "3c4f5c",
+  hatColor: "3c4f5c",
   backgroundColor: "b6e3f4",
 };
 
@@ -156,13 +166,15 @@ function toDicebearOptions(config) {
   const cfg = { ...DEFAULT_AVATAR_CONFIG, ...config };
   const usingJersey = !!cfg.jersey;
   return {
-    top: [cfg.top],
+    top: [cfg.top || "shortFlat"],
+    topProbability: cfg.top ? 100 : 0,
     eyes: [cfg.eyes],
     eyebrows: [cfg.eyebrows],
     mouth: [cfg.mouth],
     clothing: [usingJersey ? JERSEY_BASE_CLOTHING : cfg.clothing],
     skinColor: [cfg.skinColor],
     hairColor: [cfg.hairColor],
+    hatColor: [cfg.hatColor],
     clothesColor: [usingJersey ? JERSEY_MARKER_COLOR : cfg.clothesColor],
     backgroundColor: [cfg.backgroundColor === "transparent" ? "transparent" : cfg.backgroundColor],
     facialHair: cfg.facialHair ? [cfg.facialHair] : ["beardLight"],

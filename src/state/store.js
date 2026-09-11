@@ -26,7 +26,7 @@ const ADMIN_ONLY_METHODS = [
   'setTeamSize',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
-  'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore',
+  'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
   'finishPelada', 'updateHistoryAwards', 'cancelPelada', 'deleteHistoryEntry',
   'importFromJson', 'resetToDefaults',
 ];
@@ -508,6 +508,42 @@ class Store {
     rotation.waitingTeamIds = rotation.waitingTeamIds.filter(id => id !== teamAId && id !== teamBId);
     rotation.currentMatch = this.createMatch(teamAId, teamBId);
     const reclaimedGuests = this.reclaimGuestsForTeams([teamAId, teamBId]);
+    this.save();
+    return { success: true, reclaimedGuests };
+  }
+
+  /**
+   * Swaps a waiting team into the current match in place of one of its two teams — an escape
+   * hatch for when the rotation's automatic pick (winner-stays / next-from-queue) isn't who the
+   * admin actually wants to play. Only allowed before the match has actually started (timer
+   * never pressed, still 0-0), since once it's underway the result already belongs to whoever's
+   * out there. The bumped team goes back into the exact queue slot the substitute came from, so
+   * nobody's place in line changes because of the swap.
+   */
+  substituteQueuedTeam(queuedTeamId, replaceTeamId) {
+    const rotation = this.activePelada.rotation;
+    const match = rotation?.currentMatch;
+    if (!match) return { success: false, error: 'Não há partida em andamento.' };
+
+    const notStarted = !match.timerRunning && match.timerRemainingMs === match.timerDurationMs;
+    if (!notStarted || match.scoreA !== 0 || match.scoreB !== 0) {
+      return { success: false, error: 'Só é possível substituir o time antes de a partida começar.' };
+    }
+    if (replaceTeamId !== match.teamAId && replaceTeamId !== match.teamBId) {
+      return { success: false, error: 'Time inválido para substituição.' };
+    }
+    const queueIdx = rotation.waitingTeamIds.indexOf(queuedTeamId);
+    if (queueIdx === -1) {
+      return { success: false, error: 'Time não está na fila de espera.' };
+    }
+
+    rotation.waitingTeamIds.splice(queueIdx, 1, replaceTeamId);
+
+    const newTeamAId = match.teamAId === replaceTeamId ? queuedTeamId : match.teamAId;
+    const newTeamBId = match.teamBId === replaceTeamId ? queuedTeamId : match.teamBId;
+    rotation.currentMatch = this.createMatch(newTeamAId, newTeamBId);
+
+    const reclaimedGuests = this.reclaimGuestsForTeams([queuedTeamId]);
     this.save();
     return { success: true, reclaimedGuests };
   }
