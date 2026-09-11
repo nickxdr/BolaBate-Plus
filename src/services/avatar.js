@@ -79,6 +79,26 @@ export const JERSEY_PRESETS = [
   },
 ];
 
+// DiceBear's avataaars only ships 5 facial-hair shapes (3 beards, 2 moustaches) — no goatee.
+// These two are synthesized from its own art instead of hand-drawn: a tight clip of
+// "beardMedium"'s chin patch for the goatee, and that same crop with the standalone
+// "moustacheMagnum" shape layered on top for the combo. Both anchor at translate(49 72),
+// which is where DiceBear always draws facial hair, so the overlay lines up with no
+// manual offset math. Coordinates were calibrated by rendering candidates and comparing
+// screenshots, the same way the jersey overlays were.
+const GOATEE_BASE_FACIAL_HAIR = "beardMedium";
+const GOATEE_CLIP_RECT = { x: 50, y: 95, width: 64, height: 55, rx: 16 };
+const GOATEE_SMALL_CLIP_RECT = { x: 60, y: 100, width: 44, height: 42, rx: 14 };
+const GOATEE_MOUSTACHE_PATH_D =
+  "M84 66.94c-2.5-3.34-12.27-4.75-19.28-3.48-9.65 1.76-13.74 12.3-12.5 14.22.77 1.2 2.48.8 4.26.38.8-.2 1.64-.38 2.4-.43 1.48-.09 3.34.22 5.44.57 4.98.82 11.37 1.88 17.63-1.51A6.04 6.04 0 0 0 84 74.84a6.04 6.04 0 0 0 2.05 1.85c6.25 3.39 12.64 2.33 17.62 1.5 2.1-.34 3.96-.65 5.45-.56.76.05 1.59.24 2.4.43 1.78.41 3.49.81 4.26-.38 1.24-1.91-2.85-12.46-12.5-14.22-7.02-1.27-16.78.14-19.28 3.48Z";
+
+export const SYNTHETIC_FACIAL_HAIR = [
+  { value: "goatee", label: "Goatee", withMoustache: false, clipRect: GOATEE_CLIP_RECT },
+  { value: "goateeMoustache", label: "Goatee + Moustache", withMoustache: true, clipRect: GOATEE_CLIP_RECT },
+  { value: "goateeSmall", label: "Small Goatee", withMoustache: false, clipRect: GOATEE_SMALL_CLIP_RECT },
+  { value: "goateeSmallMoustache", label: "Small Goatee + Moustache", withMoustache: true, clipRect: GOATEE_SMALL_CLIP_RECT },
+];
+
 // Every trait category shown in the editor, grouped into tabs. `nullable: true`
 // categories get an explicit "None" tile (e.g. you can go beardless / glasses-free).
 // "clothing" mixes plain recolorable shirt shapes with the fixed-pattern team jerseys
@@ -113,7 +133,16 @@ export const AVATAR_TABS = [
   { key: "eyes", label: "👀 Olhos", schemaKey: "eyes", options: enumOptions("eyes") },
   { key: "eyebrows", label: "🤨 Sobrancelhas", schemaKey: "eyebrows", options: enumOptions("eyebrows") },
   { key: "mouth", label: "👄 Boca", schemaKey: "mouth", options: enumOptions("mouth") },
-  { key: "facialHair", label: "🧔 Barba", schemaKey: "facialHair", options: enumOptions("facialHair"), nullable: true },
+  {
+    key: "facialHair",
+    label: "🧔 Barba",
+    schemaKey: "facialHair",
+    options: [
+      ...enumOptions("facialHair"),
+      ...SYNTHETIC_FACIAL_HAIR.map((g) => ({ value: g.value, label: g.label })),
+    ],
+    nullable: true,
+  },
   { key: "accessories", label: "👓 Óculos", schemaKey: "accessories", options: enumOptions("accessories"), nullable: true },
   {
     key: "clothing",
@@ -137,6 +166,7 @@ const EXTRA_SKIN_COLORS = ["ffe4c4", "f1c27d", "c68642", "8d5524", "3b2219"];
 export const AVATAR_COLOR_TABS = [
   { key: "skinColor", label: "🎨 Pele", colors: [...SCHEMA.skinColor.default, ...EXTRA_SKIN_COLORS] },
   { key: "hairColor", label: "🎨 Cor do Cabelo", colors: SCHEMA.hairColor.default },
+  { key: "facialHairColor", label: "🧔 Cor da Barba", colors: SCHEMA.facialHairColor.default },
   { key: "clothesColor", label: "🎨 Cor da Roupa", colors: SCHEMA.clothesColor.default },
   { key: "hatColor", label: "🧢 Cor do Boné/Gorro", colors: SCHEMA.hatColor.default },
   { key: "backgroundColor", label: "🖼️ Fundo", colors: [...SCHEMA.clothesColor.default, "transparent"] },
@@ -165,6 +195,7 @@ export const DEFAULT_AVATAR_CONFIG = {
 function toDicebearOptions(config) {
   const cfg = { ...DEFAULT_AVATAR_CONFIG, ...config };
   const usingJersey = !!cfg.jersey;
+  const goateePreset = SYNTHETIC_FACIAL_HAIR.find((g) => g.value === cfg.facialHair);
   return {
     top: [cfg.top || "shortFlat"],
     topProbability: cfg.top ? 100 : 0,
@@ -177,7 +208,7 @@ function toDicebearOptions(config) {
     hatColor: [cfg.hatColor],
     clothesColor: [usingJersey ? JERSEY_MARKER_COLOR : cfg.clothesColor],
     backgroundColor: [cfg.backgroundColor === "transparent" ? "transparent" : cfg.backgroundColor],
-    facialHair: cfg.facialHair ? [cfg.facialHair] : ["beardLight"],
+    facialHair: cfg.facialHair ? [goateePreset ? GOATEE_BASE_FACIAL_HAIR : cfg.facialHair] : ["beardLight"],
     facialHairProbability: cfg.facialHair ? 100 : 0,
     facialHairColor: [cfg.facialHairColor],
     accessories: cfg.accessories ? [cfg.accessories] : ["round"],
@@ -191,13 +222,35 @@ export function getAvatarDataUri(config) {
   const cfg = config || {};
   const avatar = createAvatar(avataaars, toDicebearOptions(cfg));
 
-  const preset = cfg.jersey && JERSEY_PRESETS.find((j) => j.key === cfg.jersey);
-  if (!preset) return avatar.toDataUri();
+  const jerseyPreset = cfg.jersey && JERSEY_PRESETS.find((j) => j.key === cfg.jersey);
+  const goateePreset = SYNTHETIC_FACIAL_HAIR.find((g) => g.value === cfg.facialHair);
+  if (!jerseyPreset && !goateePreset) return avatar.toDataUri();
 
-  // Splice the jersey's pattern into <defs> and point the (marker-colored) shirt fill
-  // at it, so the real DiceBear-drawn shirt silhouette wears the club's colors/pattern.
   let svg = avatar.toString();
-  svg = svg.replace(/(<svg[^>]*>)/, `$1<defs>${preset.pattern}</defs>`);
-  svg = svg.replaceAll(`fill="#${JERSEY_MARKER_COLOR}"`, `fill="url(#jersey-${preset.key})"`);
+
+  if (jerseyPreset) {
+    // Splice the jersey's pattern into <defs> and point the (marker-colored) shirt fill
+    // at it, so the real DiceBear-drawn shirt silhouette wears the club's colors/pattern.
+    svg = svg.replace(/(<svg[^>]*>)/, `$1<defs>${jerseyPreset.pattern}</defs>`);
+    svg = svg.replaceAll(`fill="#${JERSEY_MARKER_COLOR}"`, `fill="url(#jersey-${jerseyPreset.key})"`);
+  }
+
+  if (goateePreset) {
+    const { x, y, width, height, rx } = goateePreset.clipRect;
+    svg = svg.replace(
+      /(<svg[^>]*>)/,
+      `$1<defs><clipPath id="goateeClip"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}"/></clipPath></defs>`,
+    );
+    svg = svg.replace(
+      '<g transform="translate(49 72)">',
+      '<g transform="translate(49 72)" clip-path="url(#goateeClip)">',
+    );
+    if (goateePreset.withMoustache) {
+      const color = cfg.facialHairColor || DEFAULT_AVATAR_CONFIG.facialHairColor;
+      const moustache = `<g transform="translate(49 72)"><path d="${GOATEE_MOUSTACHE_PATH_D}" fill="#${color}"/></g>`;
+      svg = svg.replace('<g transform="translate(62 42)">', `${moustache}<g transform="translate(62 42)">`);
+    }
+  }
+
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
