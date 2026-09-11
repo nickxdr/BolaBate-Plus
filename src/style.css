@@ -355,6 +355,20 @@ body {
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* "AO VIVO" reads red in the Bola Bate theme instead of following the blue brand accent —
+   live indicators are conventionally red, and it stands out better against the blue chrome. */
+[data-theme="bolabate-dark"] .live-badge,
+[data-theme="bolabate-light"] .live-badge {
+  background: var(--accent-red-bg);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+[data-theme="bolabate-dark"] .live-dot,
+[data-theme="bolabate-light"] .live-dot {
+  background-color: var(--accent-red);
+}
+
 /* Main Content Views */
 .view-container {
   flex: 1;
