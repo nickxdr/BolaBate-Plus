@@ -53,6 +53,14 @@ export function renderRankingView() {
         craque: stats.craque || 0,
         bagre: stats.bagre || 0,
         participacao: stats.participacao || 0,
+        // Without resetting these too, `...p` above leaves the player's CAREER-WIDE
+        // wins/draws/losses (written onto the player object by syncCareerStatsFromMonthly)
+        // in place — since statsHaveActivity checks these fields too, a player who ever won
+        // a match in ANY month would incorrectly pass the activity check for EVERY month,
+        // including ones with zero real data.
+        wins: stats.wins || 0,
+        draws: stats.draws || 0,
+        losses: stats.losses || 0,
         totalPoints: calculatePointsFromStats(stats),
         ovr: periodOvrMap[p.id] || 0,
       };

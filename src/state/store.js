@@ -17,6 +17,11 @@ const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1';
 const AVATARS_KEY = 'bolabate_avatars_v1';
 
+// The league's real data starts in August 2026 — no period selector (year or month)
+// should ever offer anything earlier than that, since it can only ever be empty.
+const LEAGUE_START_YEAR = 2026;
+const LEAGUE_START_MONTH = 8;
+
 // Store methods that mutate league data — reserved for the admin account.
 // Everyone else gets read-only access (also enforced by Firestore Security Rules).
 const ADMIN_ONLY_METHODS = [
@@ -1121,32 +1126,20 @@ class Store {
   }
 
   getAvailableYears() {
-    const years = new Set();
-    Object.keys(this.monthlyStats || {}).forEach(key => {
-      const year = Number(String(key).split('-')[0]);
-      if (year) years.add(year);
-    });
-    (this.history || []).forEach(h => {
-      const period = parseDateToPeriod(h.dateISO || h.date);
-      if (period) years.add(Number(period.split('-')[0]));
-    });
-    const currentYear = new Date().getFullYear();
-    years.add(currentYear);
-
-    // Show a rolling window of recent years (current-4 .. current),
-    // plus any older years that actually have data.
-    let min = currentYear - 4;
-    const dataMin = years.size ? Math.min(...Array.from(years)) : currentYear;
-    if (dataMin < min) min = dataMin;
-
+    // Only LEAGUE_START_YEAR onward — there's no real (or even seeded) data before it,
+    // so offering earlier years just gives a way to land on a table that's always empty.
+    const currentYear = Math.max(new Date().getFullYear(), LEAGUE_START_YEAR);
     const list = [];
-    for (let y = currentYear; y >= min; y--) list.push(y);
+    for (let y = currentYear; y >= LEAGUE_START_YEAR; y--) list.push(y);
     return list;
   }
 
   getMonthsForYear(year) {
-    // always return 1..12 for selector
-    return Array.from({ length: 12 }, (_, i) => i + 1);
+    // The league's first year only offers its real starting month onward — every
+    // earlier month is guaranteed empty. Later years get the full calendar.
+    const startMonth = Number(year) === LEAGUE_START_YEAR ? LEAGUE_START_MONTH : 1;
+    const count = 12 - startMonth + 1;
+    return Array.from({ length: count }, (_, i) => startMonth + i);
   }
 
   getPeriodKey(year, month) {
