@@ -87,9 +87,15 @@ export function renderRankingView() {
           ? a.name.localeCompare(b.name)
           : Number(b[rankingSortKey] || 0) - Number(a[rankingSortKey] || 0);
       if (result === 0) {
-        // Deterministic tie-break: points desc, then name A-Z
+        // Deterministic tie-break — mirrors the EXACT chain rankedPlayers uses for the
+        // official position/badge (points, then goals, then craque, then assists), with
+        // no further fallback after that either: rankedPlayers leaves a full tie in
+        // whatever (stable) order it already found them in, so this must too, or a fully
+        // tied row's displayed order can still contradict its own "Nº" position badge.
         if (b.totalPoints !== a.totalPoints) result = b.totalPoints - a.totalPoints;
-        else result = a.name.localeCompare(b.name);
+        else if (b.goals !== a.goals) result = b.goals - a.goals;
+        else if (b.craque !== a.craque) result = b.craque - a.craque;
+        else result = b.assists - a.assists;
       }
       return rankingSortDir === "asc" ? -result : result;
     });
