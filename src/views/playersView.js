@@ -101,7 +101,7 @@ export function renderPlayersView() {
             type="text"
             id="player-search"
             class="input-field players-search-input"
-            placeholder="Buscar por nome ou nota (ex: 4.5)..."
+            placeholder="Buscar por nome"
             value="${escapeHtml(searchTerm)}"
           />
 
