@@ -114,7 +114,7 @@ export function renderPlayersView() {
               id="player-stars-filter"
               class="input-field players-sort-select"
             >
-              <option value="all" ${starsFilter === "all" ? "selected" : ""}>Todas</option>
+              <option value="all" ${starsFilter === "all" ? "selected" : ""}>Todas as notas</option>
               ${["5.0", "4.5", "4.0", "3.5", "3.0", "2.5", "2.0", "1.5", "1.0", "0.5"]
                 .map(
                   (s) =>
@@ -133,7 +133,7 @@ export function renderPlayersView() {
               id="player-position-filter"
               class="input-field players-sort-select"
             >
-              <option value="all" ${positionFilter === "all" ? "selected" : ""}>Todas</option>
+              <option value="all" ${positionFilter === "all" ? "selected" : ""}>Todas as posições</option>
               <option value="Fixo" ${positionFilter === "Fixo" ? "selected" : ""}>Fixo</option>
               <option value="Ala" ${positionFilter === "Ala" ? "selected" : ""}>Ala</option>
               <option value="Pivô" ${positionFilter === "Pivô" ? "selected" : ""}>Pivô</option>
