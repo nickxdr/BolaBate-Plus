@@ -1,6 +1,6 @@
 import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
-import { renderRatingVotesSection, bindRatingVotesSection } from "./ratingVotesView.js";
+import { suggestPlayerRating } from "../services/ratingSuggestion.js";
 import { getPlayerAchievements } from "../services/achievement.js";
 import {
   AVATAR_TABS,
@@ -77,8 +77,6 @@ export function renderPlayersView() {
           Adicionar Jogador
         </button>
       </div>
-
-      ${renderRatingVotesSection()}
 
       <!-- Search & Filters Toolbar -->
       <div class="card players-toolbar-card">
@@ -261,9 +259,6 @@ export function renderPlayersView() {
     container.querySelector("#btn-add-player").addEventListener("click", () => {
       openAddPlayerModal();
     });
-
-    // Votação mensal das notas (admin only — seção some p/ não-admins)
-    bindRatingVotesSection(container, render);
 
     // Bind Edit Player
     container.querySelectorAll(".btn-edit-player").forEach((btn) => {
@@ -465,6 +460,14 @@ export function renderPlayersView() {
 
     const modalContainer = document.getElementById("modal-container");
 
+    // Sugestão automática de nota (só orienta o admin — ele decide e salva).
+    const suggestion = suggestPlayerRating(
+      store.monthlyStats,
+      player,
+      store.currentPeriodKey()
+    );
+    const suggestionHtml = buildRatingSuggestionHtml(suggestion);
+
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="edit-modal-overlay">
 
@@ -508,7 +511,9 @@ export function renderPlayersView() {
                 Nível de Habilidade (0.5 a 5.0 Estrelas)
               </label>
 
-              <div style="display: flex; align-items: center; gap: 12px;">
+              ${suggestionHtml}
+
+              <div style="display: flex; align-items: center; gap: 12px; margin-top: 10px;">
 
                 <input
                   type="range"
@@ -582,6 +587,16 @@ export function renderPlayersView() {
       starLabel.textContent = Number(e.target.value).toFixed(1) + " ★";
     });
 
+    // Botão "aplicar sugestão": preenche o slider com a nota sugerida.
+    const applyBtn = modalContainer.querySelector("#apply-rating-suggestion");
+    if (applyBtn) {
+      applyBtn.addEventListener("click", () => {
+        starRange.value = String(suggestion.suggestedStars);
+        starLabel.textContent =
+          Number(suggestion.suggestedStars).toFixed(1) + " ★";
+      });
+    }
+
     const form = modalContainer.querySelector("#edit-player-form");
 
     form.addEventListener("submit", (e) => {
@@ -601,6 +616,42 @@ export function renderPlayersView() {
 
       render();
     });
+  }
+
+  /**
+   * Painel de sugestão de nota dentro do modal de edição (admin).
+   * Cor e ícone variam com a direção; "Aplicar" só preenche o slider —
+   * a decisão final continua sendo do admin ao salvar.
+   */
+  function buildRatingSuggestionHtml(suggestion) {
+    const tone =
+      suggestion.direction === "up"
+        ? { border: "rgba(16,185,129,.45)", bg: "rgba(16,185,129,.10)", icon: "📈", title: "Sugestão: aumentar a nota" }
+        : suggestion.direction === "down"
+          ? { border: "rgba(239,68,68,.45)", bg: "rgba(239,68,68,.10)", icon: "📉", title: "Sugestão: diminuir a nota" }
+          : { border: "var(--border-color)", bg: "var(--bg-card-subtle)", icon: "✋", title: "Sugestão: manter a nota" };
+    const showApply =
+      suggestion.direction !== "keep" &&
+      Number(suggestion.suggestedStars) !== Number(suggestion.currentStars);
+    return `
+      <div style="border: 1px solid ${tone.border}; background: ${tone.bg}; border-radius: 12px; padding: 10px 12px; margin-bottom: 4px;">
+        <div style="font-size: 0.82rem; font-weight: 800; display: flex; align-items: center; gap: 6px;">
+          <span>${tone.icon}</span> ${tone.title}
+          <span style="font-weight: 700; color: #F59E0B;">
+            ${Number(suggestion.currentStars).toFixed(1)} → ${Number(suggestion.suggestedStars).toFixed(1)}★
+          </span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+          ${escapeHtml(suggestion.reason)}
+        </div>
+        ${
+          showApply
+            ? `<button type="button" class="btn btn-secondary btn-sm" id="apply-rating-suggestion" style="margin-top: 8px;">
+                 ⚡ Aplicar sugestão (${Number(suggestion.suggestedStars).toFixed(1)}★)
+               </button>`
+            : ""
+        }
+      </div>`;
   }
 
   function openPlayerProfileModal(id) {
