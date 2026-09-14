@@ -1,5 +1,6 @@
 import { store } from "../state/store.js";
 import { showToast } from "./rankingView.js";
+import { renderRatingVotesSection, bindRatingVotesSection } from "./ratingVotesView.js";
 import { getPlayerAchievements } from "../services/achievement.js";
 import {
   AVATAR_TABS,
@@ -76,6 +77,8 @@ export function renderPlayersView() {
           Adicionar Jogador
         </button>
       </div>
+
+      ${renderRatingVotesSection()}
 
       <!-- Search & Filters Toolbar -->
       <div class="card players-toolbar-card">
@@ -258,6 +261,9 @@ export function renderPlayersView() {
     container.querySelector("#btn-add-player").addEventListener("click", () => {
       openAddPlayerModal();
     });
+
+    // Votação mensal das notas (admin only — seção some p/ não-admins)
+    bindRatingVotesSection(container, render);
 
     // Bind Edit Player
     container.querySelectorAll(".btn-edit-player").forEach((btn) => {

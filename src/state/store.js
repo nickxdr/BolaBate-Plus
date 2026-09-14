@@ -34,6 +34,11 @@ const ADMIN_ONLY_METHODS = [
   'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
   'finishPelada', 'updateHistoryAwards', 'cancelPelada', 'deleteHistoryEntry',
   'importFromJson', 'resetToDefaults',
+  // Votação mensal de notas (apenas admins — ver seção "Monthly Rating Votes")
+  // (suggestRatingCandidates é só leitura, por isso fica fora da guarda)
+  'createRatingProposal', 'castRatingVote', 'closeRatingProposal',
+  'applyRatingProposal', 'deleteRatingProposal', 'closeRatingCycle',
+  'reopenRatingCycle',
 ];
 
 const MATCH_TIMER_DURATION_MS = 10 * 60 * 1000; // 10 minutes
@@ -53,6 +58,7 @@ class Store {
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
     this.monthlyStats = this.loadMonthlyStats();
+    this.ratingVotes = this.loadRatingVotes(); // votação mensal de notas (admins)
     this.selectedPeriodKey = this.currentPeriodKey(); // default to current device month/year
     this.hydrateMonthlyStats();
     this.syncCareerStatsFromMonthly({ silent: true });
@@ -200,6 +206,87 @@ class Store {
     return [];
   }
 
+  // --- Monthly Rating Votes (votação mensal de notas — admin only) ---
+  // Ciclo por mês "YYYY-MM": propostas de UM jogador + direção (up/down),
+  // votos "up"|"keep"|"down" por admin, vence a maioria; empate/"manter" = sem mudança.
+  loadRatingVotes() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEY + '_rating_votes');
+      if (data) return this.normalizeRatingVotes(JSON.parse(data));
+    } catch (e) {
+      console.error('Error loading rating votes:', e);
+    }
+    return {};
+  }
+
+  normalizeRatingVotes(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.entries(raw).forEach(([monthKey, cycle]) => {
+      if (!/^\d{4}-\d{2}$/.test(String(monthKey))) return;
+      if (!cycle || typeof cycle !== 'object') return;
+      const proposals = Array.isArray(cycle.proposals) ? cycle.proposals : [];
+      out[monthKey] = {
+        monthKey,
+        status: cycle.status === 'closed' ? 'closed' : 'open',
+        createdAt: cycle.createdAt || null,
+        closedAt: cycle.closedAt || null,
+        proposals: proposals
+          .filter(p => p && typeof p === 'object' && typeof p.playerId === 'string')
+          .map(p => ({
+            id: String(p.id || ('rv_' + Math.random().toString(36).slice(2, 10))),
+            playerId: String(p.playerId),
+            direction: p.direction === 'down' ? 'down' : 'up',
+            reason: String(p.reason || ''),
+            suggestedByUid: String(p.suggestedByUid || ''),
+            suggestedByEmail: String(p.suggestedByEmail || ''),
+            createdAt: p.createdAt || null,
+            status: ['approved', 'rejected', 'applied'].includes(p.status) ? p.status : 'open',
+            votes: (p.votes && typeof p.votes === 'object') ? p.votes : {},
+            decidedChoice: p.decidedChoice || null,
+            decidedAt: p.decidedAt || null,
+            appliedAt: p.appliedAt || null,
+            appliedDelta: Number(p.appliedDelta) || 0,
+          })),
+      };
+    });
+    return out;
+  }
+
+  getRatingCycle(monthKey) {
+    if (!this.ratingVotes) this.ratingVotes = {};
+    return this.ratingVotes[monthKey] || null;
+  }
+
+  ensureRatingCycle(monthKey) {
+    if (!this.ratingVotes) this.ratingVotes = {};
+    const key = monthKey || this.currentPeriodKey();
+    if (!this.ratingVotes[key]) {
+      this.ratingVotes[key] = {
+        monthKey: key, status: 'open', createdAt: new Date().toISOString(),
+        closedAt: null, proposals: [],
+      };
+    }
+    return this.ratingVotes[key];
+  }
+
+  getCurrentRatingCycle() {
+    return this.ensureRatingCycle(this.currentPeriodKey());
+  }
+
+  findRatingProposal(proposalId) {
+    if (!proposalId) return null;
+    for (const [monthKey, cycle] of Object.entries(this.ratingVotes || {})) {
+      const proposal = (cycle.proposals || []).find(p => p.id === proposalId);
+      if (proposal) return { cycle, proposal, monthKey };
+    }
+    return null;
+  }
+
+  clampStars(value) {
+    return Math.max(0.5, Math.min(5.0, Math.round((Number(value) || 3.0) * 2) / 2));
+  }
+
   save() {
     this.persistLocal();
     this.notify();
@@ -228,6 +315,7 @@ class Store {
       localStorage.setItem(STORAGE_KEY + '_pelada', JSON.stringify(this.activePelada));
       localStorage.setItem(STORAGE_KEY + '_history', JSON.stringify(this.history));
       localStorage.setItem(STORAGE_KEY + '_monthly', JSON.stringify(this.monthlyStats || {}));
+      localStorage.setItem(STORAGE_KEY + '_rating_votes', JSON.stringify(this.ratingVotes || {}));
       localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey || '');
       localStorage.setItem(STORAGE_KEY + '_team_size', String(this.teamSize));
       localStorage.setItem(THEME_KEY, this.theme);
@@ -1399,6 +1487,152 @@ class Store {
     this.save();
   }
 
+  // --- Monthly rating proposals (votação mensal de notas, admin only) ---
+  createRatingProposal(playerId, direction = 'up', reason = '', voter = {}) {
+    const player = this.getPlayer(playerId);
+    if (!player) return { success: false, error: 'Jogador não encontrado.' };
+    const dir = direction === 'down' ? 'down' : 'up';
+    const cycle = this.ensureRatingCycle(this.currentPeriodKey());
+    if (cycle.status === 'closed') return { success: false, error: 'Votação do mês encerrada.' };
+    const dup = (cycle.proposals || []).find(p => p.playerId === playerId && p.status !== 'rejected');
+    if (dup) return { success: false, error: `"${player.name}" já tem proposta neste mês.` };
+    const proposal = {
+      id: 'rv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      playerId, direction: dir, reason: String(reason || '').slice(0, 280),
+      suggestedByUid: String(voter.uid || ''), suggestedByEmail: String(voter.email || ''),
+      createdAt: new Date().toISOString(), status: 'open', votes: {},
+      decidedChoice: null, decidedAt: null, appliedAt: null, appliedDelta: 0,
+    };
+    cycle.proposals.push(proposal);
+    this.save();
+    return { success: true, proposal };
+  }
+
+  castRatingVote(proposalId, choice, voter = {}) {
+    const found = this.findRatingProposal(proposalId);
+    if (!found) return { success: false, error: 'Proposta não encontrada.' };
+    if (found.cycle.status === 'closed') return { success: false, error: 'Votação do mês encerrada.' };
+    if (found.proposal.status === 'applied') return { success: false, error: 'Proposta já aplicada.' };
+    if (!['up', 'keep', 'down'].includes(choice)) return { success: false, error: 'Voto inválido.' };
+    const uid = String(voter.uid || voter.email || 'admin');
+    found.proposal.votes[uid] = { choice, email: String(voter.email || ''), votedAt: new Date().toISOString() };
+    if (found.proposal.status !== 'open') {
+      found.proposal.status = 'open'; found.proposal.decidedChoice = null; found.proposal.decidedAt = null;
+    }
+    this.save();
+    return { success: true, tally: this.tallyRatingProposal(found.proposal) };
+  }
+
+  tallyRatingProposal(proposalOrId) {
+    const proposal = typeof proposalOrId === 'string'
+      ? (this.findRatingProposal(proposalOrId)?.proposal || null) : proposalOrId;
+    if (!proposal) return { up: 0, keep: 0, down: 0, total: 0, winner: null, tie: false };
+    const tally = { up: 0, keep: 0, down: 0 };
+    Object.values(proposal.votes || {}).forEach(v => { if (v && tally[v.choice] !== undefined) tally[v.choice] += 1; });
+    const total = tally.up + tally.keep + tally.down;
+    let winner = null; let tie = false;
+    if (total > 0) {
+      const best = Math.max(tally.up, tally.keep, tally.down);
+      const winners = ['up', 'keep', 'down'].filter(k => tally[k] === best);
+      if (winners.length === 1) winner = winners[0]; else tie = true;
+    }
+    return { ...tally, total, winner, tie };
+  }
+
+  closeRatingProposal(proposalId) {
+    const found = this.findRatingProposal(proposalId);
+    if (!found) return { success: false, error: 'Proposta não encontrada.' };
+    const { proposal } = found;
+    if (proposal.status === 'applied') return { success: false, error: 'Proposta já aplicada.' };
+    const tally = this.tallyRatingProposal(proposal);
+    if (tally.total === 0 || tally.tie || tally.winner === 'keep' || !tally.winner) {
+      proposal.status = 'rejected'; proposal.decidedChoice = 'keep'; proposal.decidedAt = new Date().toISOString();
+      this.save();
+      return { success: true, result: 'rejected', tally };
+    }
+    proposal.status = 'approved'; proposal.decidedChoice = tally.winner; proposal.decidedAt = new Date().toISOString();
+    this.save();
+    return { success: true, result: 'approved', tally };
+  }
+
+  applyRatingProposal(proposalId) {
+    const found = this.findRatingProposal(proposalId);
+    if (!found) return { success: false, error: 'Proposta não encontrada.' };
+    const { proposal } = found;
+    if (proposal.status === 'applied') return { success: false, error: 'Proposta já aplicada.' };
+    if (proposal.status === 'open') {
+      const closed = this.closeRatingProposal(proposalId);
+      if (!closed.success) return closed;
+      if (closed.result !== 'approved') return { success: false, error: 'Sem maioria p/ mudar a nota.', tally: closed.tally };
+    }
+    if (proposal.status !== 'approved') return { success: false, error: 'Proposta não aprovada.' };
+    const player = this.getPlayer(proposal.playerId);
+    if (!player) return { success: false, error: 'Jogador não encontrado.' };
+    const delta = proposal.decidedChoice === 'down' ? -0.5 : 0.5;
+    const before = Number(player.stars) || 3.0;
+    player.stars = this.clampStars(before + delta);
+    proposal.status = 'applied'; proposal.appliedAt = new Date().toISOString();
+    proposal.appliedDelta = player.stars - before;
+    this.save();
+    return { success: true, playerId: player.id, before, after: player.stars, delta: proposal.appliedDelta };
+  }
+
+  deleteRatingProposal(proposalId) {
+    const found = this.findRatingProposal(proposalId);
+    if (!found) return { success: false, error: 'Proposta não encontrada.' };
+    found.cycle.proposals = (found.cycle.proposals || []).filter(p => p.id !== proposalId);
+    this.save();
+    return { success: true };
+  }
+
+  closeRatingCycle(monthKey) {
+    const cycle = this.ensureRatingCycle(monthKey || this.currentPeriodKey());
+    (cycle.proposals || []).filter(p => p.status === 'open').forEach(p => this.closeRatingProposal(p.id));
+    cycle.status = 'closed'; cycle.closedAt = new Date().toISOString();
+    this.save();
+    return { success: true };
+  }
+
+  reopenRatingCycle(monthKey) {
+    const cycle = this.ensureRatingCycle(monthKey || this.currentPeriodKey());
+    cycle.status = 'open'; cycle.closedAt = null;
+    this.save();
+    return { success: true };
+  }
+
+  getPreviousPeriodKey(periodKeyStr) {
+    const [y, m] = String(periodKeyStr || '').split('-').map(Number);
+    if (!y || !m) return null;
+    if (m === 1) return `${y - 1}-12`;
+    return `${y}-${String(m - 1).padStart(2, '0')}`;
+  }
+
+  // Sugestões automáticas p/ a votação: mês anterior (ou atual se vazio).
+  suggestRatingCandidates(monthKey) {
+    const targetKey = monthKey || this.currentPeriodKey();
+    let baseKey = this.getPreviousPeriodKey(targetKey);
+    let baseStats = baseKey ? (this.monthlyStats?.[baseKey]?.players || {}) : {};
+    const active = (st) => Object.values(st).some(s =>
+      (Number(s.participacao) || 0) > 0 || (Number(s.goals) || 0) > 0 || (Number(s.assists) || 0) > 0);
+    if (!active(baseStats)) { baseKey = targetKey; baseStats = this.monthlyStats?.[baseKey]?.players || {}; }
+    const scored = this.players.map(p => {
+      const s = baseStats[p.id] || {};
+      const games = Number(s.participacao) || 0;
+      const goals = Number(s.goals) || 0; const assists = Number(s.assists) || 0;
+      const craque = Number(s.craque) || 0; const puskas = Number(s.puskas) || 0;
+      const selecao = Number(s.selecao) || 0; const bagre = Number(s.bagre) || 0;
+      const perGame = games > 0 ? (goals * 2 + assists * 1.5 + craque * 2 + puskas * 2 + selecao) / games : 0;
+      return {
+        playerId: p.id, name: p.name, stars: Number(p.stars) || 0,
+        games, goals, assists, bagre, score: perGame - bagre * 1.5,
+      };
+    }).filter(c => c.games > 0);
+    const mk = (c, direction) => ({ ...c, direction, reason: `${c.goals}g ${c.assists}a em ${c.games}j (${baseKey})` });
+    const up = scored.filter(c => c.stars < 5.0).sort((a, b) => b.score - a.score).slice(0, 3).map(c => mk(c, 'up'));
+    const down = scored.filter(c => c.stars > 0.5).sort((a, b) => a.score - b.score).slice(0, 3).map(c => mk(c, 'down'));
+    return { monthKey: targetKey, baseKey, up, down };
+  }
+
   // --- Export & Import ---
   exportToJson() {
     const data = {
@@ -1409,6 +1643,7 @@ class Store {
       players: this.players,
       history: this.history.map(entry => this.normalizeHistoryEntry(entry)).filter(Boolean),
       monthlyStats: this.monthlyStats,
+      ratingVotes: this.ratingVotes || {},
     };
     return JSON.stringify(data, null, 2);
   }
@@ -1446,6 +1681,11 @@ class Store {
       } else {
         this.monthlyStats = {};
       }
+      if (data.ratingVotes && typeof data.ratingVotes === 'object') {
+        this.ratingVotes = this.normalizeRatingVotes(data.ratingVotes);
+      } else {
+        this.ratingVotes = {};
+      }
       this.hydrateMonthlyStats();
       this.syncCareerStatsFromMonthly({ silent: true });
 
@@ -1468,6 +1708,7 @@ class Store {
     this.players = JSON.parse(JSON.stringify(INITIAL_PLAYERS));
     this.history = [];
     this.monthlyStats = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+    this.ratingVotes = {};
     this.selectedPeriodKey = this.currentPeriodKey();
     this.syncCareerStatsFromMonthly({ silent: true });
     this.activePelada = {
