@@ -41,7 +41,18 @@ export function renderPlayersView() {
     return store.players
       .filter((p) => !isHiddenDiarista(p))
       .filter((p) => {
-        return p.name.toLowerCase().includes(searchTerm.toLowerCase());
+        const term = searchTerm.trim().toLowerCase();
+        if (!term) return true;
+        if (p.name.toLowerCase().includes(term)) return true;
+        // Busca por nota: aceita "4", "4.5", "4,5" (e com ★/texto junto).
+        // "4" lista 4.0 e 4.5; "4.5"/"4,5" filtra a nota exata.
+        const numMatch = term.replace(",", ".").match(/\d+(\.\d+)?/);
+        if (numMatch) {
+          const numTerm = numMatch[0];
+          const starsStr = Number(p.stars).toFixed(1);
+          if (starsStr.startsWith(numTerm)) return true;
+        }
+        return false;
       })
       .filter((p) => {
         if (positionFilter === "all") return true;
@@ -85,7 +96,7 @@ export function renderPlayersView() {
             type="text"
             id="player-search"
             class="input-field players-search-input"
-            placeholder="Buscar jogador por nome..."
+            placeholder="Buscar por nome ou nota (ex: 4.5)..."
             value="${escapeHtml(searchTerm)}"
           />
 
