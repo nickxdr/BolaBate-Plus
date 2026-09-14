@@ -5,6 +5,7 @@ import { getPlayerAchievements } from "../services/achievement.js";
 import {
   AVATAR_TABS,
   AVATAR_COLOR_TABS,
+  AVATAR_EDITOR_TABS,
   DEFAULT_AVATAR_CONFIG,
   getAvatarDataUri,
 } from "../services/avatar.js";
@@ -1134,11 +1135,8 @@ export function renderPlayersView() {
           </div>
 
           <div class="avatar-editor-tabs">
-            ${AVATAR_TABS.map(
-              (t) => `<button class="avatar-tab-btn ${activeTabKey === t.key ? "active" : ""}" data-group="traits" data-tab="${t.key}">${t.label}</button>`,
-            ).join("")}
-            ${AVATAR_COLOR_TABS.map(
-              (t) => `<button class="avatar-tab-btn" data-group="colors" data-tab="${t.key}">${t.label}</button>`,
+            ${AVATAR_EDITOR_TABS.map(
+              (t) => `<button class="avatar-tab-btn ${activeGroup === t.group && activeTabKey === t.key ? "active" : ""}" data-group="${t.group}" data-tab="${t.key}">${t.label}</button>`,
             ).join("")}
           </div>
 

@@ -172,6 +172,40 @@ export const AVATAR_COLOR_TABS = [
   { key: "backgroundColor", label: "🖼️ Fundo", colors: [...SCHEMA.clothesColor.default, "transparent"] },
 ];
 
+/**
+ * Display order of the avatar editor's tab bar.
+ *
+ * Traits (AVATAR_TABS) and colors (AVATAR_COLOR_TABS) live in separate lists because they
+ * drive different editors, but on screen each item has to sit right next to its own color
+ * swatches — Cabelo + Cor do Cabelo + Cor do Boné/Gorro, Barba + Cor da Barba, Roupa + Cor
+ * da Roupa. Rendering the two lists one after the other shoved every swatch tab to the far
+ * end of the scrollable strip, away from the trait it recolors.
+ *
+ * This layout interleaves both sources into the single order the admin sees and carries the
+ * label/group each button needs; AVATAR_TABS/AVATAR_COLOR_TABS stay the lookup sources for
+ * getActiveTab() and the option grids. Entries whose key no longer exists are dropped
+ * (flatMap) so renaming a tab can never blank out the editor.
+ */
+export const AVATAR_EDITOR_TABS = [
+  { group: "traits", key: "top" },
+  { group: "colors", key: "hairColor" },
+  { group: "colors", key: "hatColor" },
+  { group: "traits", key: "facialHair" },
+  { group: "colors", key: "facialHairColor" },
+  { group: "traits", key: "clothing" },
+  { group: "colors", key: "clothesColor" },
+  { group: "traits", key: "eyes" },
+  { group: "traits", key: "eyebrows" },
+  { group: "traits", key: "mouth" },
+  { group: "traits", key: "accessories" },
+  { group: "colors", key: "skinColor" },
+  { group: "colors", key: "backgroundColor" },
+].flatMap(({ group, key }) => {
+  const source = group === "colors" ? AVATAR_COLOR_TABS : AVATAR_TABS;
+  const tab = source.find((t) => t.key === key);
+  return tab ? [{ group, key, label: tab.label }] : [];
+});
+
 /** Same look for every player until they're explicitly customized — a clear, friendly starting point. */
 export const DEFAULT_AVATAR_CONFIG = {
   top: "shortFlat",
