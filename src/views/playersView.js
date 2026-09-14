@@ -36,6 +36,7 @@ export function renderPlayersView() {
   let searchTerm = "";
   let sortBy = "name"; // 'name' | 'stars-desc' | 'stars-asc'
   let positionFilter = "all"; // 'all' | 'Fixo' | 'Ala' | 'Pivô' | 'none'
+  let starsFilter = "all"; // 'all' | '0.5' | '1.0' | ... | '5.0'
 
   function getFilteredPlayers() {
     return store.players
@@ -53,6 +54,10 @@ export function renderPlayersView() {
           if (starsStr.startsWith(numTerm)) return true;
         }
         return false;
+      })
+      .filter((p) => {
+        if (starsFilter === "all") return true;
+        return Number(p.stars).toFixed(1) === starsFilter;
       })
       .filter((p) => {
         if (positionFilter === "all") return true;
@@ -99,6 +104,25 @@ export function renderPlayersView() {
             placeholder="Buscar por nome ou nota (ex: 4.5)..."
             value="${escapeHtml(searchTerm)}"
           />
+
+          <div class="players-sort">
+            <span class="players-sort-label">
+              Nota:
+            </span>
+
+            <select
+              id="player-stars-filter"
+              class="input-field players-sort-select"
+            >
+              <option value="all" ${starsFilter === "all" ? "selected" : ""}>Todas</option>
+              ${["5.0", "4.5", "4.0", "3.5", "3.0", "2.5", "2.0", "1.5", "1.0", "0.5"]
+                .map(
+                  (s) =>
+                    `<option value="${s}" ${starsFilter === s ? "selected" : ""}>${s} ★</option>`
+                )
+                .join("")}
+            </select>
+          </div>
 
           <div class="players-sort">
             <span class="players-sort-label">
@@ -263,6 +287,13 @@ export function renderPlayersView() {
 
     positionSelect.addEventListener("change", (e) => {
       positionFilter = e.target.value;
+      render();
+    });
+
+    const starsSelect = container.querySelector("#player-stars-filter");
+
+    starsSelect.addEventListener("change", (e) => {
+      starsFilter = e.target.value;
       render();
     });
 
@@ -647,8 +678,10 @@ export function renderPlayersView() {
     return `
       <div style="border: 1px solid ${tone.border}; background: ${tone.bg}; border-radius: 12px; padding: 10px 12px; margin-bottom: 4px;">
         <div style="font-size: 0.82rem; font-weight: 800; display: flex; align-items: center; gap: 6px;">
-          <span>${tone.icon}</span> ${tone.title}
-          <span style="font-weight: 700; color: #F59E0B;">
+          <span style="flex: 1 1 auto; min-width: 0;">
+            ${tone.icon} ${tone.title}
+          </span>
+          <span style="font-weight: 700; color: #F59E0B; white-space: nowrap; flex-shrink: 0;">
             ${Number(suggestion.currentStars).toFixed(1)} → ${Number(suggestion.suggestedStars).toFixed(1)}★
           </span>
         </div>
