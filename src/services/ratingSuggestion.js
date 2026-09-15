@@ -1,30 +1,20 @@
-// Sugestão de nota do jogador (admin): analisa o desempenho recente
-// (mês anterior, ou mês atual como fallback) vs. a nota atual e sugere
-// aumentar (+0,5), diminuir (−0,5) ou manter. Pura função de leitura —
-// não altera nada, só orienta o admin no modal de edição.
+// Sugestão de nota do jogador (admin): analisa o desempenho do MÊS ATUAL
+// (em setembro → estatísticas de setembro; em outubro → de outubro) vs. a
+// nota atual e sugere aumentar (+0,5), diminuir (−0,5) ou manter. Pura
+// função de leitura — não altera nada, só orienta o admin no modal.
 const RATING_SUGGEST_MONTHS_PT = [
   "", "jan", "fev", "mar", "abr", "mai", "jun",
   "jul", "ago", "set", "out", "nov", "dez",
 ];
 
-function ratingBasePeriodKey(monthlyStats, targetKey) {
-  const prev = previousPeriodKey(targetKey);
-  const hasActivity = (stats) =>
-    Object.values(stats || {}).some(
-      (s) =>
-        (Number(s.participacao) || 0) > 0 ||
-        (Number(s.goals) || 0) > 0 ||
-        (Number(s.assists) || 0) > 0
-    );
-  if (prev && hasActivity(monthlyStats?.[prev]?.players)) return prev;
+/**
+ * Período-base da sugestão: SEMPRE o mês atual — em setembro usa set/26, em
+ * outubro passa a usar out/26 automaticamente. Único ponto de decisão: antes
+ * esta função preferia o mês anterior, e o admin via as estatísticas de agosto
+ * durante todo o setembro.
+ */
+function ratingBasePeriodKey(targetKey) {
   return targetKey;
-}
-
-function previousPeriodKey(periodKeyStr) {
-  const [y, m] = String(periodKeyStr || "").split("-").map(Number);
-  if (!y || !m) return null;
-  if (m === 1) return `${y - 1}-12`;
-  return `${y}-${String(m - 1).padStart(2, "0")}`;
 }
 
 function monthShortLabel(key) {
@@ -44,11 +34,11 @@ function monthShortLabel(key) {
  * faixas fixas calibradas pela nota atual:
  * - score alto (>= 3.0 e nota < 5.0) → sugerir +0,5
  * - score baixo (< 0.8 e nota > 0.5, com ao menos 2 jogos) → sugerir −0,5
- * - sem jogos no período → neutro (sem dados)
+ * - sem jogos no mês atual → neutro (sem dados)
  */
 export function suggestPlayerRating(monthlyStats, player, periodKey) {
   const currentStars = Math.max(0.5, Math.min(5.0, Number(player?.stars) || 3.0));
-  const baseKey = ratingBasePeriodKey(monthlyStats, periodKey);
+  const baseKey = ratingBasePeriodKey(periodKey);
   const s = monthlyStats?.[baseKey]?.players?.[player?.id] || {};
   const games = Number(s.participacao) || 0;
   const goals = Number(s.goals) || 0;

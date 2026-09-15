@@ -27,7 +27,9 @@ function ovrTierClass(ovr) {
  */
 function isHiddenDiarista(player) {
   if (Number(player.participacao) > 0) return false;
-  return store.history.some((entry) => (entry.diaristaPlayerIds || []).includes(player.id));
+  return store.history.some((entry) =>
+    (entry.diaristaPlayerIds || []).includes(player.id),
+  );
 }
 
 export function renderPlayersView() {
@@ -116,10 +118,21 @@ export function renderPlayersView() {
               class="input-field players-sort-select"
             >
               <option value="all" ${starsFilter === "all" ? "selected" : ""}>Todas as notas</option>
-              ${["5.0", "4.5", "4.0", "3.5", "3.0", "2.5", "2.0", "1.5", "1.0", "0.5"]
+              ${[
+                "5.0",
+                "4.5",
+                "4.0",
+                "3.5",
+                "3.0",
+                "2.5",
+                "2.0",
+                "1.5",
+                "1.0",
+                "0.5",
+              ]
                 .map(
                   (s) =>
-                    `<option value="${s}" ${starsFilter === s ? "selected" : ""}>${s} ★</option>`
+                    `<option value="${s}" ${starsFilter === s ? "selected" : ""}>${s} ★</option>`,
                 )
                 .join("")}
             </select>
@@ -507,7 +520,7 @@ export function renderPlayersView() {
     const suggestion = suggestPlayerRating(
       store.monthlyStats,
       player,
-      store.currentPeriodKey()
+      store.currentPeriodKey(),
     );
     const suggestionHtml = buildRatingSuggestionHtml(suggestion);
 
@@ -669,10 +682,25 @@ export function renderPlayersView() {
   function buildRatingSuggestionHtml(suggestion) {
     const tone =
       suggestion.direction === "up"
-        ? { border: "rgba(16,185,129,.45)", bg: "rgba(16,185,129,.10)", icon: "📈", title: "Sugestão: aumentar a nota" }
+        ? {
+            border: "rgba(16,185,129,.45)",
+            bg: "rgba(16,185,129,.10)",
+            icon: "📈",
+            title: "Sugestão: aumentar a nota",
+          }
         : suggestion.direction === "down"
-          ? { border: "rgba(239,68,68,.45)", bg: "rgba(239,68,68,.10)", icon: "📉", title: "Sugestão: diminuir a nota" }
-          : { border: "var(--border-color)", bg: "var(--bg-card-subtle)", icon: "✋", title: "Sugestão: manter a nota" };
+          ? {
+              border: "rgba(239,68,68,.45)",
+              bg: "rgba(239,68,68,.10)",
+              icon: "📉",
+              title: "Sugestão: diminuir a nota",
+            }
+          : {
+              border: "var(--border-color)",
+              bg: "var(--bg-card-subtle)",
+              icon: "✋",
+              title: "Sugestão: manter a nota",
+            };
     const showApply =
       suggestion.direction !== "keep" &&
       Number(suggestion.suggestedStars) !== Number(suggestion.currentStars);
@@ -751,8 +779,14 @@ export function renderPlayersView() {
       return result;
     }, {});
     const totalMatches = totals.wins + totals.draws + totals.losses;
-    const winRate = totalMatches > 0 ? Math.round((totals.wins / totalMatches) * 100) : 0;
-    const winRateTone = winRate >= 60 ? "win-rate-high" : winRate >= 40 ? "win-rate-medium" : "win-rate-low";
+    const winRate =
+      totalMatches > 0 ? Math.round((totals.wins / totalMatches) * 100) : 0;
+    const winRateTone =
+      winRate >= 60
+        ? "win-rate-high"
+        : winRate >= 40
+          ? "win-rate-medium"
+          : "win-rate-low";
     const frequentCompanions = getFrequentCompanions(id);
     const positions = ["Fixo", "Ala", "Pivô"];
     const achievements = getPlayerAchievements(id);
@@ -1006,7 +1040,10 @@ export function renderPlayersView() {
       return;
     }
 
-    const workingConfig = { ...DEFAULT_AVATAR_CONFIG, ...(store.avatars[playerId] || {}) };
+    const workingConfig = {
+      ...DEFAULT_AVATAR_CONFIG,
+      ...(store.avatars[playerId] || {}),
+    };
     let activeGroup = "traits"; // 'traits' | 'colors'
     let activeTabKey = AVATAR_TABS[0].key;
 
@@ -1048,12 +1085,19 @@ export function renderPlayersView() {
       const optionList =
         activeTab.key === "clothing"
           ? [
-              ...activeTab.jerseyOptions.map((opt) => ({ ...opt, field: "jersey" })),
-              ...activeTab.options.map((opt) => ({ ...opt, field: "clothing" })),
+              ...activeTab.jerseyOptions.map((opt) => ({
+                ...opt,
+                field: "jersey",
+              })),
+              ...activeTab.options.map((opt) => ({
+                ...opt,
+                field: "clothing",
+              })),
             ]
-          : (activeTab.nullable ? [{ value: null, label: "Nenhum" }, ...activeTab.options] : activeTab.options).map(
-              (opt) => ({ ...opt, field: optionKey }),
-            );
+          : (activeTab.nullable
+              ? [{ value: null, label: "Nenhum" }, ...activeTab.options]
+              : activeTab.options
+            ).map((opt) => ({ ...opt, field: optionKey }));
 
       return optionList
         .map((opt) => {
@@ -1099,7 +1143,8 @@ export function renderPlayersView() {
     }
 
     function patchAfterChange() {
-      modalContainer.querySelector(".avatar-editor-preview img").src = getAvatarDataUri(workingConfig);
+      modalContainer.querySelector(".avatar-editor-preview img").src =
+        getAvatarDataUri(workingConfig);
       const gridEl = modalContainer.querySelector(".avatar-editor-grid");
       gridEl.innerHTML = buildGridHtml();
       bindGridListeners();
@@ -1110,7 +1155,8 @@ export function renderPlayersView() {
       activeTabKey = key;
       modalContainer.querySelectorAll(".avatar-tab-btn").forEach((btn) => {
         const isActive =
-          btn.getAttribute("data-group") === activeGroup && btn.getAttribute("data-tab") === activeTabKey;
+          btn.getAttribute("data-group") === activeGroup &&
+          btn.getAttribute("data-tab") === activeTabKey;
         btn.classList.toggle("active", isActive);
       });
       modalContainer
@@ -1136,7 +1182,8 @@ export function renderPlayersView() {
 
           <div class="avatar-editor-tabs">
             ${AVATAR_EDITOR_TABS.map(
-              (t) => `<button class="avatar-tab-btn ${activeGroup === t.group && activeTabKey === t.key ? "active" : ""}" data-group="${t.group}" data-tab="${t.key}">${t.label}</button>`,
+              (t) =>
+                `<button class="avatar-tab-btn ${activeGroup === t.group && activeTabKey === t.key ? "active" : ""}" data-group="${t.group}" data-tab="${t.key}">${t.label}</button>`,
             ).join("")}
           </div>
 
@@ -1159,23 +1206,34 @@ export function renderPlayersView() {
       modalContainer.innerHTML = "";
       onDone?.();
     };
-    modalContainer.querySelector("#avatar-modal-close").addEventListener("click", close);
-    modalContainer.querySelector("#avatar-modal-overlay").addEventListener("click", (e) => {
-      if (e.target.id === "avatar-modal-overlay") close();
-    });
-    modalContainer.querySelector("#avatar-cancel").addEventListener("click", close);
+    modalContainer
+      .querySelector("#avatar-modal-close")
+      .addEventListener("click", close);
+    modalContainer
+      .querySelector("#avatar-modal-overlay")
+      .addEventListener("click", (e) => {
+        if (e.target.id === "avatar-modal-overlay") close();
+      });
+    modalContainer
+      .querySelector("#avatar-cancel")
+      .addEventListener("click", close);
 
     modalContainer.querySelectorAll(".avatar-tab-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        switchTab(e.currentTarget.getAttribute("data-group"), e.currentTarget.getAttribute("data-tab"));
+        switchTab(
+          e.currentTarget.getAttribute("data-group"),
+          e.currentTarget.getAttribute("data-tab"),
+        );
       });
     });
 
-    modalContainer.querySelector("#avatar-save").addEventListener("click", () => {
-      store.updatePlayerAvatar(playerId, workingConfig);
-      showToast(`🎉 Avatar de ${player.name} atualizado!`);
-      close();
-    });
+    modalContainer
+      .querySelector("#avatar-save")
+      .addEventListener("click", () => {
+        store.updatePlayerAvatar(playerId, workingConfig);
+        showToast(`🎉 Avatar de ${player.name} atualizado!`);
+        close();
+      });
 
     bindGridListeners();
   }
