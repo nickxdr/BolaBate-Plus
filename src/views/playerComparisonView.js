@@ -240,82 +240,98 @@ function renderComparisonResult(player1Id, player2Id) {
   `;
 }
 
+/**
+ * Builds the list of INDIVIDUAL MATCHES actually played between player1's team and
+ * player2's team — not the whole pelada session. Each finished match carries its own
+ * statsDelta (goals/assists scored in that specific match only, see
+ * store.computeMatchStatsDelta), so a player's goals against one opponent don't leak
+ * into their head-to-head with someone else they merely shared a pelada with.
+ * Peladas finished before this per-match tracking existed have no way to retroactively
+ * reconstruct it, so they simply contribute no matches here (rather than the old,
+ * misleading whole-session totals).
+ */
 function getDirectHistory(player1Id, player2Id) {
-  const history = [...store.history]
-    .map(entry => {
-      const team1 = (entry.teams || []).find(team => (team.playerIds || []).includes(player1Id));
-      const team2 = (entry.teams || []).find(team => (team.playerIds || []).includes(player2Id));
+  const matches = [];
 
-      if (!team1 || !team2 || team1.id === team2.id) return null;
+  store.history.forEach(entry => {
+    const team1 = (entry.teams || []).find(team => (team.playerIds || []).includes(player1Id));
+    const team2 = (entry.teams || []).find(team => (team.playerIds || []).includes(player2Id));
+    if (!team1 || !team2 || team1.id === team2.id) return;
 
-      return {
+    (entry.matches || []).forEach(match => {
+      const player1IsA = match.teamAId === team1.id && match.teamBId === team2.id;
+      const player2IsA = match.teamAId === team2.id && match.teamBId === team1.id;
+      if (!player1IsA && !player2IsA) return; // a match against a different opponent that day
+
+      const delta = match.statsDelta || {};
+      matches.push({
         date: entry.date || 'Data não informada',
         dateISO: entry.dateISO || '',
+        isActive: false,
         team1Name: team1.name || 'Time 1',
         team2Name: team2.name || 'Time 2',
-        team1Wins: Number(team1.wins) || 0,
-        team2Wins: Number(team2.wins) || 0,
-        stats1: entry.stats?.[player1Id] || {},
-        stats2: entry.stats?.[player2Id] || {},
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      const dateA = a.dateISO ? new Date(a.dateISO).getTime() : 0;
-      const dateB = b.dateISO ? new Date(b.dateISO).getTime() : 0;
-      return dateB - dateA;
+        score1: Number(player1IsA ? match.scoreA : match.scoreB) || 0,
+        score2: Number(player1IsA ? match.scoreB : match.scoreA) || 0,
+        goals1: Number(delta[player1Id]?.goals) || 0,
+        assists1: Number(delta[player1Id]?.assists) || 0,
+        goals2: Number(delta[player2Id]?.goals) || 0,
+        assists2: Number(delta[player2Id]?.assists) || 0,
+      });
     });
+  });
 
+  matches.sort((a, b) => {
+    const dateA = a.dateISO ? new Date(a.dateISO).getTime() : 0;
+    const dateB = b.dateISO ? new Date(b.dateISO).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  // The current, not-yet-archived pelada: rotation.log entries already carry a statsDelta
+  // (endCurrentMatch computes it the same way); the still-ongoing match doesn't have one
+  // yet, so it's computed live from its own kickoff snapshot.
   const activePelada = store.activePelada;
-  const activeTeam1 = (activePelada?.teams || [])
-    .find(team => (team.playerIds || []).includes(player1Id));
-  const activeTeam2 = (activePelada?.teams || [])
-    .find(team => (team.playerIds || []).includes(player2Id));
+  const activeTeam1 = (activePelada?.teams || []).find(team => (team.playerIds || []).includes(player1Id));
+  const activeTeam2 = (activePelada?.teams || []).find(team => (team.playerIds || []).includes(player2Id));
 
   if (activePelada?.status === 'live' && activeTeam1 && activeTeam2 && activeTeam1.id !== activeTeam2.id) {
-    const directMatches = [
+    const currentMatch = activePelada.rotation?.currentMatch;
+    const liveMatches = [
       ...(activePelada.rotation?.log || []),
-      ...(activePelada.rotation?.currentMatch ? [activePelada.rotation.currentMatch] : [])
+      ...(currentMatch ? [{ ...currentMatch, isOngoing: true }] : []),
     ].filter(match => (
       (match.teamAId === activeTeam1.id && match.teamBId === activeTeam2.id) ||
       (match.teamBId === activeTeam1.id && match.teamAId === activeTeam2.id)
     ));
 
-    if (directMatches.length > 0) {
-      const completedMatches = directMatches.filter(match => match !== activePelada.rotation?.currentMatch);
-      const directWins = completedMatches.reduce((result, match) => {
-        const player1IsA = match.teamAId === activeTeam1.id;
-        const score1 = Number(player1IsA ? match.scoreA : match.scoreB) || 0;
-        const score2 = Number(player1IsA ? match.scoreB : match.scoreA) || 0;
-        if (score1 > score2) result.team1Wins += 1;
-        else if (score2 > score1) result.team2Wins += 1;
-        else result.draws += 1;
-        return result;
-      }, { team1Wins: 0, team2Wins: 0, draws: 0 });
+    liveMatches.forEach(match => {
+      const player1IsA = match.teamAId === activeTeam1.id;
+      const delta = match.isOngoing
+        ? store.computeMatchStatsDelta(match.statsSnapshot, activePelada.stats)
+        : (match.statsDelta || {});
 
-      history.unshift({
-        date: 'Em andamento',
+      matches.unshift({
+        date: match.isOngoing ? 'Em andamento' : `Hoje${match.time ? `, ${match.time}` : ''}`,
         dateISO: new Date().toISOString(),
+        isActive: !!match.isOngoing,
         team1Name: activeTeam1.name || 'Time 1',
         team2Name: activeTeam2.name || 'Time 2',
-        team1Wins: directWins.team1Wins,
-        team2Wins: directWins.team2Wins,
-        activeDraws: directWins.draws,
-        isActive: true,
-        stats1: activePelada.stats?.[player1Id] || {},
-        stats2: activePelada.stats?.[player2Id] || {}
+        score1: Number(player1IsA ? match.scoreA : match.scoreB) || 0,
+        score2: Number(player1IsA ? match.scoreB : match.scoreA) || 0,
+        goals1: Number(delta[player1Id]?.goals) || 0,
+        assists1: Number(delta[player1Id]?.assists) || 0,
+        goals2: Number(delta[player2Id]?.goals) || 0,
+        assists2: Number(delta[player2Id]?.assists) || 0,
       });
-    }
+    });
   }
 
-  return history;
+  return matches;
 }
 
-function renderDirectHistory(history, player1, player2) {
-  const totals = history.reduce((result, match) => {
-    if (match.team1Wins > match.team2Wins) result.player1Wins += 1;
-    else if (match.team2Wins > match.team1Wins) result.player2Wins += 1;
-    else if (match.isActive) result.draws += Number(match.activeDraws) || 0;
+function renderDirectHistory(matches, player1, player2) {
+  const totals = matches.reduce((result, match) => {
+    if (match.score1 > match.score2) result.player1Wins += 1;
+    else if (match.score2 > match.score1) result.player2Wins += 1;
     else result.draws += 1;
     return result;
   }, { player1Wins: 0, draws: 0, player2Wins: 0 });
@@ -341,12 +357,12 @@ function renderDirectHistory(history, player1, player2) {
   `;
 }
 
-function renderPerformance(history, player1, player2) {
-  const totals = history.reduce((result, match) => {
-    result.player1Goals += Number(match.stats1.goals) || 0;
-    result.player1Assists += Number(match.stats1.assists) || 0;
-    result.player2Goals += Number(match.stats2.goals) || 0;
-    result.player2Assists += Number(match.stats2.assists) || 0;
+function renderPerformance(matches, player1, player2) {
+  const totals = matches.reduce((result, match) => {
+    result.player1Goals += match.goals1;
+    result.player1Assists += match.assists1;
+    result.player2Goals += match.goals2;
+    result.player2Assists += match.assists2;
     return result;
   }, { player1Goals: 0, player1Assists: 0, player2Goals: 0, player2Assists: 0 });
 

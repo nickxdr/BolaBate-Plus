@@ -477,7 +477,27 @@ class Store {
       timerRemainingMs: MATCH_TIMER_DURATION_MS,
       timerRunning: false,
       timerEndsAt: null,
+      // A snapshot of every player's cumulative goals/assists at kickoff — activePelada.stats
+      // itself never resets between matches (it's a whole-session running total), so this is
+      // what lets us later work out who scored IN THIS MATCH specifically (see
+      // computeMatchStatsDelta), instead of attributing a player's whole day to every
+      // opponent they happened to face — used for head-to-head history.
+      statsSnapshot: JSON.parse(JSON.stringify(this.activePelada.stats || {})),
     };
+  }
+
+  /** Per-player {goals, assists} scored between a match's kickoff snapshot and now (or its end). */
+  computeMatchStatsDelta(statsBefore, statsAfter) {
+    const delta = {};
+    const ids = new Set([...Object.keys(statsBefore || {}), ...Object.keys(statsAfter || {})]);
+    ids.forEach(pid => {
+      const before = statsBefore?.[pid] || {};
+      const after = statsAfter?.[pid] || {};
+      const goals = (Number(after.goals) || 0) - (Number(before.goals) || 0);
+      const assists = (Number(after.assists) || 0) - (Number(before.assists) || 0);
+      if (goals || assists) delta[pid] = { goals, assists };
+    });
+    return delta;
   }
 
   /** Lazily builds rotation state for peladas started before this feature existed. */
@@ -643,6 +663,7 @@ class Store {
 
     rotation.log.unshift({
       teamAId, teamBId, scoreA, scoreB, winnerId,
+      statsDelta: this.computeMatchStatsDelta(match.statsSnapshot, this.activePelada.stats),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
@@ -908,6 +929,7 @@ class Store {
           scoreA: currentMatch.scoreA,
           scoreB: currentMatch.scoreB,
           winnerId,
+          statsDelta: this.computeMatchStatsDelta(currentMatch.statsSnapshot, this.activePelada.stats),
         });
       }
     }
@@ -926,6 +948,7 @@ class Store {
         losses: teamRecord[team.id]?.losses || 0,
       })),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
+      matches: rotationLog,
       diaristaPlayerIds: Array.from(diaristaIds),
       awards: {
         craqueId: null,
@@ -1280,11 +1303,17 @@ class Store {
           wins: Number(team.wins) || 0,
           draws: Number(team.draws) || 0,
           // Peladas finished before this field existed have no way to retroactively
-          // know their losses (the rotation log itself isn't archived) — defaults to 0.
+          // know their losses — defaults to 0.
           losses: Number(team.losses) || 0,
         }))
         : [],
       stats: entry.stats && typeof entry.stats === 'object' ? entry.stats : {},
+      // Individual match results within this pelada (teamAId/teamBId/scoreA/scoreB/winnerId
+      // + a per-player goals/assists statsDelta for THAT match specifically) — this is what
+      // head-to-head comparisons use so they only count what happened between the two
+      // players' teams, not the whole session. Peladas finished before this field existed
+      // have no way to retroactively reconstruct it — defaults to an empty list.
+      matches: Array.isArray(entry.matches) ? entry.matches : [],
       diaristaPlayerIds: Array.isArray(entry.diaristaPlayerIds) ? [...entry.diaristaPlayerIds] : [],
       awards: {
         craqueId: awards.craqueId || null,
