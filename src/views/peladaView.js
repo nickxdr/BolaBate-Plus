@@ -881,7 +881,7 @@ function renderLivePelada(container, onNavigate) {
     const remainingMs = match.timerRunning
       ? Math.max(0, match.timerEndsAt - Date.now())
       : match.timerRemainingMs;
-    const canFinish = match.scoreA >= 2 || match.scoreB >= 2 || remainingMs <= 0;
+    const canFinish = store.canFinishMatch(match, remainingMs);
     const notStarted =
       !match.timerRunning && match.timerRemainingMs === match.timerDurationMs;
     const timeUp = remainingMs <= 0;
@@ -889,7 +889,7 @@ function renderLivePelada(container, onNavigate) {
     if (infoEl) {
       infoEl.innerHTML = `
         ${timeUp ? '<span class="match-timeup-label">⏱️ Tempo esgotado!</span>' : ""}
-        ${!timeUp && canFinish ? '<span class="match-ready-label">✅ Pronto para finalizar (2 gols)</span>' : ""}
+        ${!timeUp && canFinish ? `<span class="match-ready-label">✅ Pronto para finalizar (${store.goalsToFinish} gols)</span>` : ""}
       `;
     }
 
@@ -1921,7 +1921,7 @@ function renderMatchPanel(
   const remainingMs = match.timerRunning
     ? Math.max(0, match.timerEndsAt - Date.now())
     : match.timerRemainingMs;
-  const canFinish = match.scoreA >= 2 || match.scoreB >= 2 || remainingMs <= 0;
+  const canFinish = store.canFinishMatch(match, remainingMs);
   const notStarted =
     !match.timerRunning && match.timerRemainingMs === match.timerDurationMs;
   const timeUp = remainingMs <= 0;
@@ -1985,7 +1985,7 @@ function renderMatchPanel(
       <div class="match-controls">
         <div class="match-controls-info">
           ${timeUp ? '<span class="match-timeup-label">⏱️ Tempo esgotado!</span>' : ""}
-          ${!timeUp && canFinish ? '<span class="match-ready-label">✅ Pronto para finalizar (2 gols)</span>' : ""}
+          ${!timeUp && canFinish ? `<span class="match-ready-label">✅ Pronto para finalizar (${store.goalsToFinish} gols)</span>` : ""}
         </div>
         <div class="match-controls-buttons">
           ${
@@ -2344,8 +2344,7 @@ function ensureMatchTimerTicking() {
 
     const finishBtn = document.querySelector("#btn-finish-match");
     if (finishBtn) {
-      const canFinish =
-        match.scoreA >= 2 || match.scoreB >= 2 || remainingMs <= 0;
+      const canFinish = store.canFinishMatch(match, remainingMs);
       finishBtn.disabled = !canFinish;
     }
 

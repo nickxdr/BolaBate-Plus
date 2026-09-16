@@ -21,7 +21,7 @@ function escapeHtml(str) {
   })[c]);
 }
 
-export function renderSettingsView() {
+export function renderSettingsView(navigateTo) {
   const container = document.createElement("div");
   container.className = "view-container";
 
@@ -119,6 +119,21 @@ export function renderSettingsView() {
       `
           : ""
       }
+
+      <!-- Match rules shortcut — the actual controls live in their own tab -->
+      <div class="card">
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          ⚽ Regras da Partida
+        </h2>
+        <p style="font-size: 0.85rem; color: var(--pitch-green); margin-bottom: 12px;">
+          ✅ Duração, gols para finalizar e rodízio dos times. Atualmente: <strong>${Math.round((store.matchDurationMs || 0) / 60000)} min</strong> por partida e <strong>${store.goalsToFinish} gol(s)</strong> para finalizar.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <button id="btn-open-match-rules" class="btn btn-secondary">
+            📋 Regras da partida
+          </button>
+        </div>
+      </div>
 
       <!-- Cloud Sync & Admin Card -->
       <div class="card">
@@ -289,6 +304,13 @@ export function renderSettingsView() {
     container
       .querySelector("#team-size-6-btn")
       ?.addEventListener("click", () => handleTeamSizeClick(6));
+
+    // Bind "Regras da partida" — redirects to the dedicated Regras da Partida tab.
+    container
+      .querySelector("#btn-open-match-rules")
+      ?.addEventListener("click", () => {
+        if (typeof navigateTo === "function") navigateTo("match-rules");
+      });
 
     // Bind Cloud & Admin
     const loginBtn = container.querySelector("#btn-admin-login");

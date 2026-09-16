@@ -4,6 +4,7 @@ import { renderPlayersView } from "./views/playersView.js";
 import { renderRankingView } from "./views/rankingView.js";
 import { renderHistoryView } from "./views/historyView.js";
 import { renderSettingsView } from "./views/settingsView.js";
+import { renderMatchRulesView } from "./views/matchRulesView.js";
 import { renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
 import { showToast } from "./views/rankingView.js";
 import { openPlayerComparison } from "./views/playerComparisonView.js";
@@ -102,7 +103,7 @@ function initApp() {
           <span>Histórico</span>
         </button>
 
-        <button class="nav-item ${currentTab === "settings" ? "active" : ""}" data-tab="settings">
+        <button class="nav-item ${navTabFor(currentTab) === "settings" ? "active" : ""}" data-tab="settings">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <circle cx="12" cy="12" r="3" />
@@ -161,11 +162,21 @@ function initApp() {
     renderCurrentView();
   }
 
+  /**
+   * The bottom-nav item that should look active for a given view. The "Regras da Partida"
+   * screen is a sub-screen of Ajustes (reached from its button, not the bottom nav), so it
+   * keeps that tab highlighted instead of leaving the whole bar with nothing active.
+   */
+  function navTabFor(tab) {
+    return tab === "match-rules" ? "settings" : tab;
+  }
+
   function navigateTo(tab) {
     currentTab = tab;
     // update active classes in bottom nav
+    const activeTab = navTabFor(tab);
     app.querySelectorAll(".nav-item").forEach((btn) => {
-      if (btn.getAttribute("data-tab") === tab) {
+      if (btn.getAttribute("data-tab") === activeTab) {
         btn.classList.add("active");
       } else {
         btn.classList.remove("active");
@@ -198,7 +209,9 @@ function initApp() {
       } else if (currentTab === "history") {
         viewNode = renderHistoryView();
       } else if (currentTab === "settings") {
-        viewNode = renderSettingsView();
+        viewNode = renderSettingsView(navigateTo);
+      } else if (currentTab === "match-rules") {
+        viewNode = renderMatchRulesView(navigateTo);
       }
 
       if (viewNode) {

@@ -48,6 +48,12 @@ const PELADA_ID_KEY = "bolabate_pelada_id_v1";
 const PELADA_NAME_KEY = "bolabate_pelada_name_v1";
 const PELADA_BLOCKED_KEY = "bolabate_pelada_blocked_v1";
 
+// Default match rules for a pelada that was just created. Mirrors store.js's defaults
+// — duplicated to avoid a circular import.
+const DEFAULT_MATCH_DURATION_MS = 10 * 60 * 1000;
+const DEFAULT_GOALS_TO_FINISH = 2;
+const DEFAULT_WIN_STREAK_TO_REST = 3;
+
 if (IS_DEV_ENVIRONMENT) {
   console.info(`[cloud] Dev/local environment — using the "${STATE_COLLECTION}" collection (production data is untouched).`);
 }
@@ -163,6 +169,10 @@ function serialize(store) {
     history: store.history,
     monthlyStats: store.monthlyStats,
     teamSize: store.teamSize,
+    matchDurationMs: store.matchDurationMs,
+    goalsToFinish: store.goalsToFinish,
+    winLimitEnabled: store.winLimitEnabled,
+    winStreakToRest: store.winStreakToRest,
     savedAt: new Date().toISOString(),
     savedBy: auth.currentUser ? auth.currentUser.uid : "unknown",
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -194,6 +204,18 @@ function applyRemote(data) {
     }
     if (data.teamSize === 5 || data.teamSize === 6) {
       store.teamSize = data.teamSize;
+    }
+    if (Number.isFinite(data.matchDurationMs) && data.matchDurationMs > 0) {
+      store.matchDurationMs = data.matchDurationMs;
+    }
+    if (Number.isFinite(data.goalsToFinish) && data.goalsToFinish > 0) {
+      store.goalsToFinish = data.goalsToFinish;
+    }
+    if (typeof data.winLimitEnabled === "boolean") {
+      store.winLimitEnabled = data.winLimitEnabled;
+    }
+    if (Number.isFinite(data.winStreakToRest) && data.winStreakToRest > 0) {
+      store.winStreakToRest = data.winStreakToRest;
     }
     store.hydrateMonthlyStats();
     store.syncCareerStatsFromMonthly({ silent: true });
@@ -557,6 +579,10 @@ export async function createPelada(peladaId, name, password) {
     history: [],
     monthlyStats: {},
     teamSize: 5,
+    matchDurationMs: DEFAULT_MATCH_DURATION_MS,
+    goalsToFinish: DEFAULT_GOALS_TO_FINISH,
+    winLimitEnabled: true,
+    winStreakToRest: DEFAULT_WIN_STREAK_TO_REST,
     savedAt: now,
     savedBy: createdBy,
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

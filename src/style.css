@@ -1376,6 +1376,266 @@ body {
   transform: scale(0.98);
 }
 
+/* Settings: Match Duration — big centered minutes field with ± steppers */
+.duration-input-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.duration-step-btn {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  color: var(--text-main);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.duration-step-btn:hover:not(:disabled) {
+  border-color: var(--pitch-green);
+  color: var(--pitch-green);
+}
+
+.duration-step-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.duration-step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.duration-input-wrap {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 16px;
+  border: 2px solid var(--pitch-green);
+  background: rgba(16, 185, 129, 0.08);
+  transition: box-shadow 0.15s ease;
+}
+
+.duration-input-wrap:focus-within {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+
+.duration-input-wrap input {
+  width: 96px;
+  border: none;
+  background: transparent;
+  color: var(--pitch-green);
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.duration-input-wrap input::-webkit-outer-spin-button,
+.duration-input-wrap input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.duration-input-unit {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.duration-range-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.duration-save-btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 1rem;
+}
+
+/* Settings: Match Rules screen (section headers, numeric steppers, toggle) */
+.rule-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-section-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.rule-section-title + .rule-row {
+  border-top: none;
+}
+
+.rule-row.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.rule-row-info {
+  min-width: 0;
+}
+
+.rule-row-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.rule-row-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.rule-stepper {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-step-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  color: var(--text-main);
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.rule-step-btn:hover:not(:disabled) {
+  border-color: var(--pitch-green);
+  color: var(--pitch-green);
+}
+
+.rule-step-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.rule-step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.rule-step-value {
+  min-width: 2ch;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--pitch-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.rule-toggle {
+  flex-shrink: 0;
+  position: relative;
+  width: 52px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.rule-toggle.on {
+  background: rgba(16, 185, 129, 0.35);
+  border-color: var(--pitch-green);
+}
+
+.rule-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.rule-toggle.on .rule-toggle-knob {
+  transform: translateX(22px);
+  background: var(--pitch-green);
+}
+
+.rule-footnote {
+  font-size: 0.75rem;
+  color: var(--accent-gold);
+  line-height: 1.5;
+  margin-top: 14px;
+}
+
+.rules-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rules-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.rules-summary-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.rules-summary-row strong {
+  color: var(--pitch-green);
+}
+
 /* Avatar Creator (Players screen) */
 .avatar-editor-modal {
   max-width: 480px;

@@ -43,7 +43,7 @@ const ADMIN_ONLY_METHODS = [
   'addPlayer', 'updatePlayer', 'deletePlayer',
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion',
-  'setTeamSize',
+  'setTeamSize', 'setMatchDuration', 'setGoalsToFinish', 'setWinLimitEnabled', 'setWinStreakToRest',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
   'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
@@ -51,7 +51,21 @@ const ADMIN_ONLY_METHODS = [
   'importFromJson', 'resetToDefaults',
 ];
 
-const MATCH_TIMER_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+const MATCH_TIMER_DURATION_MS = 10 * 60 * 1000; // default match length: 10 minutes
+
+// Bounds + defaults for every rule the admin can tune on the "Regras da Partida"
+// screen. Duration is expressed in minutes because that's the unit that UI works with.
+export const MIN_MATCH_DURATION_MIN = 1;
+export const MAX_MATCH_DURATION_MIN = 60;
+
+const DEFAULT_GOALS_TO_FINISH = 2;       // goals a team needs to end the match early
+const DEFAULT_WIN_LIMIT_ENABLED = true;  // winner steps aside after the configured win streak
+const DEFAULT_WIN_STREAK_TO_REST = 3;    // consecutive wins before the winner steps aside
+
+export const MIN_GOALS_TO_FINISH = 1;
+export const MAX_GOALS_TO_FINISH = 10;
+export const MIN_WIN_STREAK_TO_REST = 1;
+export const MAX_WIN_STREAK_TO_REST = 10;
 
 class Store {
   constructor() {
@@ -67,6 +81,10 @@ class Store {
     this.peladaName = localStorage.getItem(PELADA_NAME_KEY) || this.peladaId || '';
     this.players = this.loadPlayers();
     this.teamSize = this.loadTeamSize(); // 5 (default) or 6 — league-wide match format, synced via cloud
+    this.matchDurationMs = this.loadMatchDuration(); // how long each match lasts — league-wide, synced via cloud
+    this.goalsToFinish = this.loadGoalsToFinish(); // remaining league-wide match rules (Regras da Partida)
+    this.winLimitEnabled = this.loadWinLimitEnabled();
+    this.winStreakToRest = this.loadWinStreakToRest();
     this.avatars = this.loadAvatars(); // playerId -> avatar config; anyone can edit anyone's, synced independently
     this.activePelada = this.loadPelada();
     this.history = this.loadHistory();
@@ -153,6 +171,141 @@ class Store {
     this.teamSize = next;
     this.save();
     return { success: true };
+  }
+
+  /** Match length in milliseconds — defaults to 10 minutes when it was never configured. */
+  loadMatchDuration() {
+    try {
+      const raw = Number(localStorage.getItem(this.scopedKey('_match_duration_ms')));
+      const minMs = MIN_MATCH_DURATION_MIN * 60 * 1000;
+      const maxMs = MAX_MATCH_DURATION_MIN * 60 * 1000;
+      if (Number.isFinite(raw) && raw >= minMs && raw <= maxMs) return raw;
+    } catch (e) {
+      console.error('Error loading match duration:', e);
+    }
+    return MATCH_TIMER_DURATION_MS;
+  }
+
+  /**
+   * How long a single match lasts, in whole minutes — league-wide (like the match format)
+   * and therefore admin-only + synced via cloud. A match that hasn't kicked off yet picks
+   * up the new length immediately; one already underway keeps the clock it started with.
+   */
+  setMatchDuration(minutes) {
+    const value = Math.round(Number(minutes));
+    if (!Number.isFinite(value) || value < MIN_MATCH_DURATION_MIN || value > MAX_MATCH_DURATION_MIN) {
+      return {
+        success: false,
+        error: `Escolha uma duração entre ${MIN_MATCH_DURATION_MIN} e ${MAX_MATCH_DURATION_MIN} minutos.`,
+      };
+    }
+
+    const ms = value * 60 * 1000;
+    if (ms === this.matchDurationMs) return { success: true };
+    this.matchDurationMs = ms;
+
+    const match = this.activePelada.rotation?.currentMatch;
+    const notStarted =
+      match && !match.timerRunning && match.timerRemainingMs === match.timerDurationMs;
+    if (notStarted) {
+      match.timerDurationMs = ms;
+      match.timerRemainingMs = ms;
+    }
+
+    this.save();
+    return { success: true };
+  }
+
+  /** Whole number of goals a team must reach before a match can be ended early. */
+  loadGoalsToFinish() {
+    try {
+      const raw = Number(localStorage.getItem(this.scopedKey('_goals_to_finish')));
+      if (Number.isFinite(raw) && raw >= MIN_GOALS_TO_FINISH && raw <= MAX_GOALS_TO_FINISH) {
+        return Math.round(raw);
+      }
+    } catch (e) {
+      console.error('Error loading goals-to-finish rule:', e);
+    }
+    return DEFAULT_GOALS_TO_FINISH;
+  }
+
+  setGoalsToFinish(goals) {
+    const value = Math.round(Number(goals));
+    if (!Number.isFinite(value) || value < MIN_GOALS_TO_FINISH || value > MAX_GOALS_TO_FINISH) {
+      return {
+        success: false,
+        error: `Escolha um valor entre ${MIN_GOALS_TO_FINISH} e ${MAX_GOALS_TO_FINISH} gols.`,
+      };
+    }
+    if (value === this.goalsToFinish) return { success: true };
+    this.goalsToFinish = value;
+    this.save();
+    return { success: true };
+  }
+
+  /**
+   * "Limite de vitórias" toggle. When on, a team that reaches the configured win streak
+   * steps aside even though it just won; when off, the winner stays on the pitch until it
+   * is finally beaten (no win limit).
+   */
+  loadWinLimitEnabled() {
+    try {
+      const raw = localStorage.getItem(this.scopedKey('_win_limit_enabled'));
+      if (raw === 'true') return true;
+      if (raw === 'false') return false;
+    } catch (e) {
+      console.error('Error loading win-limit rule:', e);
+    }
+    return DEFAULT_WIN_LIMIT_ENABLED;
+  }
+
+  setWinLimitEnabled(enabled) {
+    const value = !!enabled;
+    if (value === this.winLimitEnabled) return { success: true };
+    this.winLimitEnabled = value;
+    this.save();
+    return { success: true };
+  }
+
+  /** How many wins in a row a team gets before it has to step aside (while the win limit is on). */
+  loadWinStreakToRest() {
+    try {
+      const raw = Number(localStorage.getItem(this.scopedKey('_win_streak_to_rest')));
+      if (Number.isFinite(raw) && raw >= MIN_WIN_STREAK_TO_REST && raw <= MAX_WIN_STREAK_TO_REST) {
+        return Math.round(raw);
+      }
+    } catch (e) {
+      console.error('Error loading win-streak rule:', e);
+    }
+    return DEFAULT_WIN_STREAK_TO_REST;
+  }
+
+  setWinStreakToRest(wins) {
+    const value = Math.round(Number(wins));
+    if (!Number.isFinite(value) || value < MIN_WIN_STREAK_TO_REST || value > MAX_WIN_STREAK_TO_REST) {
+      return {
+        success: false,
+        error: `Escolha um valor entre ${MIN_WIN_STREAK_TO_REST} e ${MAX_WIN_STREAK_TO_REST} vitórias.`,
+      };
+    }
+    if (value === this.winStreakToRest) return { success: true };
+    this.winStreakToRest = value;
+    this.save();
+    return { success: true };
+  }
+
+  /**
+   * Single source of truth for "can this match be ended now?" — mirrored by the store's
+   * own endCurrentMatch() guard and by peladaView's button/label state. A match can end
+   * once either team reaches the configured goal target, or the clock runs out.
+   */
+  canFinishMatch(match, remainingMs) {
+    if (!match) return false;
+    return (
+      match.scoreA >= this.goalsToFinish ||
+      match.scoreB >= this.goalsToFinish ||
+      remainingMs <= 0
+    );
   }
 
   loadAvatars() {
@@ -261,6 +414,10 @@ class Store {
       localStorage.setItem(this.scopedKey('_monthly'), JSON.stringify(this.monthlyStats || {}));
       localStorage.setItem(this.scopedKey('_selected_period'), this.selectedPeriodKey || '');
       localStorage.setItem(this.scopedKey('_team_size'), String(this.teamSize));
+      localStorage.setItem(this.scopedKey('_match_duration_ms'), String(this.matchDurationMs));
+      localStorage.setItem(this.scopedKey('_goals_to_finish'), String(this.goalsToFinish));
+      localStorage.setItem(this.scopedKey('_win_limit_enabled'), String(this.winLimitEnabled));
+      localStorage.setItem(this.scopedKey('_win_streak_to_rest'), String(this.winStreakToRest));
       localStorage.setItem(THEME_KEY, this.theme);
     } catch (e) {
       console.error('Error saving state:', e);
@@ -504,8 +661,8 @@ class Store {
       teamBId,
       scoreA: 0,
       scoreB: 0,
-      timerDurationMs: MATCH_TIMER_DURATION_MS,
-      timerRemainingMs: MATCH_TIMER_DURATION_MS,
+      timerDurationMs: this.matchDurationMs || MATCH_TIMER_DURATION_MS,
+      timerRemainingMs: this.matchDurationMs || MATCH_TIMER_DURATION_MS,
       timerRunning: false,
       timerEndsAt: null,
       // A snapshot of every player's cumulative goals/assists at kickoff — activePelada.stats
@@ -665,20 +822,23 @@ class Store {
     this.saveQuiet();
   }
 
-  /** Ends the current match, applies the winner-stays / 3-in-a-row / draw rules, and pulls in the next team(s). */
+  /** Ends the current match, applies the win-limit / win-streak / draw rules, and pulls in the next team(s). */
   endCurrentMatch() {
     const rotation = this.activePelada.rotation;
     const match = rotation?.currentMatch;
     if (!match) return { success: false, error: 'Nenhuma partida em andamento.' };
 
     // Mirrors the "Finalizar" button's disabled state — a match can only end once a team
-    // has scored twice, or the clock has run out, even if this is called directly.
+    // has reached the configured goal target, or the clock has run out, even if this is
+    // called directly.
     const remainingMs = match.timerRunning
       ? Math.max(0, match.timerEndsAt - Date.now())
       : match.timerRemainingMs;
-    const canFinish = match.scoreA >= 2 || match.scoreB >= 2 || remainingMs <= 0;
-    if (!canFinish) {
-      return { success: false, error: 'A partida só pode ser finalizada com 2 gols de diferença ou quando o tempo acabar.' };
+    if (!this.canFinishMatch(match, remainingMs)) {
+      return {
+        success: false,
+        error: `A partida só pode ser finalizada com ${this.goalsToFinish} gol(s) ou quando o tempo acabar.`,
+      };
     }
 
     if (match.timerRunning) {
@@ -717,8 +877,10 @@ class Store {
         rotation.streakCount = 1;
       }
 
-      if (rotation.streakCount >= 3) {
-        // Won 3 in a row — steps aside even though it just won
+      // With the win limit on, a team that reaches the configured streak steps aside even
+      // though it just won. With it off, the winner keeps playing until it is beaten.
+      if (this.winLimitEnabled && rotation.streakCount >= this.winStreakToRest) {
+        // Reached the configured win streak — steps aside even though it just won
         outgoingIds.push(winnerId);
         rotation.streakTeamId = null;
         rotation.streakCount = 0;
@@ -947,7 +1109,7 @@ class Store {
       const remainingMs = currentMatch.timerRunning
         ? Math.max(0, currentMatch.timerEndsAt - Date.now())
         : currentMatch.timerRemainingMs;
-      const canFinish = currentMatch.scoreA >= 2 || currentMatch.scoreB >= 2 || remainingMs <= 0;
+      const canFinish = this.canFinishMatch(currentMatch, remainingMs);
       if (canFinish) {
         const winnerId = currentMatch.scoreA > currentMatch.scoreB
           ? currentMatch.teamAId
@@ -1473,6 +1635,10 @@ class Store {
       version: '1.1.0',
       exportedAt: new Date().toISOString(),
       theme: this.theme,
+      matchDurationMs: this.matchDurationMs,
+      goalsToFinish: this.goalsToFinish,
+      winLimitEnabled: this.winLimitEnabled,
+      winStreakToRest: this.winStreakToRest,
       players: this.players,
       history: this.history.map(entry => this.normalizeHistoryEntry(entry)).filter(Boolean),
       monthlyStats: this.monthlyStats,
@@ -1520,6 +1686,34 @@ class Store {
         this.setTheme(data.theme);
       }
 
+      const importedDurationMs = Number(data.matchDurationMs);
+      const minMs = MIN_MATCH_DURATION_MIN * 60 * 1000;
+      const maxMs = MAX_MATCH_DURATION_MIN * 60 * 1000;
+      if (Number.isFinite(importedDurationMs) && importedDurationMs >= minMs && importedDurationMs <= maxMs) {
+        this.matchDurationMs = importedDurationMs;
+      }
+
+      const importedGoals = Number(data.goalsToFinish);
+      if (Number.isFinite(importedGoals)) {
+        this.goalsToFinish = Math.min(
+          MAX_GOALS_TO_FINISH,
+          Math.max(MIN_GOALS_TO_FINISH, Math.round(importedGoals)),
+        );
+      }
+      if (typeof data.winLimitEnabled === 'boolean') {
+        this.winLimitEnabled = data.winLimitEnabled;
+      } else if (typeof data.winnerStays === 'boolean') {
+        // Backwards compatibility with exports made before the field was renamed.
+        this.winLimitEnabled = data.winnerStays;
+      }
+      const importedStreak = Number(data.winStreakToRest);
+      if (Number.isFinite(importedStreak)) {
+        this.winStreakToRest = Math.min(
+          MAX_WIN_STREAK_TO_REST,
+          Math.max(MIN_WIN_STREAK_TO_REST, Math.round(importedStreak)),
+        );
+      }
+
       this.save();
       return {
         success: true,
@@ -1537,6 +1731,10 @@ class Store {
     this.history = [];
     this.monthlyStats = isLegacyPelada ? JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS)) : {};
     this.selectedPeriodKey = this.currentPeriodKey();
+    this.matchDurationMs = MATCH_TIMER_DURATION_MS;
+    this.goalsToFinish = DEFAULT_GOALS_TO_FINISH;
+    this.winLimitEnabled = DEFAULT_WIN_LIMIT_ENABLED;
+    this.winStreakToRest = DEFAULT_WIN_STREAK_TO_REST;
     this.syncCareerStatsFromMonthly({ silent: true });
     this.activePelada = {
       status: 'idle',
