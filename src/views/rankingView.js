@@ -81,7 +81,13 @@ export function renderRankingView() {
   let tablePlayers = [...rankedPlayers];
 
   function applySort() {
-    tablePlayers.sort((a, b) => {
+    // Always re-sort a FRESH copy of the official order, never the already-reordered
+    // tablePlayers array. Array.sort is stable, so re-sorting the previous sort's own
+    // output would let a fully-tied group keep whatever order the PRIOR sort key left
+    // them in (e.g. OVR-descending) instead of falling back to the official order —
+    // exactly the bug where switching Pontos → OVR → Pontos left a tied group stuck in
+    // OVR order even though their position badges still reflect the official one.
+    tablePlayers = [...rankedPlayers].sort((a, b) => {
       let result =
         rankingSortKey === "name"
           ? a.name.localeCompare(b.name)
