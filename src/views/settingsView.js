@@ -1,4 +1,4 @@
-import { store } from "../state/store.js";
+import { store, PELADA_ID_KEY, PELADA_NAME_KEY } from "../state/store.js";
 import { showToast } from "./rankingView.js";
 import {
   loginAdmin,
@@ -6,9 +6,12 @@ import {
   listAdmins,
   addAdminAccount,
   removeAdminAccount,
+  createPelada,
   ADMIN_UID,
 } from "../services/cloudSync.js";
 import { auth } from "../services/firebase.js";
+
+const ROLE_KEY = "bolabate_role_v1";
 
 export function renderSettingsView() {
   const container = document.createElement("div");
@@ -17,6 +20,7 @@ export function renderSettingsView() {
   function render() {
     const canChangeTeamSize =
       store.isAdmin && store.activePelada.status === "idle";
+    const isRootAdmin = store.isAdmin && auth?.currentUser?.uid === ADMIN_UID;
 
     container.innerHTML = `
       <div style="margin-bottom: 20px;">
@@ -73,7 +77,10 @@ export function renderSettingsView() {
         </div>
       </div>
 
-      <!-- Match Format Card -->
+      <!-- Match Format Card (admin-only — regular players have no reason to see this control) -->
+      ${
+        store.isAdmin
+          ? `
       <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
           ⚽ Formato da Pelada
@@ -96,13 +103,14 @@ export function renderSettingsView() {
         </div>
 
         ${
-          !store.isAdmin
-            ? `<p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 10px;">Apenas o admin pode trocar o formato.</p>`
-            : store.activePelada.status !== "idle"
-              ? `<p style="font-size: 0.78rem; color: var(--accent-gold); margin-top: 10px;">⚠️ Termine ou cancele a pelada atual para trocar o formato.</p>`
-              : ""
+          store.activePelada.status !== "idle"
+            ? `<p style="font-size: 0.78rem; color: var(--accent-gold); margin-top: 10px;">⚠️ Termine ou cancele a pelada atual para trocar o formato.</p>`
+            : ""
         }
       </div>
+      `
+          : ""
+      }
 
       <!-- Cloud Sync & Admin Card -->
       <div class="card">
@@ -157,10 +165,42 @@ export function renderSettingsView() {
         }
       </div>
 
+      <!-- Pelada (tenant) Card -->
+      <div class="card">
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          🏟️ Pelada
+        </h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">
+          Você está na pelada <strong>${store.peladaName || store.peladaId}</strong> (ID: ${store.peladaId}).
+        </p>
+        <button id="btn-pelada-logout" class="btn btn-secondary">🚪 Sair da pelada</button>
+
+        ${
+          isRootAdmin
+            ? `
+          <div style="border-top: 1px solid var(--border-color); margin-top: 16px; padding-top: 14px;">
+            <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;">
+              ➕ Criar nova pelada
+            </h3>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+              Visível apenas para o administrador raiz. A nova pelada começa sem nenhum jogador.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <input id="new-pelada-id" type="text" autocomplete="off" autocapitalize="off" placeholder="ID (ex: nomedapelada)" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+              <input id="new-pelada-name" type="text" placeholder="Nome de exibição" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+              <input id="new-pelada-password" type="text" placeholder="Senha compartilhada" style="padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.9rem;" />
+              <button id="btn-create-pelada" class="btn btn-primary">🏟️ Criar Pelada</button>
+            </div>
+          </div>
+        `
+            : ""
+        }
+      </div>
+
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-          📱 BolaBate+ v4.1.1 (Web & Android APK)
+          📱 BolaBate+ v5.0 (Web & Android APK)
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
@@ -215,12 +255,13 @@ export function renderSettingsView() {
       }
       render();
     }
+    // Team-size buttons only exist in the DOM for admins (the whole card is hidden otherwise).
     container
       .querySelector("#team-size-5-btn")
-      .addEventListener("click", () => handleTeamSizeClick(5));
+      ?.addEventListener("click", () => handleTeamSizeClick(5));
     container
       .querySelector("#team-size-6-btn")
-      .addEventListener("click", () => handleTeamSizeClick(6));
+      ?.addEventListener("click", () => handleTeamSizeClick(6));
 
     // Bind Cloud & Admin
     const loginBtn = container.querySelector("#btn-admin-login");
@@ -262,6 +303,52 @@ export function renderSettingsView() {
       });
     }
 
+    // Bind "Sair da pelada" — forgets which pelada this device is signed into
+    // and reloads, which sends the user back to the pelada login splash.
+    container
+      .querySelector("#btn-pelada-logout")
+      .addEventListener("click", () => {
+        openSignOutPeladaModal();
+      });
+
+    // Bind "Criar nova pelada" (root admin only — element only exists in the DOM for them).
+    const createPeladaBtn = container.querySelector("#btn-create-pelada");
+    if (createPeladaBtn) {
+      createPeladaBtn.addEventListener("click", async () => {
+        const id = container
+          .querySelector("#new-pelada-id")
+          .value.trim()
+          .toLowerCase();
+        const name = container.querySelector("#new-pelada-name").value.trim();
+        const password = container.querySelector("#new-pelada-password").value;
+        if (!/^[a-z0-9_-]{3,30}$/.test(id)) {
+          showToast(
+            "⚠️ ID inválido — use 3 a 30 letras minúsculas, números, - ou _.",
+          );
+          return;
+        }
+        if (!password || password.length < 6) {
+          showToast("⚠️ A senha precisa ter pelo menos 6 caracteres.");
+          return;
+        }
+        createPeladaBtn.disabled = true;
+        createPeladaBtn.textContent = "Criando...";
+        const result = await createPelada(id, name, password);
+        if (result.success) {
+          showToast(
+            `🏟️ Pelada "${id}" criada! Compartilhe o ID e a senha com o grupo.`,
+          );
+          container.querySelector("#new-pelada-id").value = "";
+          container.querySelector("#new-pelada-name").value = "";
+          container.querySelector("#new-pelada-password").value = "";
+        } else {
+          showToast("❌ " + result.error);
+        }
+        createPeladaBtn.disabled = false;
+        createPeladaBtn.textContent = "🏟️ Criar Pelada";
+      });
+    }
+
     // Bind Admin Management (list / add / remove) — admin only.
     // NOTE: the elements below only exist in the DOM for admins; guard to avoid
     // crashing the whole settings screen for regular users.
@@ -269,7 +356,7 @@ export function renderSettingsView() {
     async function refreshAdminsList() {
       if (!adminsList) return;
       try {
-        const admins = await listAdmins();
+        const admins = await listAdmins(store.peladaId);
         const currentUid = auth?.currentUser?.uid;
         adminsList.innerHTML = admins
           .map((a) => {
@@ -303,7 +390,7 @@ export function renderSettingsView() {
               return;
             }
             btn.disabled = true;
-            const result = await removeAdminAccount(uid);
+            const result = await removeAdminAccount(uid, store.peladaId);
             if (result.success) {
               showToast(`${email} não é mais administrador.`);
             } else {
@@ -330,7 +417,7 @@ export function renderSettingsView() {
         }
         addAdminBtn.disabled = true;
         addAdminBtn.textContent = "Cadastrando...";
-        const result = await addAdminAccount(email, password);
+        const result = await addAdminAccount(email, password, store.peladaId);
         if (result.success) {
           showToast(`👑 ${email} agora é administrador!`);
           container.querySelector("#new-admin-email").value = "";
@@ -347,4 +434,46 @@ export function renderSettingsView() {
 
   render();
   return container;
+}
+
+/** Confirmation modal for leaving the current pelada (returns the user to the login splash). */
+function openSignOutPeladaModal() {
+  const modalContainer = document.getElementById("modal-container");
+
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="pelada-logout-overlay">
+      <div class="modal-content" style="max-width: 420px;">
+        <div class="modal-header">
+          <h2 class="modal-title">🚪 Sair da pelada?</h2>
+          <button class="modal-close" id="pelada-logout-close" title="Fechar">✕</button>
+        </div>
+
+        <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">
+          <p style="margin-bottom: 4px;">
+            Você vai precisar digitar o ID e a senha da pelada novamente para entrar.
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+          <button id="pelada-logout-cancel" class="btn btn-secondary">Cancelar</button>
+          <button id="pelada-logout-confirm" class="btn btn-danger">Sair da pelada</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => { modalContainer.innerHTML = ""; };
+  const overlay = modalContainer.querySelector("#pelada-logout-overlay");
+  modalContainer.querySelector("#pelada-logout-close").addEventListener("click", close);
+  modalContainer.querySelector("#pelada-logout-cancel").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+
+  modalContainer.querySelector("#pelada-logout-confirm").addEventListener("click", () => {
+    localStorage.removeItem(PELADA_ID_KEY);
+    localStorage.removeItem(PELADA_NAME_KEY);
+    localStorage.removeItem(ROLE_KEY);
+    location.reload();
+  });
 }

@@ -14,8 +14,19 @@ import {
 import { initCloudSync, scheduleCloudPush, pushAvatarConfig, initAvatarSync } from '../services/cloudSync.js';
 
 const STORAGE_KEY = 'bolabate_store_v2';
-const THEME_KEY = 'bolabate_theme_v1';
+const THEME_KEY = 'bolabate_theme_v1'; // device-level UX pref — intentionally NOT scoped per pelada
 const AVATARS_KEY = 'bolabate_avatars_v1';
+
+// Which pelada (tenant) this device is currently signed into. Read once at
+// construction; entering/leaving a pelada always reloads the page (see
+// main.js/settingsView.js) rather than hot-swapping this mid-session.
+export const PELADA_ID_KEY = 'bolabate_pelada_id_v1';
+export const PELADA_NAME_KEY = 'bolabate_pelada_name_v1';
+
+// The original, pre-multi-tenant production dataset was migrated to this pelada id.
+// Its local seed/merge behavior (INITIAL_PLAYERS, INITIAL_MONTHLY_STATS) stays
+// authoritative ONLY for this pelada — every other pelada starts genuinely empty.
+const LEGACY_PELADA_ID = 'bolabate';
 
 // The league's real data starts in August 2026 — no period selector (year or month)
 // should ever offer anything earlier than that, since it can only ever be empty.
@@ -47,6 +58,9 @@ class Store {
     this.cloudStatus = 'connecting';
     this.onBlocked = null;        // set by main.js → shows a toast
     this.onCloudStatus = null;    // set by main.js → UI status updates
+    // Must be set before any load*() call below — every scoped key is derived from it.
+    this.peladaId = localStorage.getItem(PELADA_ID_KEY) || null;
+    this.peladaName = localStorage.getItem(PELADA_NAME_KEY) || this.peladaId || '';
     this.players = this.loadPlayers();
     this.teamSize = this.loadTeamSize(); // 5 (default) or 6 — league-wide match format, synced via cloud
     this.avatars = this.loadAvatars(); // playerId -> avatar config; anyone can edit anyone's, synced independently
@@ -72,36 +86,49 @@ class Store {
     }
   }
 
+  /** Every tenant-scoped localStorage key is namespaced per pelada so switching peladas on the same device never mixes cached data. */
+  scopedKey(suffix) {
+    return `${STORAGE_KEY}${suffix}__${this.peladaId || 'none'}`;
+  }
+
+  avatarsKey() {
+    return `${AVATARS_KEY}__${this.peladaId || 'none'}`;
+  }
+
   loadPlayers() {
     try {
-      const data = localStorage.getItem(STORAGE_KEY + '_players');
+      const data = localStorage.getItem(this.scopedKey('_players'));
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Merge with INITIAL_PLAYERS to ensure official stars and new players exist
-          const map = new Map();
-          parsed.forEach(p => map.set(p.name.toLowerCase(), p));
+          if (this.peladaId === LEGACY_PELADA_ID) {
+            // Merge with INITIAL_PLAYERS to ensure official stars and new players exist —
+            // only for the original migrated pelada; every other pelada manages its own
+            // roster from scratch with zero influence from BolaBate's seed data.
+            const map = new Map();
+            parsed.forEach(p => map.set(p.name.toLowerCase(), p));
 
-          INITIAL_PLAYERS.forEach(seed => {
-            const existing = map.get(seed.name.toLowerCase());
-            if (existing) {
-              existing.stars = seed.stars; // update to official stars
-            } else {
-              parsed.push({ ...seed });
-            }
-          });
+            INITIAL_PLAYERS.forEach(seed => {
+              const existing = map.get(seed.name.toLowerCase());
+              if (existing) {
+                existing.stars = seed.stars; // update to official stars
+              } else {
+                parsed.push({ ...seed });
+              }
+            });
+          }
           return parsed;
         }
       }
     } catch (e) {
       console.error('Error loading players:', e);
     }
-    return JSON.parse(JSON.stringify(INITIAL_PLAYERS));
+    return this.peladaId === LEGACY_PELADA_ID ? JSON.parse(JSON.stringify(INITIAL_PLAYERS)) : [];
   }
 
   loadTeamSize() {
     try {
-      const raw = Number(localStorage.getItem(STORAGE_KEY + '_team_size'));
+      const raw = Number(localStorage.getItem(this.scopedKey('_team_size')));
       return raw === 6 ? 6 : 5;
     } catch (e) {
       return 5;
@@ -126,7 +153,7 @@ class Store {
 
   loadAvatars() {
     try {
-      const data = localStorage.getItem(AVATARS_KEY);
+      const data = localStorage.getItem(this.avatarsKey());
       if (data) return JSON.parse(data);
     } catch (e) {
       console.error('Error loading avatars:', e);
@@ -145,19 +172,19 @@ class Store {
     if (!playerId) return;
     this.avatars[playerId] = config;
     try {
-      localStorage.setItem(AVATARS_KEY, JSON.stringify(this.avatars));
+      localStorage.setItem(this.avatarsKey(), JSON.stringify(this.avatars));
     } catch (e) {
       console.error('Error saving avatars:', e);
     }
     this.notify();
-    pushAvatarConfig(playerId, config).catch((err) => {
+    pushAvatarConfig(playerId, config, this.peladaId).catch((err) => {
       console.error('[avatar] Failed to sync avatar:', err);
     });
   }
 
   loadPelada() {
     try {
-      const data = localStorage.getItem(STORAGE_KEY + '_pelada');
+      const data = localStorage.getItem(this.scopedKey('_pelada'));
       if (data) {
         const parsed = JSON.parse(data);
         if (parsed.status === 'idle') {
@@ -192,7 +219,7 @@ class Store {
 
   loadHistory() {
     try {
-      const data = localStorage.getItem(STORAGE_KEY + '_history');
+      const data = localStorage.getItem(this.scopedKey('_history'));
       if (data) return JSON.parse(data);
     } catch (e) {
       console.error('Error loading history:', e);
@@ -224,12 +251,12 @@ class Store {
   /** Writes only to localStorage — used for offline cache & cloud snapshots. */
   persistLocal() {
     try {
-      localStorage.setItem(STORAGE_KEY + '_players', JSON.stringify(this.players));
-      localStorage.setItem(STORAGE_KEY + '_pelada', JSON.stringify(this.activePelada));
-      localStorage.setItem(STORAGE_KEY + '_history', JSON.stringify(this.history));
-      localStorage.setItem(STORAGE_KEY + '_monthly', JSON.stringify(this.monthlyStats || {}));
-      localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey || '');
-      localStorage.setItem(STORAGE_KEY + '_team_size', String(this.teamSize));
+      localStorage.setItem(this.scopedKey('_players'), JSON.stringify(this.players));
+      localStorage.setItem(this.scopedKey('_pelada'), JSON.stringify(this.activePelada));
+      localStorage.setItem(this.scopedKey('_history'), JSON.stringify(this.history));
+      localStorage.setItem(this.scopedKey('_monthly'), JSON.stringify(this.monthlyStats || {}));
+      localStorage.setItem(this.scopedKey('_selected_period'), this.selectedPeriodKey || '');
+      localStorage.setItem(this.scopedKey('_team_size'), String(this.teamSize));
       localStorage.setItem(THEME_KEY, this.theme);
     } catch (e) {
       console.error('Error saving state:', e);
@@ -253,7 +280,7 @@ class Store {
 
   loadMonthlyStats() {
     try {
-      const data = localStorage.getItem(STORAGE_KEY + '_monthly');
+      const data = localStorage.getItem(this.scopedKey('_monthly'));
       if (data) return JSON.parse(data);
     } catch (e) {
       console.error('Error loading monthly stats:', e);
@@ -263,7 +290,7 @@ class Store {
 
   loadSelectedPeriod() {
     try {
-      return localStorage.getItem(STORAGE_KEY + '_selected_period') || '';
+      return localStorage.getItem(this.scopedKey('_selected_period')) || '';
     } catch (e) {
       return '';
     }
@@ -1021,14 +1048,18 @@ class Store {
       this.monthlyStats = {};
     }
 
-    const seed = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
-    Object.entries(seed).forEach(([key, period]) => {
-      const existing = this.monthlyStats[key];
-      const hasPlayers = existing && existing.players && Object.keys(existing.players).length > 0;
-      if (!hasPlayers) {
-        this.monthlyStats[key] = period;
-      }
-    });
+    // BolaBate's own historical months are only a valid fallback for the migrated
+    // legacy pelada — every other pelada starts with no monthly stats at all.
+    if (this.peladaId === LEGACY_PELADA_ID) {
+      const seed = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+      Object.entries(seed).forEach(([key, period]) => {
+        const existing = this.monthlyStats[key];
+        const hasPlayers = existing && existing.players && Object.keys(existing.players).length > 0;
+        if (!hasPlayers) {
+          this.monthlyStats[key] = period;
+        }
+      });
+    }
 
     this.mergeHistoryIntoMonthly();
     this.syncWinLossStatsFromHistory();
@@ -1130,15 +1161,18 @@ class Store {
 
   rebuildMonthlyStatsFromHistory() {
     try {
-      const seeded = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+      const isLegacyPelada = this.peladaId === LEGACY_PELADA_ID;
+      const seeded = isLegacyPelada ? JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS)) : {};
       const fromHistory = aggregateHistoryToMonthly(this.history || []);
       this.monthlyStats = { ...seeded, ...fromHistory };
 
-      Object.entries(seeded).forEach(([key, period]) => {
-        const existing = this.monthlyStats[key];
-        const hasPlayers = existing && existing.players && Object.keys(existing.players).length > 0;
-        if (!hasPlayers) this.monthlyStats[key] = period;
-      });
+      if (isLegacyPelada) {
+        Object.entries(seeded).forEach(([key, period]) => {
+          const existing = this.monthlyStats[key];
+          const hasPlayers = existing && existing.players && Object.keys(existing.players).length > 0;
+          if (!hasPlayers) this.monthlyStats[key] = period;
+        });
+      }
 
       this.mergeHistoryIntoMonthly();
       this.syncCareerStatsFromMonthly({ silent: true });
@@ -1242,7 +1276,7 @@ class Store {
       this.selectedPeriodKey = this.getPeriodKey(year, month);
     }
     try {
-      localStorage.setItem(STORAGE_KEY + '_selected_period', this.selectedPeriodKey);
+      localStorage.setItem(this.scopedKey('_selected_period'), this.selectedPeriodKey);
     } catch (e) {}
     this.notify();
   }
@@ -1494,9 +1528,10 @@ class Store {
   }
 
   resetToDefaults() {
-    this.players = JSON.parse(JSON.stringify(INITIAL_PLAYERS));
+    const isLegacyPelada = this.peladaId === LEGACY_PELADA_ID;
+    this.players = isLegacyPelada ? JSON.parse(JSON.stringify(INITIAL_PLAYERS)) : [];
     this.history = [];
-    this.monthlyStats = JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS));
+    this.monthlyStats = isLegacyPelada ? JSON.parse(JSON.stringify(INITIAL_MONTHLY_STATS)) : {};
     this.selectedPeriodKey = this.currentPeriodKey();
     this.syncCareerStatsFromMonthly({ silent: true });
     this.activePelada = {

@@ -1,7 +1,8 @@
-﻿// Cloud sync for BolaBate+ — mirrors the local store into a single Firestore
-// document (cloud/state). Admins push changes; everyone else subscribes and
-// receives live updates. Firestore's offline cache keeps the app usable with
-// bad signal, syncing automatically when the connection returns.
+// Cloud sync for BolaBate+ — mirrors the local store into a per-pelada Firestore
+// document (cloud/{peladaId} or cloud-dev/{peladaId}). Admins of that pelada push
+// changes; everyone else who has entered the pelada subscribes and receives live
+// updates. Firestore's offline cache keeps the app usable with bad signal, syncing
+// automatically when the connection returns.
 import {
   collection,
   deleteDoc,
@@ -11,7 +12,7 @@ import {
   onSnapshot,
   setDoc,
 } from "firebase/firestore";
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { auth, db, ADMIN_UID, firebaseConfig, IS_DEV_ENVIRONMENT } from "./firebase.js";
 import {
   createUserWithEmailAndPassword,
@@ -22,30 +23,37 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 
-// Dev/local write to a separate document than prod so testing never touches
-// real league data — same Firebase project, same admins/rules, isolated data.
-const CLOUD_DOC_ID = IS_DEV_ENVIRONMENT ? "state-dev" : "state";
-const CLOUD_DOC = doc(db, "cloud", CLOUD_DOC_ID);
-const ADMINS_COL = collection(db, "admins");
+// Dev/local writes to an entirely separate collection than prod so testing never
+// touches real league data — same Firebase project, same rules, isolated data.
+// Both are keyed by the real peladaId (e.g. "bolabate"), not a fixed doc name.
+const STATE_COLLECTION = IS_DEV_ENVIRONMENT ? "cloud-dev" : "cloud";
 
-// Player avatars live in their own collection (not the single admin-only cloud/state
-// document) since anyone — including anonymous visitors — can write to it.
-const AVATARS_COL_ID = IS_DEV_ENVIRONMENT ? "playerAvatars-dev" : "playerAvatars";
-const AVATARS_COL = collection(db, AVATARS_COL_ID);
+function cloudDocRef(peladaId) {
+  return doc(db, STATE_COLLECTION, peladaId);
+}
+function avatarsColRef(peladaId) {
+  return collection(db, STATE_COLLECTION, peladaId, "avatars");
+}
+function peladaDocRef(peladaId) {
+  return doc(db, "peladas", peladaId);
+}
+function adminsColRef(peladaId) {
+  return collection(db, "peladas", peladaId, "admins");
+}
 
 if (IS_DEV_ENVIRONMENT) {
-  console.info(`[cloud] Dev/local environment — using cloud/${CLOUD_DOC_ID} (production data is untouched).`);
+  console.info(`[cloud] Dev/local environment — using the "${STATE_COLLECTION}" collection (production data is untouched).`);
 }
 
 // Re-exported for the settings UI (bootstrap admin can't be removed)
 export { ADMIN_UID };
 
-/** Admin = bootstrap UID (hardcoded, first admin) OR listed in Firestore admins/. */
-async function isUserAdmin(user) {
-  if (!user) return false;
+/** Admin = bootstrap UID (hardcoded, first admin, admin of every pelada) OR listed in that pelada's admins/ subcollection. */
+async function isUserAdmin(user, peladaId) {
+  if (!user || !peladaId) return false;
   if (user.uid === ADMIN_UID) return true;
   try {
-    const snap = await getDoc(doc(db, "admins", user.uid));
+    const snap = await getDoc(doc(adminsColRef(peladaId), user.uid));
     return snap.exists();
   } catch (err) {
     console.error("[cloud] Admin check failed:", err);
@@ -53,20 +61,21 @@ async function isUserAdmin(user) {
   }
 }
 
-/** Lists all registered admins (admin-only; rules enforce). */
-export async function listAdmins() {
-  const snap = await getDocs(ADMINS_COL);
+/** Lists all registered admins of a pelada (admin-only; rules enforce). */
+export async function listAdmins(peladaId) {
+  if (!peladaId) return [];
+  const snap = await getDocs(adminsColRef(peladaId));
   return snap.docs
     .map((d) => ({ uid: d.id, ...d.data() }))
     .sort((a, b) => String(a.email || "").localeCompare(String(b.email || "")));
 }
 
 /**
- * Signs up a new admin (email + password) and registers them in Firestore.
- * Uses a secondary Firebase app instance so the current admin session on the
- * main app is NOT replaced by the newly created account.
+ * Signs up a new admin (email + password) for the given pelada and registers
+ * them in Firestore. Uses a secondary Firebase app instance so the current
+ * admin session on the main app is NOT replaced by the newly created account.
  */
-export async function addAdminAccount(email, password) {
+export async function addAdminAccount(email, password, peladaId) {
   // Reuse existing secondary app if one was already created (prevents
   // "duplicate app" errors on double-clicks)
   const existingApps = getApps();
@@ -91,16 +100,9 @@ export async function addAdminAccount(email, password) {
       createdAt: new Date().toISOString(),
       createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
     };
-    console.log("[cloud] Writing admins/" + newUid, adminDocData);
-    await setDoc(doc(db, "admins", newUid), adminDocData);
-    console.log("[cloud] admins/" + newUid + " written successfully");
-
-    // Verify the doc was actually created
-    const verifySnap = await getDoc(doc(db, "admins", newUid));
-    console.log(
-      "[cloud] Verification — doc exists:",
-      verifySnap.exists(),
-    );
+    console.log(`[cloud] Writing peladas/${peladaId}/admins/${newUid}`, adminDocData);
+    await setDoc(doc(adminsColRef(peladaId), newUid), adminDocData);
+    console.log("[cloud] admin doc written successfully");
 
     await signOut(secondaryAuth);
     return { success: true, uid: newUid };
@@ -127,17 +129,18 @@ export async function addAdminAccount(email, password) {
   }
 }
 
-/** Removes admin privileges (cannot remove the bootstrap admin). */
-export async function removeAdminAccount(uid) {
+/** Removes admin privileges within one pelada (cannot remove the bootstrap admin). */
+export async function removeAdminAccount(uid, peladaId) {
   if (uid === ADMIN_UID) {
     return {
       success: false,
       error: "O administrador raiz (bootstrap) não pode ser removido.",
     };
   }
-  await deleteDoc(doc(db, "admins", uid));
+  await deleteDoc(doc(adminsColRef(peladaId), uid));
   return { success: true };
 }
+
 const PUSH_DEBOUNCE_MS = 600;
 
 let storeRef = null;
@@ -167,7 +170,10 @@ function applyRemote(data) {
   if (data.writeId && data.writeId === lastWriteId) return;
 
   try {
-    if (Array.isArray(data.players) && data.players.length > 0) {
+    // A brand-new pelada's roster is legitimately empty — must still be applied,
+    // not treated as "no data yet" (that used to leave a stale/seeded local
+    // roster in place forever and let it get pushed back up as if real).
+    if (Array.isArray(data.players)) {
       store.players = data.players;
     }
     if (data.activePelada && data.activePelada.status) {
@@ -192,11 +198,11 @@ function applyRemote(data) {
 }
 
 async function doPush(store) {
-  if (!store.isAdmin) return; // Security Rules also block non-admin writes
+  if (!store.isAdmin || !store.peladaId) return; // Security Rules also block non-admin writes
   const payload = serialize(store);
   lastWriteId = payload.writeId;
   try {
-    pushInFlight = setDoc(CLOUD_DOC, payload, { merge: false });
+    pushInFlight = setDoc(cloudDocRef(store.peladaId), payload, { merge: false });
     await pushInFlight;
     pushInFlight = null;
     setStatus("online");
@@ -208,7 +214,7 @@ async function doPush(store) {
 }
 
 function schedulePush(store) {
-  if (!store.isAdmin) return;
+  if (!store.isAdmin || !store.peladaId) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => doPush(store), PUSH_DEBOUNCE_MS);
 }
@@ -237,11 +243,15 @@ export function initCloudSync(store) {
   let snapshotSubscribed = false;
   function ensureSnapshotSubscription() {
     if (snapshotSubscribed) return;
+    // No pelada chosen yet (splash screen hasn't completed) — nothing to
+    // subscribe to. Entering a pelada reloads the page, so this function
+    // runs again fresh with store.peladaId already set by then.
+    if (!store.peladaId) return;
     snapshotSubscribed = true;
 
     // Live subscription — every signed-in device receives updates instantly
     onSnapshot(
-      CLOUD_DOC,
+      cloudDocRef(store.peladaId),
       (snap) => {
         if (!snap.exists()) {
           setStatus(store.isAdmin ? "admin" : "empty");
@@ -262,7 +272,7 @@ export function initCloudSync(store) {
   // logged in across page refreshes and app restarts. We only fall back to
   // anonymous sign-in when there is NO restored session at all.
   onAuthStateChanged(auth, async (user) => {
-    const newIsAdmin = await isUserAdmin(user);
+    const newIsAdmin = await isUserAdmin(user, store.peladaId);
     const newUserType = user ? (newIsAdmin ? "admin" : "anon") : null;
     const roleChanged = store.isAdmin !== newIsAdmin || store.cloudUserType !== newUserType;
 
@@ -290,10 +300,11 @@ export function initCloudSync(store) {
 let avatarsStarted = false;
 
 /**
- * Live-syncs player avatars — a separate, wide-open collection (anyone signed in, admin or
- * anonymous, can read/write) since customizing an avatar is purely cosmetic and isn't gated
- * like the rest of the league data. Only starts listening once auth resolves, same reasoning
- * as ensureSnapshotSubscription above (a Listen with no auth token yet is rejected for good).
+ * Live-syncs player avatars — a per-pelada subcollection (anyone signed in, admin or
+ * anonymous, who has entered the pelada can read/write) since customizing an avatar is
+ * purely cosmetic and isn't gated like the rest of the league data. Only starts
+ * listening once auth resolves, same reasoning as ensureSnapshotSubscription above (a
+ * Listen with no auth token yet is rejected for good).
  */
 export function initAvatarSync(store) {
   if (avatarsStarted) return;
@@ -302,9 +313,10 @@ export function initAvatarSync(store) {
   let subscribed = false;
   function ensureSubscription() {
     if (subscribed) return;
+    if (!store.peladaId) return; // see ensureSnapshotSubscription's note above
     subscribed = true;
     onSnapshot(
-      AVATARS_COL,
+      avatarsColRef(store.peladaId),
       (snap) => {
         const avatars = {};
         snap.forEach((docSnap) => {
@@ -312,7 +324,7 @@ export function initAvatarSync(store) {
         });
         store.avatars = avatars;
         try {
-          localStorage.setItem("bolabate_avatars_v1", JSON.stringify(avatars));
+          localStorage.setItem(store.avatarsKey(), JSON.stringify(avatars));
         } catch (e) {
           // ignore — in-memory state is still correct
         }
@@ -327,9 +339,10 @@ export function initAvatarSync(store) {
   });
 }
 
-/** Saves one player's avatar config — callable by anyone, admin or anonymous. */
-export async function pushAvatarConfig(playerId, config) {
-  await setDoc(doc(AVATARS_COL, playerId), {
+/** Saves one player's avatar config — callable by anyone, admin or anonymous, inside a pelada. */
+export async function pushAvatarConfig(playerId, config, peladaId) {
+  if (!peladaId) return;
+  await setDoc(doc(avatarsColRef(peladaId), playerId), {
     config,
     updatedAt: new Date().toISOString(),
   });
@@ -344,7 +357,7 @@ export async function pushStateNow(store) {
   await doPush(store);
 }
 
-/** Admin email/password login. */
+/** Admin email/password login (still global to a Firebase Auth account — admin *status* is what's scoped per pelada). */
 export async function loginAdmin(email, password) {
   const cred = await signInWithEmailAndPassword(auth, email, password);
   return cred.user;
@@ -356,13 +369,143 @@ export async function logoutAdmin() {
   await signInAnonymously(auth).catch(() => {});
 }
 
-/** Used by the migration helper: checks whether the cloud doc already exists. */
 /** Clears the local admin cache (useful for troubleshooting). */
 export function clearAdminCache() {
   localStorage.removeItem("bolabate_admin_cache");
 }
 
-export async function cloudStateExists() {
-  const snap = await getDoc(CLOUD_DOC);
+export async function cloudStateExists(peladaId) {
+  const snap = await getDoc(cloudDocRef(peladaId));
   return snap.exists();
+}
+
+// --- Pelada (tenant) login / creation ---
+// The pelada id+password is a single SHARED passphrase (like a room code) — anyone
+// who knows it gets into that pelada as a base "player". It's layered underneath,
+// and separate from, the personal admin email/password login above. Verifying it
+// requires an authenticated (even anonymous) Firestore session, since peladas/{id}
+// must be readable pre-login (see firestore.rules) — waitForAuthUser covers the
+// brief window before the automatic anonymous sign-in above completes.
+const DEFAULT_PBKDF2_ITERATIONS = 100000;
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return bytes;
+}
+function randomSaltHex(byteLength = 16) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+async function hashPassword(password, saltHex, iterations) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: hexToBytes(saltHex), iterations },
+    keyMaterial,
+    256,
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+function waitForAuthUser(timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    if (auth.currentUser) {
+      resolve(auth.currentUser);
+      return;
+    }
+    const timer = setTimeout(() => {
+      unsub();
+      reject(new Error("Tempo esgotado conectando. Verifique sua internet e tente novamente."));
+    }, timeoutMs);
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        clearTimeout(timer);
+        unsub();
+        resolve(user);
+      }
+    });
+  });
+}
+
+/** Verifies a pelada login attempt (id + shared password). Does not sign anyone in — it's not a personal account. */
+export async function verifyPeladaLogin(peladaId, password) {
+  await waitForAuthUser();
+  const snap = await getDoc(peladaDocRef(peladaId));
+  if (!snap.exists()) {
+    return { success: false, error: "Pelada não encontrada. Verifique o ID." };
+  }
+  const data = snap.data();
+  const hash = await hashPassword(password, data.passwordSalt, data.iterations || DEFAULT_PBKDF2_ITERATIONS);
+  if (hash !== data.passwordHash) {
+    return { success: false, error: "Senha incorreta." };
+  }
+  return { success: true, name: data.name || peladaId };
+}
+
+// Mirrors the default `activePelada` shape store.js's loadPelada() falls back to —
+// keep the two in sync if that shape ever changes.
+function createEmptyActivePelada() {
+  return {
+    status: "idle",
+    teamCount: 4,
+    presentPlayerIds: [],
+    diaristaPlayerIds: [],
+    teams: [],
+    stats: {},
+    departedPlayerIds: [],
+    guestSlots: [],
+    events: [],
+    rotation: null,
+  };
+}
+
+/** Root-admin-only: creates a brand-new, empty pelada (enforced server-side by firestore.rules). */
+export async function createPelada(peladaId, name, password) {
+  await waitForAuthUser();
+  const existing = await getDoc(peladaDocRef(peladaId));
+  if (existing.exists()) {
+    return { success: false, error: "Já existe uma pelada com esse ID." };
+  }
+  const salt = randomSaltHex();
+  const passwordHash = await hashPassword(password, salt, DEFAULT_PBKDF2_ITERATIONS);
+  const now = new Date().toISOString();
+  const createdBy = auth.currentUser ? auth.currentUser.uid : "unknown";
+
+  await setDoc(peladaDocRef(peladaId), {
+    id: peladaId,
+    name: name || peladaId,
+    passwordHash,
+    passwordSalt: salt,
+    iterations: DEFAULT_PBKDF2_ITERATIONS,
+    createdAt: now,
+    createdBy,
+  });
+
+  const emptyState = {
+    players: [],
+    activePelada: createEmptyActivePelada(),
+    history: [],
+    monthlyStats: {},
+    teamSize: 5,
+    savedAt: now,
+    savedBy: createdBy,
+    writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  };
+  // Seed both environments' state docs so dev testing of the new pelada doesn't
+  // 404 against a doc that only exists in prod.
+  await setDoc(doc(db, "cloud", peladaId), emptyState);
+  await setDoc(doc(db, "cloud-dev", peladaId), emptyState);
+
+  return { success: true };
 }

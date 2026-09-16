@@ -1,4 +1,4 @@
-import { store } from "./state/store.js";
+import { store, PELADA_ID_KEY, PELADA_NAME_KEY } from "./state/store.js";
 import { renderPeladaView } from "./views/peladaView.js";
 import { renderPlayersView } from "./views/playersView.js";
 import { renderRankingView } from "./views/rankingView.js";
@@ -7,6 +7,7 @@ import { renderSettingsView } from "./views/settingsView.js";
 import { renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
 import { showToast } from "./views/rankingView.js";
 import { openPlayerComparison } from "./views/playerComparisonView.js";
+import { verifyPeladaLogin } from "./services/cloudSync.js";
 
 const ROLE_KEY = "bolabate_role_v1";
 
@@ -220,6 +221,13 @@ function initApp() {
     }
   });
 
+  // Gate 1: must be signed into a pelada (shared id+password) before anything
+  // else renders. Gate 2 (existing role splash) only runs once that's settled.
+  if (!store.peladaId) {
+    showPeladaLoginSplash();
+    return;
+  }
+
   // Show splash on first launch, else go straight to shell
   const savedRole = localStorage.getItem(ROLE_KEY);
   if (!savedRole) {
@@ -234,6 +242,81 @@ function initApp() {
   } else {
     renderShell();
   }
+}
+
+/**
+ * Renders the pelada (tenant) sign-in splash directly into <body> — blocks the
+ * whole app until a valid pelada id+password is entered. Once entered, the
+ * choice is remembered (localStorage) and the page reloads so the store
+ * constructor picks up the right pelada-scoped data from the start (see
+ * store.js's PELADA_ID_KEY / scopedKey()) rather than trying to hot-swap it.
+ */
+function showPeladaLoginSplash() {
+  store.applyTheme(store.theme);
+
+  const el = document.createElement("div");
+  el.id = "splash-screen";
+  el.innerHTML = `
+    <div class="splash-logo-wrap">
+      <div class="splash-logo-icon">⚽</div>
+      <div>
+        <div class="splash-logo-title">BolaBate<span class="splash-plus">+</span></div>
+        <div class="splash-logo-subtitle">Gestão de Pelada</div>
+      </div>
+    </div>
+
+    <div class="splash-welcome">
+      <h2>Entrar na sua pelada</h2>
+      <p>Digite o ID e a senha da sua pelada para continuar.</p>
+    </div>
+
+    <form id="pelada-login-form" class="splash-actions" style="max-width: 300px;">
+      <input id="pelada-login-id" type="text" autocomplete="off" autocapitalize="off" placeholder="ID da pelada" style="width: 100%; box-sizing: border-box; padding: 14px 16px; border-radius: 14px; border: 1px solid #1F2937; background: rgba(255,255,255,0.04); color: #F8FAFC; font-size: 1rem;" />
+      <input id="pelada-login-password" type="password" placeholder="Senha" style="width: 100%; box-sizing: border-box; padding: 14px 16px; border-radius: 14px; border: 1px solid #1F2937; background: rgba(255,255,255,0.04); color: #F8FAFC; font-size: 1rem;" />
+      <p id="pelada-login-error" style="display:none; color: #F87171; font-size: 0.82rem; margin: 0;"></p>
+      <button id="btn-pelada-login" type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Entrar</button>
+    </form>
+  `;
+
+  document.body.appendChild(el);
+
+  const form = el.querySelector("#pelada-login-form");
+  const idInput = el.querySelector("#pelada-login-id");
+  const passwordInput = el.querySelector("#pelada-login-password");
+  const errorEl = el.querySelector("#pelada-login-error");
+  const submitBtn = el.querySelector("#btn-pelada-login");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const peladaId = idInput.value.trim().toLowerCase();
+    const password = passwordInput.value;
+    if (!peladaId || !password) {
+      errorEl.textContent = "Preencha o ID e a senha da pelada.";
+      errorEl.style.display = "block";
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Entrando...";
+    errorEl.style.display = "none";
+    try {
+      const result = await verifyPeladaLogin(peladaId, password);
+      if (!result.success) {
+        errorEl.textContent = result.error || "Não foi possível entrar.";
+        errorEl.style.display = "block";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Entrar";
+        return;
+      }
+      localStorage.setItem(PELADA_ID_KEY, peladaId);
+      localStorage.setItem(PELADA_NAME_KEY, result.name || peladaId);
+      location.reload();
+    } catch (err) {
+      errorEl.textContent = "Erro ao conectar: " + err.message;
+      errorEl.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Entrar";
+    }
+  });
 }
 
 /**
