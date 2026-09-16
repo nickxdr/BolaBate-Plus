@@ -22,6 +22,10 @@ const AVATARS_KEY = 'bolabate_avatars_v1';
 // main.js/settingsView.js) rather than hot-swapping this mid-session.
 export const PELADA_ID_KEY = 'bolabate_pelada_id_v1';
 export const PELADA_NAME_KEY = 'bolabate_pelada_name_v1';
+// Set right before a forced reload when the server tells us this pelada got
+// blocked mid-session (see cloudSync.js's pelada-status subscription) — read
+// once by the login splash to show the "renew your subscription" message.
+export const PELADA_BLOCKED_KEY = 'bolabate_pelada_blocked_v1';
 
 // The original, pre-multi-tenant production dataset was migrated to this pelada id.
 // Its local seed/merge behavior (INITIAL_PLAYERS, INITIAL_MONTHLY_STATS) stays

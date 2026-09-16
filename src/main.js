@@ -1,4 +1,4 @@
-import { store, PELADA_ID_KEY, PELADA_NAME_KEY } from "./state/store.js";
+import { store, PELADA_ID_KEY, PELADA_NAME_KEY, PELADA_BLOCKED_KEY } from "./state/store.js";
 import { renderPeladaView } from "./views/peladaView.js";
 import { renderPlayersView } from "./views/playersView.js";
 import { renderRankingView } from "./views/rankingView.js";
@@ -285,6 +285,14 @@ function showPeladaLoginSplash() {
   const passwordInput = el.querySelector("#pelada-login-password");
   const errorEl = el.querySelector("#pelada-login-error");
   const submitBtn = el.querySelector("#btn-pelada-login");
+
+  // Set by cloudSync.js right before it force-reloads someone whose pelada just
+  // got blocked mid-session — show it once, then clear it.
+  if (localStorage.getItem(PELADA_BLOCKED_KEY)) {
+    localStorage.removeItem(PELADA_BLOCKED_KEY);
+    errorEl.textContent = "Assinatura expirada. Fale com o administrador da pelada para renovar o acesso.";
+    errorEl.style.display = "block";
+  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();

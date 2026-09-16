@@ -41,6 +41,13 @@ function adminsColRef(peladaId) {
   return collection(db, "peladas", peladaId, "admins");
 }
 
+// Duplicated string literals (store.js owns the canonical exported constants) —
+// kept as plain consts here rather than importing store.js, to avoid a circular
+// import (store.js already imports this module).
+const PELADA_ID_KEY = "bolabate_pelada_id_v1";
+const PELADA_NAME_KEY = "bolabate_pelada_name_v1";
+const PELADA_BLOCKED_KEY = "bolabate_pelada_blocked_v1";
+
 if (IS_DEV_ENVIRONMENT) {
   console.info(`[cloud] Dev/local environment — using the "${STATE_COLLECTION}" collection (production data is untouched).`);
 }
@@ -267,6 +274,34 @@ export function initCloudSync(store) {
     );
   }
 
+  // Watches this device's own pelada for the root admin flipping `blocked` to
+  // true — takes effect immediately for anyone already logged in, not just on
+  // their next visit (this is a `get`-type Listen on a single doc, which stays
+  // allowed by firestore.rules' `allow get` even once the pelada is blocked, so
+  // the device still finds out).
+  let peladaStatusSubscribed = false;
+  function ensurePeladaStatusSubscription() {
+    if (peladaStatusSubscribed) return;
+    if (!store.peladaId) return;
+    peladaStatusSubscribed = true;
+    onSnapshot(
+      peladaDocRef(store.peladaId),
+      (snap) => {
+        if (snap.exists() && snap.data().blocked) {
+          try {
+            localStorage.removeItem(PELADA_ID_KEY);
+            localStorage.removeItem(PELADA_NAME_KEY);
+            localStorage.setItem(PELADA_BLOCKED_KEY, "1");
+          } catch (e) {
+            // ignore — reload still kicks them back to the login splash either way
+          }
+          location.reload();
+        }
+      },
+      (err) => console.error("[cloud] Pelada status subscription error:", err),
+    );
+  }
+
   // Track auth state → sets store.isAdmin (admin UID) or anonymous (read-only).
   // Firebase persists the session automatically, so a returning admin stays
   // logged in across page refreshes and app restarts. We only fall back to
@@ -294,6 +329,7 @@ export function initCloudSync(store) {
     }
 
     ensureSnapshotSubscription();
+    ensurePeladaStatusSubscription();
   });
 }
 
@@ -448,9 +484,31 @@ export async function verifyPeladaLogin(peladaId, password) {
   const data = snap.data();
   const hash = await hashPassword(password, data.passwordSalt, data.iterations || DEFAULT_PBKDF2_ITERATIONS);
   if (hash !== data.passwordHash) {
+    // Deliberately checked before the blocked flag below, so someone without the
+    // real password can't use this to probe whether a given pelada id is blocked.
     return { success: false, error: "Senha incorreta." };
   }
+  if (data.blocked) {
+    return {
+      success: false,
+      blocked: true,
+      error: "Assinatura expirada. Fale com o administrador da pelada para renovar o acesso.",
+    };
+  }
   return { success: true, name: data.name || peladaId };
+}
+
+/** Root-admin-only: lists every pelada that exists (enforced by firestore.rules' `list` restriction). */
+export async function listAllPeladas() {
+  const snap = await getDocs(collection(db, "peladas"));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+}
+
+/** Root-admin-only: blocks/unblocks a pelada — enforced server-side by firestore.rules (see isPeladaBlocked). */
+export async function setPeladaBlocked(peladaId, blocked) {
+  await setDoc(peladaDocRef(peladaId), { blocked }, { merge: true });
 }
 
 // Mirrors the default `activePelada` shape store.js's loadPelada() falls back to —
@@ -488,6 +546,7 @@ export async function createPelada(peladaId, name, password) {
     passwordHash,
     passwordSalt: salt,
     iterations: DEFAULT_PBKDF2_ITERATIONS,
+    blocked: false,
     createdAt: now,
     createdBy,
   });
