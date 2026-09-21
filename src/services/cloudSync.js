@@ -40,9 +40,6 @@ function peladaDocRef(peladaId) {
 function adminsColRef(peladaId) {
   return collection(db, "peladas", peladaId, "admins");
 }
-function inviteLinksColRef(peladaId) {
-  return collection(db, "peladas", peladaId, "inviteLinks");
-}
 
 // Duplicated string literals (store.js owns the canonical exported constants) —
 // kept as plain consts here rather than importing store.js, to avoid a circular
@@ -523,51 +520,37 @@ export async function verifyPeladaLogin(peladaId, password) {
   return { success: true, name: data.name || peladaId };
 }
 
-// --- Invite links ---
-// A revocable alternative to typing the shared password: whoever opens the link
-// (?pelada=<id>&invite=<token>, built in settingsView.js) is let straight in.
-// The token is an opaque random doc id under peladas/{peladaId}/inviteLinks — it
-// carries no secret material itself (unlike the password, nothing is hashed),
-// so redeeming it is just "does this doc still exist", and revoking it is just
-// deleting the doc.
+// --- Invite link ---
+// A single permanent per-pelada alternative to typing the shared password:
+// whoever opens the link (?pelada=<id>&invite=<token>, built in settingsView.js)
+// is let straight in. Exactly one token exists per pelada, stored as a plain
+// field on its own peladas/{peladaId} doc (not a subcollection) — "get or
+// create" always returns the same link once one has been generated, which is
+// what makes it a stable, shareable link rather than a one-shot invite.
 
-/** Any of the pelada's own admins (not root-only) can mint a new invite link. */
-export async function createPeladaInviteLink(peladaId) {
+/** Any of the pelada's own admins (not root-only) can fetch/mint this pelada's one permanent invite token. */
+export async function getOrCreatePeladaInviteToken(peladaId) {
   await waitForAuthUser();
+  const snap = await getDoc(peladaDocRef(peladaId));
+  const existing = snap.exists() ? snap.data().inviteToken : null;
+  if (existing) return existing;
+
   const token = randomSaltHex(16); // 32 hex chars — 128 bits, not brute-forceable
-  await setDoc(doc(inviteLinksColRef(peladaId), token), {
-    createdAt: new Date().toISOString(),
-    createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
-  });
+  await setDoc(peladaDocRef(peladaId), { inviteToken: token }, { merge: true });
   return token;
 }
 
-/** Lists a pelada's active invite links (admin-only; rules enforce). */
-export async function listPeladaInviteLinks(peladaId) {
-  if (!peladaId) return [];
-  const snap = await getDocs(inviteLinksColRef(peladaId));
-  return snap.docs
-    .map((d) => ({ token: d.id, ...d.data() }))
-    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-}
-
-/** Revokes one invite link — it stops working immediately, the shared password is untouched. */
-export async function revokePeladaInviteLink(peladaId, token) {
-  await deleteDoc(doc(inviteLinksColRef(peladaId), token));
-}
-
-/** Redeems an invite link in place of the shared password. Same shape/semantics as verifyPeladaLogin. */
+/** Redeems the invite link in place of the shared password. Same shape/semantics as verifyPeladaLogin. */
 export async function loginWithInviteToken(peladaId, token) {
   await waitForAuthUser();
   const peladaSnap = await getDoc(peladaDocRef(peladaId));
   if (!peladaSnap.exists()) {
     return { success: false, error: "Pelada não encontrada." };
   }
-  const tokenSnap = await getDoc(doc(inviteLinksColRef(peladaId), token));
-  if (!tokenSnap.exists()) {
-    return { success: false, error: "Link de convite inválido ou revogado." };
-  }
   const data = peladaSnap.data();
+  if (!data.inviteToken || data.inviteToken !== token) {
+    return { success: false, error: "Link de convite inválido." };
+  }
   if (data.blocked) {
     return {
       success: false,

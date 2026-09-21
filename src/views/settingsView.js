@@ -9,9 +9,7 @@ import {
   createPelada,
   listAllPeladas,
   setPeladaBlocked,
-  createPeladaInviteLink,
-  listPeladaInviteLinks,
-  revokePeladaInviteLink,
+  getOrCreatePeladaInviteToken,
   ADMIN_UID,
 } from "../services/cloudSync.js";
 import { auth } from "../services/firebase.js";
@@ -201,32 +199,20 @@ export function renderSettingsView(navigateTo) {
 
       <!-- Pelada (tenant) Card -->
       <div class="card">
-        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-          🏟️ Pelada
-        </h2>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;">
+          <h2 style="font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
+            🏟️ Pelada
+          </h2>
+          ${
+            store.isAdmin
+              ? `<button id="btn-copy-invite-link" class="btn btn-secondary btn-sm" title="Copiar link de acesso — entra direto na pelada, sem senha">🔗 Copiar link</button>`
+              : ""
+          }
+        </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">
           Você está na pelada <strong>${escapeHtml(store.peladaName || store.peladaId)}</strong> (ID: ${escapeHtml(store.peladaId)}).
         </p>
         <button id="btn-pelada-logout" class="btn btn-secondary">🚪 Sair da pelada</button>
-
-        ${
-          store.isAdmin
-            ? `
-          <div style="border-top: 1px solid var(--border-color); margin-top: 16px; padding-top: 14px;">
-            <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;">
-              🔗 Link de acesso
-            </h3>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-              Qualquer pessoa com esse link entra direto nesta pelada, sem digitar a senha. Você pode revogar cada link individualmente, sem afetar a senha compartilhada.
-            </p>
-            <button id="btn-generate-invite-link" class="btn btn-secondary" style="margin-bottom: 10px;">🔗 Gerar novo link</button>
-            <div id="invite-links-list" style="display: flex; flex-direction: column; gap: 6px;">
-              <span style="font-size: 0.8rem; color: var(--text-muted);">Carregando links...</span>
-            </div>
-          </div>
-        `
-            : ""
-        }
 
         ${
           isRootAdmin
@@ -390,68 +376,20 @@ export function renderSettingsView(navigateTo) {
         openSignOutPeladaModal();
       });
 
-    // Bind "Link de acesso" (any admin of this pelada — element only exists in the DOM for them).
-    const inviteLinksList = container.querySelector("#invite-links-list");
-    async function refreshInviteLinksList() {
-      if (!inviteLinksList) return;
-      try {
-        const links = await listPeladaInviteLinks(store.peladaId);
-        if (links.length === 0) {
-          inviteLinksList.innerHTML = `<span style="font-size: 0.8rem; color: var(--text-muted);">Nenhum link ativo ainda.</span>`;
-          return;
-        }
-        inviteLinksList.innerHTML = links
-          .map((link) => {
-            const created = link.createdAt ? new Date(link.createdAt).toLocaleDateString("pt-BR") : "";
-            return `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary);">
-              <div style="min-width: 0; font-size: 0.8rem; color: var(--text-muted);">Criado em ${created}</div>
-              <div style="display: flex; gap: 6px; flex-shrink: 0;">
-                <button class="btn btn-secondary btn-sm btn-copy-invite-link" data-token="${link.token}" title="Copiar link">📋 Copiar</button>
-                <button class="btn btn-danger btn-sm btn-revoke-invite-link" data-token="${link.token}" title="Revogar link">🗑️</button>
-              </div>
-            </div>
-          `;
-          })
-          .join("");
-        inviteLinksList.querySelectorAll(".btn-copy-invite-link").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            copyInviteLinkToClipboard(buildInviteLinkUrl(store.peladaId, btn.getAttribute("data-token")));
-          });
-        });
-        inviteLinksList.querySelectorAll(".btn-revoke-invite-link").forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            btn.disabled = true;
-            try {
-              await revokePeladaInviteLink(store.peladaId, btn.getAttribute("data-token"));
-              showToast("🗑️ Link revogado.");
-              refreshInviteLinksList();
-            } catch (err) {
-              showToast("❌ " + err.message);
-              btn.disabled = false;
-            }
-          });
-        });
-      } catch (err) {
-        inviteLinksList.innerHTML = `<span style="font-size: 0.8rem; color: var(--accent-red);">Não foi possível carregar os links.</span>`;
-      }
-    }
-    refreshInviteLinksList();
-
-    const generateInviteLinkBtn = container.querySelector("#btn-generate-invite-link");
-    if (generateInviteLinkBtn) {
-      generateInviteLinkBtn.addEventListener("click", async () => {
-        generateInviteLinkBtn.disabled = true;
-        generateInviteLinkBtn.textContent = "Gerando...";
+    // Bind "Copiar link" (any admin of this pelada — element only exists in the DOM for them).
+    // One permanent link per pelada: first click generates it, every click after
+    // that just fetches the same token again — always copies straight to the clipboard.
+    const copyInviteLinkBtn = container.querySelector("#btn-copy-invite-link");
+    if (copyInviteLinkBtn) {
+      copyInviteLinkBtn.addEventListener("click", async () => {
+        copyInviteLinkBtn.disabled = true;
         try {
-          const token = await createPeladaInviteLink(store.peladaId);
-          openInviteLinkModal(buildInviteLinkUrl(store.peladaId, token));
-          refreshInviteLinksList();
+          const token = await getOrCreatePeladaInviteToken(store.peladaId);
+          await copyInviteLinkToClipboard(buildInviteLinkUrl(store.peladaId, token));
         } catch (err) {
           showToast("❌ " + err.message);
         }
-        generateInviteLinkBtn.disabled = false;
-        generateInviteLinkBtn.textContent = "🔗 Gerar novo link";
+        copyInviteLinkBtn.disabled = false;
       });
     }
 
@@ -685,49 +623,6 @@ async function copyInviteLinkToClipboard(url) {
   } catch (err) {
     showToast("⚠️ Não foi possível copiar automaticamente — selecione e copie o link manualmente.");
   }
-}
-
-/** Shows a freshly generated invite link with a one-click copy button. */
-function openInviteLinkModal(url) {
-  const modalContainer = document.getElementById("modal-container");
-
-  modalContainer.innerHTML = `
-    <div class="modal-overlay" id="invite-link-overlay">
-      <div class="modal-content" style="max-width: 460px;">
-        <div class="modal-header">
-          <h2 class="modal-title">🔗 Link de acesso gerado</h2>
-          <button class="modal-close" id="invite-link-close" title="Fechar">✕</button>
-        </div>
-
-        <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">
-          <p style="margin-bottom: 10px;">
-            Compartilhe esse link com quem você quer dar acesso — ele entra direto na pelada, sem precisar da senha.
-          </p>
-          <input id="invite-link-input" type="text" readonly value="${url.replace(/"/g, "&quot;")}" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-main); font-size: 0.85rem; margin-bottom: 14px;" />
-        </div>
-
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button id="invite-link-done" class="btn btn-secondary">Fechar</button>
-          <button id="invite-link-copy" class="btn btn-primary">📋 Copiar link</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  const close = () => { modalContainer.innerHTML = ""; };
-  const overlay = modalContainer.querySelector("#invite-link-overlay");
-  modalContainer.querySelector("#invite-link-close").addEventListener("click", close);
-  modalContainer.querySelector("#invite-link-done").addEventListener("click", close);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-
-  const input = modalContainer.querySelector("#invite-link-input");
-  input.addEventListener("click", () => input.select());
-
-  modalContainer.querySelector("#invite-link-copy").addEventListener("click", () => {
-    copyInviteLinkToClipboard(url);
-  });
 }
 
 /** Root-admin-only confirmation modal for blocking/unblocking one pelada's access. */
