@@ -13,7 +13,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { initializeApp, getApps } from "firebase/app";
-import { auth, db, ADMIN_UID, firebaseConfig, IS_DEV_ENVIRONMENT } from "./firebase.js";
+import { auth, db, ADMIN_UID, isRootAdminUid, firebaseConfig, IS_DEV_ENVIRONMENT } from "./firebase.js";
 import {
   createUserWithEmailAndPassword,
   getAuth as getSecondaryAuth,
@@ -58,13 +58,13 @@ if (IS_DEV_ENVIRONMENT) {
   console.info(`[cloud] Dev/local environment — using the "${STATE_COLLECTION}" collection (production data is untouched).`);
 }
 
-// Re-exported for the settings UI (bootstrap admin can't be removed)
-export { ADMIN_UID };
+// Re-exported for the settings UI (root admins can't be removed)
+export { ADMIN_UID, isRootAdminUid };
 
-/** Admin = bootstrap UID (hardcoded, first admin, admin of every pelada) OR listed in that pelada's admins/ subcollection. */
+/** Admin = a root admin (hardcoded, admin of every pelada) OR listed in that pelada's admins/ subcollection. */
 async function isUserAdmin(user, peladaId) {
   if (!user || !peladaId) return false;
-  if (user.uid === ADMIN_UID) return true;
+  if (isRootAdminUid(user.uid)) return true;
   try {
     const snap = await getDoc(doc(adminsColRef(peladaId), user.uid));
     return snap.exists();
@@ -142,12 +142,12 @@ export async function addAdminAccount(email, password, peladaId) {
   }
 }
 
-/** Removes admin privileges within one pelada (cannot remove the bootstrap admin). */
+/** Removes admin privileges within one pelada (cannot remove a root admin). */
 export async function removeAdminAccount(uid, peladaId) {
-  if (uid === ADMIN_UID) {
+  if (isRootAdminUid(uid)) {
     return {
       success: false,
-      error: "O administrador raiz (bootstrap) não pode ser removido.",
+      error: "Um administrador raiz não pode ser removido.",
     };
   }
   await deleteDoc(doc(adminsColRef(peladaId), uid));

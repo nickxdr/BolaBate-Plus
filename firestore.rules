@@ -10,8 +10,15 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Root admins can create/block peladas app-wide. Keep this list in sync
+    // with ROOT_ADMIN_UIDS in src/services/firebase.js.
     function isBootstrapAdmin() {
-      return request.auth.uid == "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
+      return request.auth != null && request.auth.uid in [
+        "ArLRIkCZT7VNTa7nmvpjUOGpoWh2", // Nicolas (bootstrap)
+        "YQBAXtdEILSaXPyOeQPffdWdOW22", // ajcnm@bolabate.com
+        "q3nFDLZxvDT8GE7LT0RZJ1I58kY2", // lmt@bolabate.com
+        "ggD39b9aDngtXgH1DZtBp9CUBfH2"  // agtjr@bolabate.com
+      ];
     }
 
     function isRegisteredAdmin() {
@@ -115,7 +122,13 @@ service cloud.firestore {
     match /admins/{uid} {
       allow read: if request.auth != null;
       allow create, update: if isAdmin();
-      allow delete: if isAdmin() && uid != "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
+      // A root admin can never be removed from this list via the app.
+      allow delete: if isAdmin() && !(uid in [
+        "ArLRIkCZT7VNTa7nmvpjUOGpoWh2",
+        "YQBAXtdEILSaXPyOeQPffdWdOW22",
+        "q3nFDLZxvDT8GE7LT0RZJ1I58kY2",
+        "ggD39b9aDngtXgH1DZtBp9CUBfH2"
+      ]);
     }
 
     // Player avatars — purely cosmetic (Mii/Duolingo-style creator), so anyone signed

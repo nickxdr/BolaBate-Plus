@@ -19,7 +19,21 @@ export const firebaseConfig = {
   appId: "1:828299661968:web:1d4611e0155f7e78f07e15",
 };
 
-export const ADMIN_UID = "ArLRIkCZT7VNTa7nmvpjUOGpoWh2";
+// Root admins can create/block peladas app-wide — keep this list in sync with
+// isBootstrapAdmin() in firestore.rules. ADMIN_UID keeps pointing at the
+// original bootstrap account for code that just needs "a" root identity (e.g.
+// labeling it non-removable in an admin list); isRootAdminUid() is what
+// actually decides root-admin status everywhere else.
+export const ROOT_ADMIN_UIDS = [
+  "ArLRIkCZT7VNTa7nmvpjUOGpoWh2", // Nicolas (bootstrap)
+  "YQBAXtdEILSaXPyOeQPffdWdOW22", // ajcnm@bolabate.com
+  "q3nFDLZxvDT8GE7LT0RZJ1I58kY2", // lmt@bolabate.com
+  "ggD39b9aDngtXgH1DZtBp9CUBfH2", // agtjr@bolabate.com
+];
+export const ADMIN_UID = ROOT_ADMIN_UIDS[0];
+export function isRootAdminUid(uid) {
+  return ROOT_ADMIN_UIDS.includes(uid);
+}
 
 // Dev/local and prod share this one Firebase project (same Auth users, same
 // security rules) but must NEVER share the same data document — see

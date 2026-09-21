@@ -10,7 +10,7 @@ import {
   listAllPeladas,
   setPeladaBlocked,
   getOrCreatePeladaInviteToken,
-  ADMIN_UID,
+  isRootAdminUid,
 } from "../services/cloudSync.js";
 import { auth } from "../services/firebase.js";
 
@@ -37,7 +37,7 @@ export function renderSettingsView(navigateTo) {
   function render() {
     const canChangeTeamSize =
       store.isAdmin && store.activePelada.status === "idle";
-    const isRootAdmin = store.isAdmin && auth?.currentUser?.uid === ADMIN_UID;
+    const isRootAdmin = store.isAdmin && isRootAdminUid(auth?.currentUser?.uid);
 
     container.innerHTML = `
       <div style="margin-bottom: 20px;">
@@ -487,7 +487,7 @@ export function renderSettingsView(navigateTo) {
         adminsList.innerHTML = admins
           .map((a) => {
             const isSelf = a.uid === currentUid;
-            const isRoot = a.uid === ADMIN_UID;
+            const isRoot = isRootAdminUid(a.uid);
             const canRemove = !isSelf && !isRoot;
             return `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary);">
