@@ -40,6 +40,9 @@ function peladaDocRef(peladaId) {
 function adminsColRef(peladaId) {
   return collection(db, "peladas", peladaId, "admins");
 }
+function inviteLinksColRef(peladaId) {
+  return collection(db, "peladas", peladaId, "inviteLinks");
+}
 
 // Duplicated string literals (store.js owns the canonical exported constants) —
 // kept as plain consts here rather than importing store.js, to avoid a circular
@@ -510,6 +513,61 @@ export async function verifyPeladaLogin(peladaId, password) {
     // real password can't use this to probe whether a given pelada id is blocked.
     return { success: false, error: "Senha incorreta." };
   }
+  if (data.blocked) {
+    return {
+      success: false,
+      blocked: true,
+      error: "Assinatura expirada. Fale com o administrador da pelada para renovar o acesso.",
+    };
+  }
+  return { success: true, name: data.name || peladaId };
+}
+
+// --- Invite links ---
+// A revocable alternative to typing the shared password: whoever opens the link
+// (?pelada=<id>&invite=<token>, built in settingsView.js) is let straight in.
+// The token is an opaque random doc id under peladas/{peladaId}/inviteLinks — it
+// carries no secret material itself (unlike the password, nothing is hashed),
+// so redeeming it is just "does this doc still exist", and revoking it is just
+// deleting the doc.
+
+/** Any of the pelada's own admins (not root-only) can mint a new invite link. */
+export async function createPeladaInviteLink(peladaId) {
+  await waitForAuthUser();
+  const token = randomSaltHex(16); // 32 hex chars — 128 bits, not brute-forceable
+  await setDoc(doc(inviteLinksColRef(peladaId), token), {
+    createdAt: new Date().toISOString(),
+    createdBy: auth.currentUser ? auth.currentUser.uid : "unknown",
+  });
+  return token;
+}
+
+/** Lists a pelada's active invite links (admin-only; rules enforce). */
+export async function listPeladaInviteLinks(peladaId) {
+  if (!peladaId) return [];
+  const snap = await getDocs(inviteLinksColRef(peladaId));
+  return snap.docs
+    .map((d) => ({ token: d.id, ...d.data() }))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+/** Revokes one invite link — it stops working immediately, the shared password is untouched. */
+export async function revokePeladaInviteLink(peladaId, token) {
+  await deleteDoc(doc(inviteLinksColRef(peladaId), token));
+}
+
+/** Redeems an invite link in place of the shared password. Same shape/semantics as verifyPeladaLogin. */
+export async function loginWithInviteToken(peladaId, token) {
+  await waitForAuthUser();
+  const peladaSnap = await getDoc(peladaDocRef(peladaId));
+  if (!peladaSnap.exists()) {
+    return { success: false, error: "Pelada não encontrada." };
+  }
+  const tokenSnap = await getDoc(doc(inviteLinksColRef(peladaId), token));
+  if (!tokenSnap.exists()) {
+    return { success: false, error: "Link de convite inválido ou revogado." };
+  }
+  const data = peladaSnap.data();
   if (data.blocked) {
     return {
       success: false,

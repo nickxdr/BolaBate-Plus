@@ -8,7 +8,7 @@ import { renderMatchRulesView } from "./views/matchRulesView.js";
 import { renderBolaBotView, initBolaBotView } from "./views/bolaBotView.js";
 import { showToast } from "./views/rankingView.js";
 import { openPlayerComparison } from "./views/playerComparisonView.js";
-import { verifyPeladaLogin } from "./services/cloudSync.js";
+import { verifyPeladaLogin, loginWithInviteToken } from "./services/cloudSync.js";
 
 const ROLE_KEY = "bolabate_role_v1";
 
@@ -16,7 +16,7 @@ let currentTab = "pelada"; // default to Pelada tab as requested!
 
 let viewRendering = false;
 
-function initApp() {
+async function initApp() {
   const app = document.getElementById("app");
 
   // Cloud sync (Firebase): anonymous read-only by default, admin via login.
@@ -233,6 +233,24 @@ function initApp() {
       renderCurrentView();
     }
   });
+
+  // Invite-link auto-login: a "🔗 Link de acesso" generated in Ajustes lands here
+  // as ?pelada=<id>&invite=<token>. Stripped from the URL immediately either way,
+  // so a refresh can't replay it and it never lingers in browser history.
+  const urlParams = new URLSearchParams(location.search);
+  const inviteId = urlParams.get("pelada");
+  const inviteToken = urlParams.get("invite");
+  if (inviteId && inviteToken) {
+    history.replaceState({}, "", location.origin + location.pathname);
+    const result = await loginWithInviteToken(inviteId, inviteToken);
+    if (result.success) {
+      localStorage.setItem(PELADA_ID_KEY, inviteId);
+      localStorage.setItem(PELADA_NAME_KEY, result.name || inviteId);
+      location.reload();
+      return;
+    }
+    showToast("❌ " + (result.error || "Link de convite inválido."));
+  }
 
   // Gate 1: must be signed into a pelada (shared id+password) before anything
   // else renders. Gate 2 (existing role splash) only runs once that's settled.
