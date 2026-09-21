@@ -16,9 +16,17 @@ import { auth } from "../services/firebase.js";
 const ROLE_KEY = "bolabate_role_v1";
 
 function escapeHtml(str) {
-  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[c]);
+  return String(str ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c],
+  );
 }
 
 export function renderSettingsView(navigateTo) {
@@ -242,7 +250,7 @@ export function renderSettingsView(navigateTo) {
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-          📱 BolaBate+ v5.0 (Web & Android APK)
+          📱 BolaBate+ v5.1 (Web & Android APK)
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
@@ -421,14 +429,21 @@ export function renderSettingsView(navigateTo) {
           `;
           })
           .join("");
-        allPeladasList.querySelectorAll(".btn-toggle-pelada-block").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const id = btn.getAttribute("data-id");
-            const name = btn.getAttribute("data-name");
-            const currentlyBlocked = btn.getAttribute("data-blocked") === "1";
-            openTogglePeladaBlockModal(id, name, currentlyBlocked, refreshAllPeladasList);
+        allPeladasList
+          .querySelectorAll(".btn-toggle-pelada-block")
+          .forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const id = btn.getAttribute("data-id");
+              const name = btn.getAttribute("data-name");
+              const currentlyBlocked = btn.getAttribute("data-blocked") === "1";
+              openTogglePeladaBlockModal(
+                id,
+                name,
+                currentlyBlocked,
+                refreshAllPeladasList,
+              );
+            });
           });
-        });
       } catch (err) {
         allPeladasList.innerHTML = `<span style="font-size: 0.8rem; color: var(--accent-red);">Não foi possível carregar a lista de peladas.</span>`;
       }
@@ -548,20 +563,28 @@ function openSignOutPeladaModal() {
     </div>
   `;
 
-  const close = () => { modalContainer.innerHTML = ""; };
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
   const overlay = modalContainer.querySelector("#pelada-logout-overlay");
-  modalContainer.querySelector("#pelada-logout-close").addEventListener("click", close);
-  modalContainer.querySelector("#pelada-logout-cancel").addEventListener("click", close);
+  modalContainer
+    .querySelector("#pelada-logout-close")
+    .addEventListener("click", close);
+  modalContainer
+    .querySelector("#pelada-logout-cancel")
+    .addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
 
-  modalContainer.querySelector("#pelada-logout-confirm").addEventListener("click", () => {
-    localStorage.removeItem(PELADA_ID_KEY);
-    localStorage.removeItem(PELADA_NAME_KEY);
-    localStorage.removeItem(ROLE_KEY);
-    location.reload();
-  });
+  modalContainer
+    .querySelector("#pelada-logout-confirm")
+    .addEventListener("click", () => {
+      localStorage.removeItem(PELADA_ID_KEY);
+      localStorage.removeItem(PELADA_NAME_KEY);
+      localStorage.removeItem(ROLE_KEY);
+      location.reload();
+    });
 }
 
 /** Root-admin-only confirmation modal for blocking/unblocking one pelada's access. */
@@ -597,22 +620,34 @@ function openTogglePeladaBlockModal(peladaId, name, currentlyBlocked, onDone) {
     </div>
   `;
 
-  const close = () => { modalContainer.innerHTML = ""; };
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
   const overlay = modalContainer.querySelector("#pelada-block-overlay");
-  modalContainer.querySelector("#pelada-block-close").addEventListener("click", close);
-  modalContainer.querySelector("#pelada-block-cancel").addEventListener("click", close);
+  modalContainer
+    .querySelector("#pelada-block-close")
+    .addEventListener("click", close);
+  modalContainer
+    .querySelector("#pelada-block-cancel")
+    .addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
 
-  modalContainer.querySelector("#pelada-block-confirm").addEventListener("click", async () => {
-    try {
-      await setPeladaBlocked(peladaId, !currentlyBlocked);
-      showToast(currentlyBlocked ? `🔓 "${name}" desbloqueada.` : `🔒 "${name}" bloqueada.`);
-    } catch (err) {
-      showToast("❌ " + err.message);
-    }
-    close();
-    if (onDone) onDone();
-  });
+  modalContainer
+    .querySelector("#pelada-block-confirm")
+    .addEventListener("click", async () => {
+      try {
+        await setPeladaBlocked(peladaId, !currentlyBlocked);
+        showToast(
+          currentlyBlocked
+            ? `🔓 "${name}" desbloqueada.`
+            : `🔒 "${name}" bloqueada.`,
+        );
+      } catch (err) {
+        showToast("❌ " + err.message);
+      }
+      close();
+      if (onDone) onDone();
+    });
 }

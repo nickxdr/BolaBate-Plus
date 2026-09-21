@@ -25,7 +25,7 @@ function ovrTierClass(ovr) {
  * diarista appearances) or in any past ranking table. Purely a display filter —
  * the player record itself is untouched, so history/attendance still work.
  */
-function isHiddenDiarista(player) {
+export function isHiddenDiarista(player) {
   if (Number(player.participacao) > 0) return false;
   return store.history.some((entry) => (entry.diaristaPlayerIds || []).includes(player.id));
 }
