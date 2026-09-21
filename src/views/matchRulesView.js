@@ -102,6 +102,23 @@ export function renderMatchRulesView(navigateTo) {
 
         <div class="rule-row">
           <div class="rule-row-info">
+            <div class="rule-row-title">🥅 Limite de gols</div>
+            <div class="rule-row-desc">Se desligado, a partida só termina quando o tempo chegar a 0.</div>
+          </div>
+          <button
+            type="button"
+            class="rule-toggle ${store.goalLimitEnabled ? "on" : ""}"
+            id="toggle-goal-limit"
+            role="switch"
+            aria-checked="${store.goalLimitEnabled ? "true" : "false"}"
+            aria-label="Limite de gols"
+          >
+            <span class="rule-toggle-knob"></span>
+          </button>
+        </div>
+
+        <div class="rule-row ${store.goalLimitEnabled ? "" : "disabled"}">
+          <div class="rule-row-info">
             <div class="rule-row-title">🥅 Gols para finalizar</div>
             <div class="rule-row-desc">Quantos gols um time precisa fazer para a partida poder acabar antes do tempo.</div>
           </div>
@@ -143,7 +160,7 @@ export function renderMatchRulesView(navigateTo) {
         <h2 class="rule-section-title">📋 Regras atuais</h2>
         <div class="rules-summary">
           <div class="rules-summary-row"><span>⏱️ Duração da partida</span><strong>${currentMinutes} min</strong></div>
-          <div class="rules-summary-row"><span>🥅 Gols para finalizar</span><strong>${store.goalsToFinish}</strong></div>
+          <div class="rules-summary-row"><span>🥅 Limite de gols</span><strong>${store.goalLimitEnabled ? `Até ${store.goalsToFinish} gol(s)` : "Só quando o tempo zerar"}</strong></div>
           <div class="rules-summary-row"><span>🔥 Limite de vitórias</span><strong>${store.winLimitEnabled ? `Após ${store.winStreakToRest} vitória(s)` : "Até perder"}</strong></div>
           <div class="rules-summary-row"><span>🔥 Vitórias seguidas para descansar</span><strong>${store.winStreakToRest}</strong></div>
         </div>
@@ -235,14 +252,17 @@ export function renderMatchRulesView(navigateTo) {
       plusBtn.addEventListener("click", () => change(1));
     }
 
-    bindStepper(
-      "goals",
-      MIN_GOALS_TO_FINISH,
-      MAX_GOALS_TO_FINISH,
-      () => store.goalsToFinish,
-      (value) => store.setGoalsToFinish(value),
-      (value) => `🥅 Partida finaliza com ${value} gol(s).`,
-    );
+    // Only meaningful while the goal limit is on — the row is dimmed otherwise.
+    if (store.goalLimitEnabled) {
+      bindStepper(
+        "goals",
+        MIN_GOALS_TO_FINISH,
+        MAX_GOALS_TO_FINISH,
+        () => store.goalsToFinish,
+        (value) => store.setGoalsToFinish(value),
+        (value) => `🥅 A partida pode acabar com ${value} gol(s).`,
+      );
+    }
 
     // Only meaningful while the win limit is on — the row is dimmed otherwise.
     if (store.winLimitEnabled) {
@@ -255,6 +275,18 @@ export function renderMatchRulesView(navigateTo) {
         (value) => `🔥 Time vencedor descansa após ${value} vitória(s).`,
       );
     }
+
+    // --- Goal-limit toggle --------------------------------------------------
+    const goalLimitToggle = container.querySelector("#toggle-goal-limit");
+    goalLimitToggle.addEventListener("click", () => {
+      const next = !store.goalLimitEnabled;
+      commit(
+        store.setGoalLimitEnabled(next),
+        next
+          ? `🥅 Limite de gols ativado: a partida pode acabar com ${store.goalsToFinish} gol(s).`
+          : "🥅 Limite de gols removido: a partida só termina quando o tempo zerar.",
+      );
+    });
 
     // --- Win-limit toggle ---------------------------------------------------
     const winLimitToggle = container.querySelector("#toggle-win-limit");

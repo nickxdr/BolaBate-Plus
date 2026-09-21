@@ -171,6 +171,7 @@ function serialize(store) {
     teamSize: store.teamSize,
     matchDurationMs: store.matchDurationMs,
     goalsToFinish: store.goalsToFinish,
+    goalLimitEnabled: store.goalLimitEnabled,
     winLimitEnabled: store.winLimitEnabled,
     winStreakToRest: store.winStreakToRest,
     savedAt: new Date().toISOString(),
@@ -210,6 +211,9 @@ function applyRemote(data) {
     }
     if (Number.isFinite(data.goalsToFinish) && data.goalsToFinish > 0) {
       store.goalsToFinish = data.goalsToFinish;
+    }
+    if (typeof data.goalLimitEnabled === "boolean") {
+      store.goalLimitEnabled = data.goalLimitEnabled;
     }
     if (typeof data.winLimitEnabled === "boolean") {
       store.winLimitEnabled = data.winLimitEnabled;
@@ -625,6 +629,7 @@ export async function createPelada(peladaId, name, password) {
     teamSize: 5,
     matchDurationMs: DEFAULT_MATCH_DURATION_MS,
     goalsToFinish: DEFAULT_GOALS_TO_FINISH,
+    goalLimitEnabled: true,
     winLimitEnabled: true,
     winStreakToRest: DEFAULT_WIN_STREAK_TO_REST,
     savedAt: now,
