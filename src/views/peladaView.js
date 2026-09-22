@@ -1148,9 +1148,12 @@ function renderLivePelada(container, onNavigate) {
     container.querySelectorAll(".btn-revert-departure").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-id");
-        store.revertPlayerDeparture(pid);
+        const result = store.revertPlayerDeparture(pid);
         const p = store.getPlayer(pid);
-        showToast(`${p?.name || "Jogador"} retornou ao jogo!`);
+        const note = result?.removedGuests?.length
+          ? " (o time já estava completo — o reforço temporário saiu)"
+          : "";
+        showToast(`${p?.name || "Jogador"} retornou ao jogo!${note}`);
         render();
       });
     });
@@ -1186,7 +1189,10 @@ function renderLivePelada(container, onNavigate) {
         const isDeparted =
           e.currentTarget.getAttribute("data-departed") === "true";
         if (isDeparted) {
-          store.revertPlayerDeparture(pid);
+          const result = store.revertPlayerDeparture(pid);
+          if (result?.removedGuests?.length) {
+            showToast("ℹ️ O time já estava completo — o reforço temporário saiu.");
+          }
         } else {
           store.markPlayerDeparted(pid, teamId);
         }
@@ -1491,12 +1497,16 @@ function openSubstituteModal(
   modalContainer.querySelectorAll(".btn-select-substitute").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       const guestId = e.currentTarget.getAttribute("data-guest-id");
-      store.assignGuestSubstitute(departingPlayerId, guestId, teamId);
+      const result = store.assignGuestSubstitute(departingPlayerId, guestId, teamId);
       const guest = store.getPlayer(guestId);
       close();
-      showToast(
-        `${guest?.name} agora está completando o time! Gols dele não pontuam no ranking.`,
-      );
+      if (result?.success === false) {
+        showToast("⚠️ " + result.error);
+      } else {
+        showToast(
+          `${guest?.name} agora está completando o time! Gols dele não pontuam no ranking.`,
+        );
+      }
       onDone();
     });
   });
@@ -1628,12 +1638,16 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
   modalContainer.querySelectorAll(".btn-select-completion").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       const guestId = e.currentTarget.getAttribute("data-guest-id");
-      store.assignTeamCompletion(teamId, guestId);
+      const result = store.assignTeamCompletion(teamId, guestId);
       const guest = store.getPlayer(guestId);
       close();
-      showToast(
-        `${guest?.name} entrou para completar o ${team.name}! Gols dele não pontuam no ranking.`,
-      );
+      if (result?.success === false) {
+        showToast("⚠️ " + result.error);
+      } else {
+        showToast(
+          `${guest?.name} entrou para completar o ${team.name}! Gols dele não pontuam no ranking.`,
+        );
+      }
       onDone();
     });
   });

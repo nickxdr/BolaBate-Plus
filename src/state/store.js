@@ -87,6 +87,9 @@ class Store {
     this.winStreakToRest = this.loadWinStreakToRest();
     this.avatars = this.loadAvatars(); // playerId -> avatar config; anyone can edit anyone's, synced independently
     this.activePelada = this.loadPelada();
+    // Self-heal a team over-filled by an older build (e.g. a completion guest left behind
+    // after the player it was covering came back) before the first save() below persists it.
+    this.enforceTeamSizeLimit();
     this.history = this.loadHistory();
     this.monthlyStats = this.loadMonthlyStats();
     this.selectedPeriodKey = this.currentPeriodKey(); // default to current device month/year
@@ -636,14 +639,75 @@ class Store {
     return record;
   }
 
-  /** How many players a team can currently field: present roster minus departures, plus any guest fill-ins. */
-  getTeamCompleteness(teamId) {
+  /**
+   * How many players a team can currently field: present roster minus departures, plus any
+   * guest fill-ins. `ignoreDepartedPlayerId` lets a caller ask "what would this team look
+   * like WITHOUT the guest currently replacing that player?" — used when re-assigning a
+   * substitute so swapping one guest for another isn't blocked by the size cap.
+   */
+  getTeamCompleteness(teamId, ignoreDepartedPlayerId = null) {
     const team = this.activePelada.teams.find(t => t.id === teamId);
     if (!team) return 0;
     const departed = new Set(this.activePelada.departedPlayerIds || []);
     const activeOriginal = team.playerIds.filter(pid => !departed.has(pid)).length;
-    const activeGuests = (this.activePelada.guestSlots || []).filter(g => g.teamId === teamId).length;
+    const activeGuests = (this.activePelada.guestSlots || [])
+      .filter(g => g.teamId === teamId && (ignoreDepartedPlayerId === null || g.departedPlayerId !== ignoreDepartedPlayerId))
+      .length;
     return activeOriginal + activeGuests;
+  }
+
+  /**
+   * Guarantees no team ever fields more than `teamSize` players. Guest fill-ins that are no
+   * longer needed — the departed player came back, or a completion guest was added on top of
+   * an already-full team — are dropped so the waiting queue can never show e.g. "6/5
+   * disponíveis". Substitutions tied to a real departed player are preserved for as long as
+   * possible (undoing a substitution would be worse); optional completion guests go first,
+   * earliest-added kept. Also drops stale slots whose player is no longer marked as departed.
+   *
+   * Returns the removed slots.
+   */
+  enforceTeamSizeLimit() {
+    const pelada = this.activePelada;
+    if (!pelada || !Array.isArray(pelada.teams) || !Array.isArray(pelada.guestSlots)) return [];
+
+    const removed = [];
+    const departed = new Set(pelada.departedPlayerIds || []);
+
+    // Drop stale substitutions (their player is back) and slots pointing at a team that no
+    // longer exists — neither can be legitimate, and both would inflate the headcount.
+    pelada.guestSlots = pelada.guestSlots.filter(slot => {
+      const stale = !!slot.departedPlayerId && !departed.has(slot.departedPlayerId);
+      const orphan = !pelada.teams.some(t => t.id === slot.teamId);
+      if (stale || orphan) {
+        removed.push(slot);
+        return false;
+      }
+      return true;
+    });
+
+    pelada.teams.forEach(team => {
+      const activeOriginal = team.playerIds.filter(pid => !departed.has(pid)).length;
+      let room = Math.max(0, this.teamSize - activeOriginal);
+      const slots = pelada.guestSlots.filter(s => s.teamId === team.id);
+      // Tied substitutions first, then optional completions — oldest first in both groups.
+      const ordered = [
+        ...slots.filter(s => s.departedPlayerId),
+        ...slots.filter(s => !s.departedPlayerId),
+      ];
+
+      const surplus = new Set();
+      ordered.forEach(slot => {
+        if (room > 0) room -= 1;
+        else surplus.add(slot);
+      });
+
+      if (surplus.size > 0) {
+        pelada.guestSlots = pelada.guestSlots.filter(s => !surplus.has(s));
+        removed.push(...surplus);
+      }
+    });
+
+    return removed;
   }
 
   /** Sorts team ids by "most complete" first, then by team number ascending — used only as the initial suggested queue order; the admin can freely reorder it afterwards. */
@@ -1053,7 +1117,11 @@ class Store {
     this.activePelada.guestSlots = (this.activePelada.guestSlots || []).filter(
       slot => slot.departedPlayerId !== playerId
     );
+    // The returning player can refill a spot a completion guest was covering — drop any
+    // guest that would push the team past the roster limit again.
+    const removedGuests = this.enforceTeamSizeLimit();
     this.save();
+    return { success: true, removedGuests };
   }
 
   /**
@@ -1064,16 +1132,48 @@ class Store {
    * exactly like any other once their real team takes the pitch.
    */
   assignTeamCompletion(teamId, guestPlayerId) {
-    if (!guestPlayerId || !teamId) return;
+    if (!guestPlayerId || !teamId) {
+      return { success: false, error: 'Time ou jogador inválido.' };
+    }
+    // The team must still have room — never let the roster go past teamSize.
+    if (this.getTeamCompleteness(teamId) >= this.teamSize) {
+      return {
+        success: false,
+        error: `O time já está completo (${this.teamSize} jogadores).`,
+      };
+    }
+    if ((this.activePelada.guestSlots || []).some(slot => slot.guestPlayerId === guestPlayerId)) {
+      return { success: false, error: 'Este jogador já está completando outro time.' };
+    }
+
     this.activePelada.guestSlots.push({ departedPlayerId: null, guestPlayerId, teamId });
     if (!this.activePelada.stats[guestPlayerId]) {
       this.activePelada.stats[guestPlayerId] = { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
     }
+    this.enforceTeamSizeLimit();
     this.save();
+    return { success: true };
   }
 
   // Assign guest completer to fill in for departed player
   assignGuestSubstitute(departedPlayerId, guestPlayerId, teamId) {
+    if (guestPlayerId) {
+      // Judge a swap against the team WITHOUT the guest it replaces — otherwise re-picking a
+      // substitute on an already-complete team would be wrongly rejected.
+      if (this.getTeamCompleteness(teamId, departedPlayerId) >= this.teamSize) {
+        return {
+          success: false,
+          error: `O time já está completo (${this.teamSize} jogadores).`,
+        };
+      }
+      const alreadyGuesting = (this.activePelada.guestSlots || []).some(
+        slot => slot.guestPlayerId === guestPlayerId && slot.departedPlayerId !== departedPlayerId,
+      );
+      if (alreadyGuesting) {
+        return { success: false, error: 'Este jogador já está jogando como convidado.' };
+      }
+    }
+
     // Remove previous guest slot for this departed player if exists
     this.activePelada.guestSlots = this.activePelada.guestSlots.filter(
       slot => slot.departedPlayerId !== departedPlayerId
@@ -1091,7 +1191,9 @@ class Store {
       }
     }
 
+    this.enforceTeamSizeLimit();
     this.save();
+    return { success: true };
   }
 
   // End Pelada & Apply to Ranking

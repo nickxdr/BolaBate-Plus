@@ -217,6 +217,9 @@ function applyRemote(data) {
     if (Number.isFinite(data.winStreakToRest) && data.winStreakToRest > 0) {
       store.winStreakToRest = data.winStreakToRest;
     }
+    // A snapshot from another device can still carry an over-filled team (older data) — trim
+    // it here so every client converges on the same, correctly-sized rosters.
+    store.enforceTeamSizeLimit();
     store.hydrateMonthlyStats();
     store.syncCareerStatsFromMonthly({ silent: true });
     store.persistLocal(); // cache for offline; does NOT re-push to cloud
