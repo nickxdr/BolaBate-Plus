@@ -246,9 +246,7 @@ export function renderPlayersView() {
               id="player-sort"
               class="input-field players-sort-select"
             >
-              <option value="name" ${
-                sortBy === "name" ? "selected" : ""
-              }>
+              <option value="name" ${sortBy === "name" ? "selected" : ""}>
                 Nome (A-Z)
               </option>
 
@@ -403,10 +401,7 @@ export function renderPlayersView() {
 
       if (input) {
         input.focus();
-        input.setSelectionRange(
-          searchTerm.length,
-          searchTerm.length,
-        );
+        input.setSelectionRange(searchTerm.length, searchTerm.length);
       }
     });
 
@@ -417,18 +412,14 @@ export function renderPlayersView() {
       render();
     });
 
-    const positionSelect = container.querySelector(
-      "#player-position-filter",
-    );
+    const positionSelect = container.querySelector("#player-position-filter");
 
     positionSelect.addEventListener("change", (e) => {
       positionFilter = e.target.value;
       render();
     });
 
-    const starsSelect = container.querySelector(
-      "#player-stars-filter",
-    );
+    const starsSelect = container.querySelector("#player-stars-filter");
 
     starsSelect.addEventListener("change", (e) => {
       starsFilter = e.target.value;
@@ -436,11 +427,9 @@ export function renderPlayersView() {
     });
 
     // Bind Add Player
-    container
-      .querySelector("#btn-add-player")
-      .addEventListener("click", () => {
-        openAddPlayerModal();
-      });
+    container.querySelector("#btn-add-player").addEventListener("click", () => {
+      openAddPlayerModal();
+    });
 
     // Bind Edit Player
     container.querySelectorAll(".btn-edit-player").forEach((btn) => {
@@ -451,23 +440,16 @@ export function renderPlayersView() {
     });
 
     // Bind Profile
-    container
-      .querySelectorAll(".btn-profile-player")
-      .forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          openPlayerProfileModal(
-            e.currentTarget.getAttribute("data-id"),
-          );
-        });
+    container.querySelectorAll(".btn-profile-player").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        openPlayerProfileModal(e.currentTarget.getAttribute("data-id"));
       });
+    });
 
     // Bind Avatar Editor
     container.querySelectorAll(".btn-edit-avatar").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        openAvatarEditorModal(
-          e.currentTarget.getAttribute("data-id"),
-          render,
-        );
+        openAvatarEditorModal(e.currentTarget.getAttribute("data-id"), render);
       });
     });
 
@@ -480,26 +462,24 @@ export function renderPlayersView() {
     });
 
     // Bind Delete Player
-    container
-      .querySelectorAll(".btn-delete-player")
-      .forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const id = e.currentTarget.getAttribute("data-id");
-          const player = store.getPlayer(id);
+    container.querySelectorAll(".btn-delete-player").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const id = e.currentTarget.getAttribute("data-id");
+        const player = store.getPlayer(id);
 
-          if (!player) return;
+        if (!player) return;
 
-          if (
-            confirm(
-              `Tem certeza que deseja excluir "${player.name}"? As estatísticas dele serão removidas.`,
-            )
-          ) {
-            store.deletePlayer(id);
-            showToast(`Jogador "${player.name}" removido.`);
-            render();
-          }
-        });
+        if (
+          confirm(
+            `Tem certeza que deseja excluir "${player.name}"? As estatísticas dele serão removidas.`,
+          )
+        ) {
+          store.deletePlayer(id);
+          showToast(`Jogador "${player.name}" removido.`);
+          render();
+        }
       });
+    });
   }
 
   // ============================================================
@@ -511,7 +491,7 @@ export function renderPlayersView() {
     modal.className = "modal-overlay";
 
     modal.innerHTML = `
-      <div class="modal-content players-add-modal">
+      <div class="modal-content players-add-modal player-add-modal">
 
         <div class="modal-header">
           <h2 class="modal-title">Adicionar Jogadores</h2>
@@ -640,7 +620,7 @@ export function renderPlayersView() {
                 name="names"
                 class="input-field"
                 rows="7"
-                placeholder="Digite um jogador por linha&#10;&#10;João&#10;Pedro&#10;Marcos&#10;Rafael"
+                placeholder="Digite um jogador por linha."
                 autocomplete="off"
               ></textarea>
 
@@ -674,8 +654,7 @@ export function renderPlayersView() {
                     <option value="">Nota para todos</option>
 
                     ${PLAYER_STAR_OPTIONS.map(
-                      (stars) =>
-                        `<option value="${stars}">${stars} ★</option>`,
+                      (stars) => `<option value="${stars}">${stars} ★</option>`,
                     ).join("")}
                   </select>
 
@@ -749,33 +728,19 @@ export function renderPlayersView() {
     const tabs = modal.querySelectorAll(".player-add-tab");
     const modes = modal.querySelectorAll(".player-add-mode");
 
-    const singleForm = modal.querySelector(
-      "#add-player-form",
-    );
+    const singleForm = modal.querySelector("#add-player-form");
 
-    const multipleForm = modal.querySelector(
-      "#add-multiple-players-form",
-    );
+    const multipleForm = modal.querySelector("#add-multiple-players-form");
 
-    const singleStars = modal.querySelector(
-      "#player-stars",
-    );
+    const singleStars = modal.querySelector("#player-stars");
 
-    const singleStarsValue = modal.querySelector(
-      "#player-stars-value",
-    );
+    const singleStarsValue = modal.querySelector("#player-stars-value");
 
-    const multipleNames = modal.querySelector(
-      "#multiple-player-names",
-    );
+    const multipleNames = modal.querySelector("#multiple-player-names");
 
-    const multiplePreview = modal.querySelector(
-      "#multiple-players-preview",
-    );
+    const multiplePreview = modal.querySelector("#multiple-players-preview");
 
-    const multipleList = modal.querySelector(
-      "#multiple-players-list",
-    );
+    const multipleList = modal.querySelector("#multiple-players-list");
 
     const multipleBulkStars = modal.querySelector(
       "#multiple-players-bulk-stars",
@@ -789,9 +754,7 @@ export function renderPlayersView() {
       "#multiple-players-bulk-apply",
     );
 
-    const multipleSubmit = modal.querySelector(
-      "#btn-add-multiple-players",
-    );
+    const multipleSubmit = modal.querySelector("#btn-add-multiple-players");
 
     // ============================================================
     // TROCA ENTRE "UM" E "VÁRIOS"
@@ -802,17 +765,11 @@ export function renderPlayersView() {
         const mode = tab.dataset.mode;
 
         tabs.forEach((t) => {
-          t.classList.toggle(
-            "active",
-            t.dataset.mode === mode,
-          );
+          t.classList.toggle("active", t.dataset.mode === mode);
         });
 
         modes.forEach((form) => {
-          form.classList.toggle(
-            "active",
-            form.dataset.mode === mode,
-          );
+          form.classList.toggle("active", form.dataset.mode === mode);
         });
 
         if (mode === "single") {
@@ -834,8 +791,7 @@ export function renderPlayersView() {
     // ============================================================
 
     singleStars.addEventListener("input", () => {
-      singleStarsValue.textContent =
-        `${Number(singleStars.value).toFixed(1)} ★`;
+      singleStarsValue.textContent = `${Number(singleStars.value).toFixed(1)} ★`;
 
       syncRangeProgress(singleStars);
     });
@@ -903,27 +859,17 @@ export function renderPlayersView() {
       }
 
       const newNames = names.filter(
-        (name) =>
-          !existingNames.has(
-            name.toLocaleLowerCase(),
-          ),
+        (name) => !existingNames.has(name.toLocaleLowerCase()),
       );
 
-      const duplicatedNames = names.filter(
-        (name) =>
-          existingNames.has(
-            name.toLocaleLowerCase(),
-          ),
+      const duplicatedNames = names.filter((name) =>
+        existingNames.has(name.toLocaleLowerCase()),
       );
 
       let previewHtml = `
         <div class="multiple-players-count">
           <strong>${names.length}</strong>
-          ${
-            names.length === 1
-              ? "jogador informado"
-              : "jogadores informados"
-          }
+          ${names.length === 1 ? "jogador informado" : "jogadores informados"}
         </div>
       `;
 
@@ -931,11 +877,7 @@ export function renderPlayersView() {
         previewHtml += `
           <div class="multiple-players-new">
             <strong>${newNames.length}</strong>
-            ${
-              newNames.length === 1
-                ? "será adicionado"
-                : "serão adicionados"
-            }
+            ${newNames.length === 1 ? "será adicionado" : "serão adicionados"}
           </div>
         `;
       }
@@ -958,14 +900,12 @@ export function renderPlayersView() {
       if (newNames.length) {
         multipleSubmit.disabled = false;
 
-        multipleSubmit.textContent =
-          `Adicionar ${newNames.length} jogador${
-            newNames.length === 1 ? "" : "es"
-          }`;
+        multipleSubmit.textContent = `Adicionar ${newNames.length} jogador${
+          newNames.length === 1 ? "" : "es"
+        }`;
       } else {
         multipleSubmit.disabled = true;
-        multipleSubmit.textContent =
-          "Nenhum novo jogador";
+        multipleSubmit.textContent = "Nenhum novo jogador";
       }
     };
 
@@ -996,9 +936,7 @@ export function renderPlayersView() {
       const existingNames = getExistingPlayerNames();
 
       // Descarta as configurações de nomes que saíram da textarea.
-      const activeKeys = new Set(
-        names.map((name) => name.toLocaleLowerCase()),
-      );
+      const activeKeys = new Set(names.map((name) => name.toLocaleLowerCase()));
 
       Array.from(multipleConfig.keys()).forEach((key) => {
         if (!activeKeys.has(key)) {
@@ -1033,17 +971,13 @@ export function renderPlayersView() {
           const positionOptions = PLAYER_POSITION_OPTIONS.map(
             (option) =>
               `<option value="${option.value}" ${
-                config.favoritePosition === option.value
-                  ? "selected"
-                  : ""
+                config.favoritePosition === option.value ? "selected" : ""
               }>${option.label}</option>`,
           ).join("");
 
           return `
             <div
-              class="multiple-players-row${
-                alreadyExists ? " is-existing" : ""
-              }"
+              class="multiple-players-row${alreadyExists ? " is-existing" : ""}"
               data-player-key="${escapeHtml(key)}"
             >
               <div class="multiple-players-row-name">
@@ -1103,9 +1037,7 @@ export function renderPlayersView() {
       const position = multipleBulkPosition.value;
 
       if (!stars && !position) {
-        showToast(
-          "Escolha uma nota ou uma posição para aplicar a todos.",
-        );
+        showToast("Escolha uma nota ou uma posição para aplicar a todos.");
 
         return;
       }
@@ -1113,9 +1045,7 @@ export function renderPlayersView() {
       const names = getMultipleNames();
 
       if (!names.length) {
-        showToast(
-          "Informe os jogadores na lista de nomes primeiro.",
-        );
+        showToast("Informe os jogadores na lista de nomes primeiro.");
 
         return;
       }
@@ -1139,9 +1069,7 @@ export function renderPlayersView() {
       multipleBulkPosition.value = "";
 
       showToast(
-        `Aplicado a ${names.length} jogador${
-          names.length === 1 ? "" : "es"
-        }.`,
+        `Aplicado a ${names.length} jogador${names.length === 1 ? "" : "es"}.`,
       );
     });
 
@@ -1158,9 +1086,7 @@ export function renderPlayersView() {
 
       if (!row) return;
 
-      const config = getPlayerConfig(
-        row.getAttribute("data-player-key"),
-      );
+      const config = getPlayerConfig(row.getAttribute("data-player-key"));
 
       config[field] = e.target.value;
     });
@@ -1169,10 +1095,7 @@ export function renderPlayersView() {
     // NOMES → LISTA
     // ============================================================
 
-    multipleNames.addEventListener(
-      "input",
-      updateMultipleMode,
-    );
+    multipleNames.addEventListener("input", updateMultipleMode);
 
     // ============================================================
     // SUBMIT - INDIVIDUAL
@@ -1181,33 +1104,23 @@ export function renderPlayersView() {
     singleForm.addEventListener("submit", (e) => {
       e.preventDefault();
 
-      const name =
-        singleForm.elements.name.value.trim();
+      const name = singleForm.elements.name.value.trim();
 
-      const stars = parseFloat(
-        singleStars.value,
-      );
+      const stars = parseFloat(singleStars.value);
 
-      const favoritePosition =
-        singleForm.elements.favoritePosition.value;
+      const favoritePosition = singleForm.elements.favoritePosition.value;
 
       if (!name) {
         showToast("Digite o nome do jogador.");
         return;
       }
 
-      const created = store.addPlayer(
-        name,
-        stars,
-        favoritePosition,
-      );
+      const created = store.addPlayer(name, stars, favoritePosition);
 
       if (created) {
         closeModal();
 
-        showToast(
-          `Jogador "${created.name}" adicionado com sucesso!`,
-        );
+        showToast(`Jogador "${created.name}" adicionado com sucesso!`);
 
         render();
       }
@@ -1221,20 +1134,14 @@ export function renderPlayersView() {
       e.preventDefault();
 
       const names = getMultipleNames();
-      const existingNames =
-        getExistingPlayerNames();
+      const existingNames = getExistingPlayerNames();
 
       const namesToAdd = names.filter(
-        (name) =>
-          !existingNames.has(
-            name.toLocaleLowerCase(),
-          ),
+        (name) => !existingNames.has(name.toLocaleLowerCase()),
       );
 
       if (!namesToAdd.length) {
-        showToast(
-          "Nenhum jogador novo para adicionar.",
-        );
+        showToast("Nenhum jogador novo para adicionar.");
         return;
       }
 
@@ -1258,9 +1165,7 @@ export function renderPlayersView() {
         closeModal();
 
         showToast(
-          `${addedCount} jogador${
-            addedCount === 1 ? "" : "es"
-          } adicionado${
+          `${addedCount} jogador${addedCount === 1 ? "" : "es"} adicionado${
             addedCount === 1 ? "" : "s"
           } com sucesso!`,
         );
@@ -1273,16 +1178,9 @@ export function renderPlayersView() {
     // FECHAR
     // ============================================================
 
-    modal
-      .querySelectorAll(
-        ".modal-close, .btn-cancel",
-      )
-      .forEach((button) => {
-        button.addEventListener(
-          "click",
-          closeModal,
-        );
-      });
+    modal.querySelectorAll(".modal-close, .btn-cancel").forEach((button) => {
+      button.addEventListener("click", closeModal);
+    });
 
     modal.addEventListener("click", (e) => {
       if (e.target === modal) {
@@ -1295,26 +1193,18 @@ export function renderPlayersView() {
       if (e.key === "Escape") {
         closeModal();
 
-        document.removeEventListener(
-          "keydown",
-          handleEscape,
-        );
+        document.removeEventListener("keydown", handleEscape);
       }
     };
 
-    document.addEventListener(
-      "keydown",
-      handleEscape,
-    );
+    document.addEventListener("keydown", handleEscape);
 
     // ============================================================
     // FOCO INICIAL
     // ============================================================
 
     setTimeout(() => {
-      modal
-        .querySelector("#player-name")
-        ?.focus();
+      modal.querySelector("#player-name")?.focus();
     }, 50);
   }
 
@@ -1327,8 +1217,7 @@ export function renderPlayersView() {
 
     if (!player) return;
 
-    const modalContainer =
-      document.getElementById("modal-container");
+    const modalContainer = document.getElementById("modal-container");
 
     const suggestion = suggestPlayerRating(
       store.monthlyStats,
@@ -1336,8 +1225,7 @@ export function renderPlayersView() {
       store.currentPeriodKey(),
     );
 
-    const suggestionHtml =
-      buildRatingSuggestionHtml(suggestion);
+    const suggestionHtml = buildRatingSuggestionHtml(suggestion);
 
     modalContainer.innerHTML = `
       <div
@@ -1440,9 +1328,7 @@ export function renderPlayersView() {
       modalContainer.innerHTML = "";
     };
 
-    const overlay = modalContainer.querySelector(
-      "#edit-modal-overlay",
-    );
+    const overlay = modalContainer.querySelector("#edit-modal-overlay");
 
     modalContainer
       .querySelector("#edit-modal-close")
@@ -1456,53 +1342,33 @@ export function renderPlayersView() {
       if (e.target === overlay) close();
     });
 
-    const starRange =
-      modalContainer.querySelector(
-        "#edit-star-range",
-      );
+    const starRange = modalContainer.querySelector("#edit-star-range");
 
-    const starLabel =
-      modalContainer.querySelector(
-        "#edit-star-label",
-      );
+    const starLabel = modalContainer.querySelector("#edit-star-label");
 
     starRange.addEventListener("input", (e) => {
-      starLabel.textContent =
-        Number(e.target.value).toFixed(1) +
-        " ★";
+      starLabel.textContent = Number(e.target.value).toFixed(1) + " ★";
     });
 
-    const applyBtn =
-      modalContainer.querySelector(
-        "#apply-rating-suggestion",
-      );
+    const applyBtn = modalContainer.querySelector("#apply-rating-suggestion");
 
     if (applyBtn) {
       applyBtn.addEventListener("click", () => {
-        starRange.value = String(
-          suggestion.suggestedStars,
-        );
+        starRange.value = String(suggestion.suggestedStars);
 
         starLabel.textContent =
-          Number(
-            suggestion.suggestedStars,
-          ).toFixed(1) + " ★";
+          Number(suggestion.suggestedStars).toFixed(1) + " ★";
       });
     }
 
-    const form =
-      modalContainer.querySelector(
-        "#edit-player-form",
-      );
+    const form = modalContainer.querySelector("#edit-player-form");
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
 
-      const newName =
-        form.name.value.trim();
+      const newName = form.name.value.trim();
 
-      const newStars =
-        parseFloat(starRange.value);
+      const newStars = parseFloat(starRange.value);
 
       store.updatePlayer(id, {
         name: newName,
@@ -1511,9 +1377,7 @@ export function renderPlayersView() {
 
       close();
 
-      showToast(
-        `Jogador "${newName}" atualizado!`,
-      );
+      showToast(`Jogador "${newName}" atualizado!`);
 
       render();
     });
@@ -1522,9 +1386,7 @@ export function renderPlayersView() {
   /**
    * Painel de sugestão de nota dentro do modal de edição.
    */
-  function buildRatingSuggestionHtml(
-    suggestion,
-  ) {
+  function buildRatingSuggestionHtml(suggestion) {
     const tone =
       suggestion.direction === "up"
         ? {
@@ -1549,8 +1411,7 @@ export function renderPlayersView() {
 
     const showApply =
       suggestion.direction !== "keep" &&
-      Number(suggestion.suggestedStars) !==
-        Number(suggestion.currentStars);
+      Number(suggestion.suggestedStars) !== Number(suggestion.currentStars);
 
     return `
       <div
@@ -1568,13 +1429,9 @@ export function renderPlayersView() {
           <span
             style="font-weight: 700; color: #F59E0B; white-space: nowrap; flex-shrink: 0;"
           >
-            ${Number(
-              suggestion.currentStars,
-            ).toFixed(1)}
+            ${Number(suggestion.currentStars).toFixed(1)}
             →
-            ${Number(
-              suggestion.suggestedStars,
-            ).toFixed(1)}★
+            ${Number(suggestion.suggestedStars).toFixed(1)}★
           </span>
         </div>
 
@@ -1594,9 +1451,7 @@ export function renderPlayersView() {
                 style="margin-top: 8px;"
               >
                 ⚡ Aplicar sugestão
-                (${Number(
-                  suggestion.suggestedStars,
-                ).toFixed(1)}★)
+                (${Number(suggestion.suggestedStars).toFixed(1)}★)
               </button>
             `
             : ""
@@ -1614,42 +1469,37 @@ export function renderPlayersView() {
 
     if (!player) return;
 
-    const modalContainer =
-      document.getElementById("modal-container");
+    const modalContainer = document.getElementById("modal-container");
 
     const now = new Date();
 
-    const months = Array.from(
-      { length: 12 },
-      (_, index) => {
-        const date = new Date(
-          now.getFullYear(),
-          now.getMonth() - (11 - index),
-          1,
-        );
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(
+        now.getFullYear(),
+        now.getMonth() - (11 - index),
+        1,
+      );
 
-        const key = `${date.getFullYear()}-${String(
-          date.getMonth() + 1,
-        ).padStart(2, "0")}`;
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+        2,
+        "0",
+      )}`;
 
-        return {
-          key,
+      return {
+        key,
 
-          label: date
-            .toLocaleDateString("pt-BR", {
-              month: "short",
-              year: "2-digit",
-            })
-            .replace(".", ""),
+        label: date
+          .toLocaleDateString("pt-BR", {
+            month: "short",
+            year: "2-digit",
+          })
+          .replace(".", ""),
 
-          stats:
-            store.getPeriodSnapshot(
-              date.getFullYear(),
-              date.getMonth() + 1,
-            ).players?.[id] || {},
-        };
-      },
-    );
+        stats:
+          store.getPeriodSnapshot(date.getFullYear(), date.getMonth() + 1)
+            .players?.[id] || {},
+      };
+    });
 
     const totals = [
       "goals",
@@ -1664,26 +1514,17 @@ export function renderPlayersView() {
       "losses",
     ].reduce((result, field) => {
       result[field] = months.reduce(
-        (sum, month) =>
-          sum +
-          (Number(month.stats[field]) || 0),
+        (sum, month) => sum + (Number(month.stats[field]) || 0),
         0,
       );
 
       return result;
     }, {});
 
-    const totalMatches =
-      totals.wins +
-      totals.draws +
-      totals.losses;
+    const totalMatches = totals.wins + totals.draws + totals.losses;
 
     const winRate =
-      totalMatches > 0
-        ? Math.round(
-            (totals.wins / totalMatches) * 100,
-          )
-        : 0;
+      totalMatches > 0 ? Math.round((totals.wins / totalMatches) * 100) : 0;
 
     const winRateTone =
       winRate >= 60
@@ -1692,20 +1533,13 @@ export function renderPlayersView() {
           ? "win-rate-medium"
           : "win-rate-low";
 
-    const frequentCompanions =
-      getFrequentCompanions(id);
+    const frequentCompanions = getFrequentCompanions(id);
 
-    const positions = [
-      "Fixo",
-      "Ala",
-      "Pivô",
-    ];
+    const positions = ["Fixo", "Ala", "Pivô"];
 
-    const achievements =
-      getPlayerAchievements(id);
+    const achievements = getPlayerAchievements(id);
 
-    const ovr =
-      computeCurrentOVRs(store)[id] ?? 0;
+    const ovr = computeCurrentOVRs(store)[id] ?? 0;
 
     modalContainer.innerHTML = `
       <div
@@ -1726,9 +1560,7 @@ export function renderPlayersView() {
                 style="width: 56px; height: 56px; border-radius: 14px; overflow: hidden; padding: 0; border: 1px solid var(--border-color); background: var(--bg-card-subtle); cursor: pointer; flex-shrink: 0;"
               >
                 <img
-                  src="${getAvatarDataUri(
-                    store.avatars[player.id],
-                  )}"
+                  src="${getAvatarDataUri(store.avatars[player.id])}"
                   alt=""
                   style="width: 100%; height: 100%; object-fit: cover;"
                 />
@@ -1795,10 +1627,7 @@ export function renderPlayersView() {
                       <option
                         value="${position}"
                         ${
-                          player.favoritePosition ===
-                          position
-                            ? "selected"
-                            : ""
+                          player.favoritePosition === position ? "selected" : ""
                         }
                       >
                         ${position}
@@ -1826,19 +1655,9 @@ export function renderPlayersView() {
 
           <div class="profile-summary-grid">
 
-            ${profileMetric(
-              "⚽",
-              "Gols",
-              totals.goals,
-              "goals",
-            )}
+            ${profileMetric("⚽", "Gols", totals.goals, "goals")}
 
-            ${profileMetric(
-              "👟",
-              "Assistências",
-              totals.assists,
-              "assists",
-            )}
+            ${profileMetric("👟", "Assistências", totals.assists, "assists")}
 
             ${profileMetric(
               "📅",
@@ -1850,10 +1669,7 @@ export function renderPlayersView() {
             ${profileMetric(
               "🏆",
               "Prêmios",
-              totals.selecao +
-                totals.puskas +
-                totals.craque +
-                totals.bagre,
+              totals.selecao + totals.puskas + totals.craque + totals.bagre,
               "awards",
             )}
 
@@ -1916,9 +1732,7 @@ export function renderPlayersView() {
                         </td>
 
                         <td>
-                          ${Number(
-                            stats.participacao,
-                          ) || 0}
+                          ${Number(stats.participacao) || 0}
                         </td>
 
                         <td>
@@ -1943,9 +1757,7 @@ export function renderPlayersView() {
 
             <span class="profile-achievements-count">
               ${
-                achievements.filter(
-                  (a) => a.unlocked,
-                ).length
+                achievements.filter((a) => a.unlocked).length
               }/${achievements.length}
             </span>
           </div>
@@ -1959,18 +1771,14 @@ export function renderPlayersView() {
                 );
 
                 const percentage = Math.min(
-                  (achievement.progress /
-                    achievement.target) *
-                    100,
+                  (achievement.progress / achievement.target) * 100,
                   100,
                 );
 
                 return `
                   <div
                     class="profile-achievement ${
-                      achievement.unlocked
-                        ? "unlocked"
-                        : "locked"
+                      achievement.unlocked ? "unlocked" : "locked"
                     }"
                   >
                     <div class="profile-achievement-icon">
@@ -1981,9 +1789,7 @@ export function renderPlayersView() {
 
                       <div class="profile-achievement-header">
                         <strong>
-                          ${escapeHtml(
-                            achievement.name,
-                          )}
+                          ${escapeHtml(achievement.name)}
                         </strong>
 
                         <span>
@@ -1996,9 +1802,7 @@ export function renderPlayersView() {
                       </div>
 
                       <p>
-                        ${escapeHtml(
-                          achievement.description,
-                        )}
+                        ${escapeHtml(achievement.description)}
                       </p>
 
                       <div class="profile-achievement-progress">
@@ -2047,18 +1851,12 @@ export function renderPlayersView() {
                           (item) => `
                             <li>
                               <strong>
-                                ${escapeHtml(
-                                  item.name,
-                                )}
+                                ${escapeHtml(item.name)}
                               </strong>
 
                               <span>
                                 ${item.count}
-                                ${
-                                  item.count === 1
-                                    ? "vez"
-                                    : "vezes"
-                                }
+                                ${item.count === 1 ? "vez" : "vezes"}
                               </span>
                             </li>
                           `,
@@ -2091,10 +1889,7 @@ export function renderPlayersView() {
     modalContainer
       .querySelector("#profile-modal-overlay")
       .addEventListener("click", (event) => {
-        if (
-          event.target.id ===
-          "profile-modal-overlay"
-        ) {
+        if (event.target.id === "profile-modal-overlay") {
           close();
         }
       });
@@ -2103,17 +1898,13 @@ export function renderPlayersView() {
       .querySelector("#save-profile-position")
       ?.addEventListener("click", () => {
         const position =
-          modalContainer.querySelector(
-            "#profile-position",
-          ).value;
+          modalContainer.querySelector("#profile-position").value;
 
         store.updatePlayer(id, {
           favoritePosition: position,
         });
 
-        showToast(
-          "Posição favorita atualizada.",
-        );
+        showToast("Posição favorita atualizada.");
 
         openPlayerProfileModal(id);
       });
@@ -2121,10 +1912,7 @@ export function renderPlayersView() {
     modalContainer
       .querySelector(".btn-edit-avatar")
       .addEventListener("click", () => {
-        openAvatarEditorModal(
-          id,
-          () => openPlayerProfileModal(id),
-        );
+        openAvatarEditorModal(id, () => openPlayerProfileModal(id));
       });
   }
 
@@ -2132,10 +1920,7 @@ export function renderPlayersView() {
   // AVATAR EDITOR
   // ============================================================
 
-  function openAvatarEditorModal(
-    playerId,
-    onDone,
-  ) {
+  function openAvatarEditorModal(playerId, onDone) {
     const player = store.getPlayer(playerId);
 
     if (!player) {
@@ -2151,22 +1936,16 @@ export function renderPlayersView() {
     let activeGroup = "traits";
     let activeTabKey = AVATAR_TABS[0].key;
 
-    const modalContainer =
-      document.getElementById("modal-container");
+    const modalContainer = document.getElementById("modal-container");
 
     function getActiveTab() {
       return activeGroup === "colors"
-        ? AVATAR_COLOR_TABS.find(
-            (t) => t.key === activeTabKey,
-          )
-        : AVATAR_TABS.find(
-            (t) => t.key === activeTabKey,
-          );
+        ? AVATAR_COLOR_TABS.find((t) => t.key === activeTabKey)
+        : AVATAR_TABS.find((t) => t.key === activeTabKey);
     }
 
     function buildGridHtml() {
-      const isColorTab =
-        activeGroup === "colors";
+      const isColorTab = activeGroup === "colors";
 
       const activeTab = getActiveTab();
       const optionKey = activeTab.key;
@@ -2174,8 +1953,7 @@ export function renderPlayersView() {
       if (isColorTab) {
         return activeTab.colors
           .map((color) => {
-            const isSelected =
-              workingConfig[optionKey] === color;
+            const isSelected = workingConfig[optionKey] === color;
 
             const swatchStyle =
               color === "transparent"
@@ -2184,9 +1962,7 @@ export function renderPlayersView() {
 
             return `
               <button
-                class="avatar-color-swatch ${
-                  isSelected ? "selected" : ""
-                }"
+                class="avatar-color-swatch ${isSelected ? "selected" : ""}"
                 data-color="${color}"
                 style="${swatchStyle}"
                 title="${color}"
@@ -2199,29 +1975,24 @@ export function renderPlayersView() {
       const optionList =
         activeTab.key === "clothing"
           ? [
-              ...activeTab.jerseyOptions.map(
-                (opt) => ({
-                  ...opt,
-                  field: "jersey",
-                }),
-              ),
-              ...activeTab.options.map(
-                (opt) => ({
-                  ...opt,
-                  field: "clothing",
-                }),
-              ),
+              ...activeTab.jerseyOptions.map((opt) => ({
+                ...opt,
+                field: "jersey",
+              })),
+              ...activeTab.options.map((opt) => ({
+                ...opt,
+                field: "clothing",
+              })),
             ]
-          : (
-              activeTab.nullable
-                ? [
-                    {
-                      value: null,
-                      label: "Nenhum",
-                    },
-                    ...activeTab.options,
-                  ]
-                : activeTab.options
+          : (activeTab.nullable
+              ? [
+                  {
+                    value: null,
+                    label: "Nenhum",
+                  },
+                  ...activeTab.options,
+                ]
+              : activeTab.options
             ).map((opt) => ({
               ...opt,
               field: optionKey,
@@ -2231,11 +2002,8 @@ export function renderPlayersView() {
         .map((opt) => {
           const isSelected =
             opt.field === "clothing"
-              ? !workingConfig.jersey &&
-                workingConfig.clothing ===
-                  opt.value
-              : workingConfig[opt.field] ===
-                opt.value;
+              ? !workingConfig.jersey && workingConfig.clothing === opt.value
+              : workingConfig[opt.field] === opt.value;
 
           const previewConfig =
             opt.field === "clothing"
@@ -2251,19 +2019,13 @@ export function renderPlayersView() {
 
           return `
             <button
-              class="avatar-option-tile ${
-                isSelected ? "selected" : ""
-              }"
+              class="avatar-option-tile ${isSelected ? "selected" : ""}"
               data-field="${opt.field}"
-              data-value="${
-                opt.value ?? "__none__"
-              }"
+              data-value="${opt.value ?? "__none__"}"
               title="${escapeHtml(opt.label)}"
             >
               <img
-                src="${getAvatarDataUri(
-                  previewConfig,
-                )}"
+                src="${getAvatarDataUri(previewConfig)}"
                 alt="${escapeHtml(opt.label)}"
               />
             </button>
@@ -2273,74 +2035,46 @@ export function renderPlayersView() {
     }
 
     function bindGridListeners() {
-      modalContainer
-        .querySelectorAll(".avatar-option-tile")
-        .forEach((btn) => {
-          btn.addEventListener("click", (e) => {
-            const field =
-              e.currentTarget.getAttribute(
-                "data-field",
-              );
+      modalContainer.querySelectorAll(".avatar-option-tile").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const field = e.currentTarget.getAttribute("data-field");
 
-            const raw =
-              e.currentTarget.getAttribute(
-                "data-value",
-              );
+          const raw = e.currentTarget.getAttribute("data-value");
 
-            const value =
-              raw === "__none__"
-                ? null
-                : raw;
+          const value = raw === "__none__" ? null : raw;
 
-            if (field === "clothing") {
-              workingConfig.jersey = null;
-            }
+          if (field === "clothing") {
+            workingConfig.jersey = null;
+          }
 
-            workingConfig[field] = value;
+          workingConfig[field] = value;
 
-            patchAfterChange();
-          });
+          patchAfterChange();
         });
+      });
 
-      modalContainer
-        .querySelectorAll(
-          ".avatar-color-swatch",
-        )
-        .forEach((btn) => {
-          btn.addEventListener("click", (e) => {
-            const optionKey =
-              getActiveTab().key;
+      modalContainer.querySelectorAll(".avatar-color-swatch").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const optionKey = getActiveTab().key;
 
-            if (
-              optionKey === "clothesColor"
-            ) {
-              workingConfig.jersey = null;
-            }
+          if (optionKey === "clothesColor") {
+            workingConfig.jersey = null;
+          }
 
-            workingConfig[optionKey] =
-              e.currentTarget.getAttribute(
-                "data-color",
-              );
+          workingConfig[optionKey] = e.currentTarget.getAttribute("data-color");
 
-            patchAfterChange();
-          });
+          patchAfterChange();
         });
+      });
     }
 
     function patchAfterChange() {
-      modalContainer.querySelector(
-        ".avatar-editor-preview img",
-      ).src = getAvatarDataUri(
-        workingConfig,
-      );
+      modalContainer.querySelector(".avatar-editor-preview img").src =
+        getAvatarDataUri(workingConfig);
 
-      const gridEl =
-        modalContainer.querySelector(
-          ".avatar-editor-grid",
-        );
+      const gridEl = modalContainer.querySelector(".avatar-editor-grid");
 
-      gridEl.innerHTML =
-        buildGridHtml();
+      gridEl.innerHTML = buildGridHtml();
 
       bindGridListeners();
     }
@@ -2349,37 +2083,22 @@ export function renderPlayersView() {
       activeGroup = group;
       activeTabKey = key;
 
-      modalContainer
-        .querySelectorAll(".avatar-tab-btn")
-        .forEach((btn) => {
-          const isActive =
-            btn.getAttribute("data-group") ===
-              activeGroup &&
-            btn.getAttribute("data-tab") ===
-              activeTabKey;
+      modalContainer.querySelectorAll(".avatar-tab-btn").forEach((btn) => {
+        const isActive =
+          btn.getAttribute("data-group") === activeGroup &&
+          btn.getAttribute("data-tab") === activeTabKey;
 
-          btn.classList.toggle(
-            "active",
-            isActive,
-          );
-        });
+        btn.classList.toggle("active", isActive);
+      });
 
-      modalContainer
-        .querySelector(
-          ".avatar-tab-btn.active",
-        )
-        ?.scrollIntoView({
-          inline: "center",
-          block: "nearest",
-        });
+      modalContainer.querySelector(".avatar-tab-btn.active")?.scrollIntoView({
+        inline: "center",
+        block: "nearest",
+      });
 
-      const gridEl =
-        modalContainer.querySelector(
-          ".avatar-editor-grid",
-        );
+      const gridEl = modalContainer.querySelector(".avatar-editor-grid");
 
-      gridEl.innerHTML =
-        buildGridHtml();
+      gridEl.innerHTML = buildGridHtml();
 
       bindGridListeners();
     }
@@ -2410,9 +2129,7 @@ export function renderPlayersView() {
 
           <div class="avatar-editor-preview">
             <img
-              src="${getAvatarDataUri(
-                workingConfig,
-              )}"
+              src="${getAvatarDataUri(workingConfig)}"
               alt="Pré-visualização do avatar"
             />
           </div>
@@ -2422,8 +2139,7 @@ export function renderPlayersView() {
               (t) => `
                 <button
                   class="avatar-tab-btn ${
-                    activeGroup === t.group &&
-                    activeTabKey === t.key
+                    activeGroup === t.group && activeTabKey === t.key
                       ? "active"
                       : ""
                   }"
@@ -2469,18 +2185,12 @@ export function renderPlayersView() {
 
     modalContainer
       .querySelector("#avatar-modal-close")
-      .addEventListener(
-        "click",
-        close,
-      );
+      .addEventListener("click", close);
 
     modalContainer
       .querySelector("#avatar-modal-overlay")
       .addEventListener("click", (e) => {
-        if (
-          e.target.id ===
-          "avatar-modal-overlay"
-        ) {
+        if (e.target.id === "avatar-modal-overlay") {
           close();
         }
       });
@@ -2489,32 +2199,21 @@ export function renderPlayersView() {
       .querySelector("#avatar-cancel")
       .addEventListener("click", close);
 
-    modalContainer
-      .querySelectorAll(".avatar-tab-btn")
-      .forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          switchTab(
-            e.currentTarget.getAttribute(
-              "data-group",
-            ),
-            e.currentTarget.getAttribute(
-              "data-tab",
-            ),
-          );
-        });
+    modalContainer.querySelectorAll(".avatar-tab-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        switchTab(
+          e.currentTarget.getAttribute("data-group"),
+          e.currentTarget.getAttribute("data-tab"),
+        );
       });
+    });
 
     modalContainer
       .querySelector("#avatar-save")
       .addEventListener("click", () => {
-        store.updatePlayerAvatar(
-          playerId,
-          workingConfig,
-        );
+        store.updatePlayerAvatar(playerId, workingConfig);
 
-        showToast(
-          `🎉 Avatar de ${player.name} atualizado!`,
-        );
+        showToast(`🎉 Avatar de ${player.name} atualizado!`);
 
         close();
       });
@@ -2531,8 +2230,7 @@ export function renderPlayersView() {
 
     store.history.forEach((entry) => {
       (entry.teams || []).forEach((team) => {
-        const playerIds =
-          team.playerIds || [];
+        const playerIds = team.playerIds || [];
 
         if (!playerIds.includes(playerId)) {
           return;
@@ -2543,26 +2241,17 @@ export function renderPlayersView() {
             return;
           }
 
-          counts.set(
-            companionId,
-            (counts.get(companionId) || 0) + 1,
-          );
+          counts.set(companionId, (counts.get(companionId) || 0) + 1);
         });
       });
     });
 
     return Array.from(counts.entries())
       .map(([companionId, count]) => ({
-        name:
-          store.getPlayer(companionId)?.name ||
-          "Jogador removido",
+        name: store.getPlayer(companionId)?.name || "Jogador removido",
         count,
       }))
-      .sort(
-        (a, b) =>
-          b.count - a.count ||
-          a.name.localeCompare(b.name),
-      )
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
       .slice(0, 4);
   }
 
@@ -2570,12 +2259,7 @@ export function renderPlayersView() {
   // MÉTRICA DO PERFIL
   // ============================================================
 
-  function profileMetric(
-    icon,
-    label,
-    value,
-    tone,
-  ) {
+  function profileMetric(icon, label, value, tone) {
     return `
       <div class="profile-metric ${tone}">
         <span class="profile-metric-icon">

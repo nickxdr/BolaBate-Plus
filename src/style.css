@@ -4536,7 +4536,10 @@ body {
 
 .players-add-modal {
   width: min(740px, calc(100vw - 32px));
-  min-height: min(700px, calc(100vh - 32px));
+  /* No min-height: the modal hugs whichever mode is active (short for "um
+     jogador", taller for "vários jogadores") instead of always reserving
+     700px of height and leaving empty space in the short form. max-height
+     still caps growth so a long multi-player list scrolls internally. */
   max-height: calc(100vh - 32px);
   padding: 0;
   display: flex;
@@ -4651,15 +4654,13 @@ body {
 }
 
 /* Área rolável com os campos. Mantém o rodapé de ações sempre visível no fim
-   do modal, independente da altura da tela. O espaçamento é fluido (vh): quanto
-   mais alto o painel, mais os campos descem e mais se afastam, sempre com um
-   mínimo confortável em telas baixas. */
+   do modal, independente da altura da tela. */
 .player-add-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: clamp(40px, 6vh, 84px) 26px 0;
+  padding: 24px 26px 0;
 }
 
 @keyframes playerAddModeIn {
@@ -4679,7 +4680,7 @@ body {
    ============================================================ */
 
 .player-add-modal .form-group {
-  margin-bottom: clamp(56px, 7.5vh, 104px);
+  margin-bottom: 20px;
 }
 
 /* Rótulos seguem o padrão do app (mesmo estilo de .players-sort-label e dos
@@ -5106,7 +5107,6 @@ body {
 @media (max-width: 600px) {
   .players-add-modal {
     width: calc(100vw - 20px);
-    min-height: calc(100vh - 20px);
     max-height: calc(100vh - 20px);
   }
 
@@ -5125,11 +5125,11 @@ body {
   }
 
   .player-add-scroll {
-    padding: 30px 18px 0;
+    padding: 18px 18px 0;
   }
 
   .player-add-modal .form-group {
-    margin-bottom: 44px;
+    margin-bottom: 16px;
   }
 
   .player-add-modal textarea.input-field {
@@ -5148,9 +5148,15 @@ body {
     width: 100%;
   }
 
+  /* The two selects share the row evenly (wide enough for their full label
+     text, no truncation); the button drops to its own row right below,
+     spanning the same combined width instead of squeezing in beside them. */
   .multiple-players-bulk .multiple-players-bulk-select {
-    flex: 1 1 130px;
+    flex: 1 1 0;
     min-width: 0;
+    padding-left: 10px;
+    padding-right: 8px;
+    font-size: 0.78rem;
   }
 
   .multiple-players-bulk .btn {
