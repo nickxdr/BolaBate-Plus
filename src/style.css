@@ -4535,10 +4535,50 @@ body {
    ============================================================ */
 
 .players-add-modal {
-  width: min(620px, calc(100vw - 32px));
+  width: min(740px, calc(100vw - 32px));
+  min-height: min(700px, calc(100vh - 32px));
   max-height: calc(100vh - 32px);
-  overflow-y: auto;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.players-add-modal .modal-header {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 20px 26px;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.players-add-modal .modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+
+  width: 34px;
+  height: 34px;
+
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+
+  background: var(--bg-card-subtle);
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.players-add-modal .modal-close:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-highlight);
+  color: var(--text-main);
 }
 
 /* ============================================================
@@ -4546,27 +4586,28 @@ body {
    ============================================================ */
 
 .player-add-tabs {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 4px;
-  margin: 0 0 24px;
+  margin: 22px 26px 0;
   padding: 4px;
-  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-  border-radius: 12px;
-  background: var(--bg-secondary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-app);
 }
 
 .player-add-tab {
   appearance: none;
   border: 0;
-  border-radius: 9px;
+  border-radius: 10px;
   min-height: 40px;
   padding: 9px 14px;
   background: transparent;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-muted);
   font-family: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
 
@@ -4578,16 +4619,14 @@ body {
 }
 
 .player-add-tab:hover {
-  color: var(--text-primary, #fff);
-  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-main);
+  background: var(--bg-card-hover);
 }
 
 .player-add-tab.active {
-  background: var(--bg-card, #161b26);
-  color: var(--text-primary, #fff);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.18),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+  background: var(--btn-primary-gradient);
+  color: #FFFFFF;
+  box-shadow: var(--shadow-sm);
 }
 
 .player-add-tab:active {
@@ -4603,8 +4642,24 @@ body {
 }
 
 .player-add-mode.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   animation: playerAddModeIn 0.18s ease-out;
+}
+
+/* Área rolável com os campos. Mantém o rodapé de ações sempre visível no fim
+   do modal, independente da altura da tela. O espaçamento é fluido (vh): quanto
+   mais alto o painel, mais os campos descem e mais se afastam, sempre com um
+   mínimo confortável em telas baixas. */
+.player-add-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(40px, 6vh, 84px) 26px 0;
 }
 
 @keyframes playerAddModeIn {
@@ -4624,95 +4679,42 @@ body {
    ============================================================ */
 
 .player-add-modal .form-group {
-  margin-bottom: 20px;
+  margin-bottom: clamp(56px, 7.5vh, 104px);
 }
 
-.player-add-modal .form-group:last-child {
-  margin-bottom: 0;
-}
-
+/* Rótulos seguem o padrão do app (mesmo estilo de .players-sort-label e dos
+   rótulos do modal de edição de jogador). */
 .player-add-modal .form-group > label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-bottom: 8px;
-  color: var(--text-primary, #fff);
-  font-size: 13px;
+  gap: 6px;
+  margin-bottom: 15px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.3;
 }
 
 .player-add-modal .form-group > label strong {
-  color: var(--accent-gold, #f59e0b);
+  color: var(--accent-gold);
   font-weight: 700;
 }
 
 /* ============================================================
-   INPUTS
+   CAMPOS
+   Todo campo do modal usa a classe .input-field — o mesmo componente
+   (padding, fonte, raio, fundo e foco) das barras de busca e filtros do
+   resto do app (ver .input-field no topo do arquivo).
+   Aqui ficam apenas os ajustes de layout do modal.
    ============================================================ */
 
-.player-add-modal input[type="text"],
-.player-add-modal textarea,
-.player-add-modal select {
-  width: 100%;
-  box-sizing: border-box;
-
-  border: 1px solid var(
-    --border-color,
-    rgba(255, 255, 255, 0.1)
-  );
-  border-radius: 10px;
-
-  background: var(--bg-secondary, #10151f);
-  color: var(--text-primary, #fff);
-
-  font-family: inherit;
-  font-size: 14px;
-  outline: none;
-
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
-}
-
-.player-add-modal input[type="text"],
-.player-add-modal select {
-  height: 44px;
-  padding: 0 13px;
-}
-
-.player-add-modal textarea {
-  min-height: 150px;
-  padding: 12px 13px;
+.player-add-modal textarea.input-field {
+  min-height: 138px;
   resize: vertical;
   line-height: 1.5;
 }
 
-.player-add-modal input[type="text"]:hover,
-.player-add-modal textarea:hover,
-.player-add-modal select:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.player-add-modal input[type="text"]:focus,
-.player-add-modal textarea:focus,
-.player-add-modal select:focus {
-  border-color: var(--accent-green, #10b981);
-  background: var(--bg-card, #161b26);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.11);
-}
-
-.player-add-modal input::placeholder,
-.player-add-modal textarea::placeholder {
-  color: var(--text-muted, #6b7280);
-}
-
-/* ============================================================
-   SELECT
-   ============================================================ */
-
-.player-add-modal select {
+.player-add-modal select.input-field {
   cursor: pointer;
 }
 
@@ -4722,20 +4724,29 @@ body {
 
 .player-add-modal input[type="range"] {
   width: 100%;
-  height: 20px;
+  height: 22px;
   margin: 6px 0 0;
 
   appearance: none;
   background: transparent;
 
-  accent-color: var(--accent-gold, #f59e0b);
+  accent-color: var(--accent-gold);
   cursor: pointer;
 }
 
 .player-add-modal input[type="range"]::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+
+  /* --range-progress é atualizado pelo JS conforme o valor do slider. */
+  background:
+    linear-gradient(
+      to right,
+      var(--accent-gold) 0,
+      var(--accent-gold) var(--range-progress, 50%),
+      var(--border-color) var(--range-progress, 50%),
+      var(--border-color) 100%
+    );
 }
 
 .player-add-modal input[type="range"]::-webkit-slider-thumb {
@@ -4745,30 +4756,41 @@ body {
   height: 18px;
   margin-top: -6px;
 
-  border: 2px solid var(--accent-gold, #f59e0b);
+  border: 2px solid var(--bg-card);
   border-radius: 50%;
 
-  background: var(--bg-card, #161b26);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  background: var(--accent-gold);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 
   cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.player-add-modal input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.08);
 }
 
 .player-add-modal input[type="range"]::-moz-range-track {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border-color);
+}
+
+.player-add-modal input[type="range"]::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-gold);
 }
 
 .player-add-modal input[type="range"]::-moz-range-thumb {
   width: 16px;
   height: 16px;
 
-  border: 2px solid var(--accent-gold, #f59e0b);
+  border: 2px solid var(--bg-card);
   border-radius: 50%;
 
-  background: var(--bg-card, #161b26);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  background: var(--accent-gold);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 
   cursor: pointer;
 }
@@ -4779,9 +4801,9 @@ body {
 
 .player-add-modal .form-hint {
   display: block;
-  margin-top: 7px;
+  margin-top: 8px;
 
-  color: var(--text-muted, #6b7280);
+  color: var(--text-dim);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -4791,85 +4813,246 @@ body {
    ============================================================ */
 
 .multiple-players-preview {
-  margin: -4px 0 20px;
-  padding: 14px 15px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 
-  border: 1px solid var(
-    --border-color,
-    rgba(255, 255, 255, 0.08)
-  );
-  border-radius: 11px;
+  /* Fica dentro do grupo dos nomes, logo abaixo da dica. */
+  margin: 14px 0 0;
+  padding: 10px 12px;
 
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.045),
-    rgba(255, 255, 255, 0.02)
-  );
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card-subtle);
+}
 
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+.multiple-players-count,
+.multiple-players-new,
+.multiple-players-existing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  padding: 5px 11px;
+
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .multiple-players-count {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-
-  color: var(--text-secondary, #9ca3af);
-  font-size: 13px;
+  background: var(--bg-app);
+  color: var(--text-muted);
 }
 
 .multiple-players-count strong {
-  color: var(--text-primary, #fff);
-  font-size: 16px;
-  font-weight: 700;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .multiple-players-new {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  margin-top: 7px;
-  color: var(--accent-green, #10b981);
-  font-size: 12px;
+  border-color: var(--pitch-green);
+  color: var(--pitch-green);
 }
 
 .multiple-players-existing {
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+}
+
+.multiple-players-new strong,
+.multiple-players-existing strong {
+  font-weight: 800;
+}
+
+/* ============================================================
+   NOTA / POSIÇÃO POR JOGADOR
+   ============================================================ */
+
+.multiple-players-config-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  margin-bottom: 10px;
+}
+
+.multiple-players-config-title {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.multiple-players-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.multiple-players-bulk .multiple-players-bulk-select {
+  width: auto;
+  min-width: 138px;
+}
+
+/* Controles compactos da lista — mesmo visual do .input-field, com o mesmo
+   padding dos seletores de filtro da toolbar (.players-sort-select). */
+.multiple-players-bulk .multiple-players-bulk-select,
+.multiple-players-row .multiple-players-row-stars,
+.multiple-players-row .multiple-players-row-position {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.multiple-players-bulk .btn {
+  min-height: 38px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.multiple-players-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  margin-right: -4px;
+  padding-right: 4px;
+}
+
+.multiple-players-empty {
+  padding: 18px 14px;
+
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card-subtle);
+
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.multiple-players-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 98px 146px;
+  align-items: center;
+  gap: 8px;
+
+  padding: 8px 10px;
+
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card-subtle);
+
+  transition:
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.multiple-players-row:focus-within {
+  border-color: var(--pitch-green);
+}
+
+.multiple-players-row.is-existing {
+  opacity: 0.55;
+}
+
+.multiple-players-row-name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+}
 
-  margin-top: 5px;
-  color: var(--text-muted, #9ca3af);
-  font-size: 12px;
+.multiple-players-row-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+
+  width: 22px;
+  height: 22px;
+
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-app);
+
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.multiple-players-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  color: var(--text-main);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.multiple-players-row-badge {
+  flex: 0 0 auto;
+
+  padding: 2px 7px;
+
+  border: 1px solid var(--accent-gold);
+  border-radius: 999px;
+
+  color: var(--accent-gold);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.multiple-players-row select:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 /* ============================================================
    BOTÕES
    ============================================================ */
 
+/* Rodapé do modal: fica sempre no fim do painel. Quem rola é o
+   .player-add-scroll logo acima, então os botões nunca sobem junto com os
+   campos nem ficam colados neles. */
 .player-add-modal .modal-actions {
+  flex: 0 0 auto;
+
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 
-  margin-top: 26px;
-  padding-top: 18px;
+  padding: 22px 26px 26px;
 
-  border-top: 1px solid var(
-    --border-color,
-    rgba(255, 255, 255, 0.07)
-  );
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-card);
 }
 
 .player-add-modal .modal-actions .btn {
-  min-height: 42px;
-  border-radius: 9px;
+  min-height: 44px;
+  padding: 0 22px;
+  border-radius: 10px;
+  font-weight: 700;
 }
 
 .player-add-modal #btn-add-multiple-players {
-  min-width: 180px;
+  min-width: 190px;
 
   transition:
     opacity 0.2s ease,
@@ -4878,7 +5061,7 @@ body {
 }
 
 .player-add-modal #btn-add-multiple-players:not(:disabled):hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px var(--pitch-green-glow);
 }
 
 .player-add-modal #btn-add-multiple-players:not(:disabled):active {
@@ -4892,24 +5075,28 @@ body {
 }
 
 /* ============================================================
-   SCROLLBAR DO MODAL
+   SCROLLBAR
    ============================================================ */
 
-.players-add-modal::-webkit-scrollbar {
+.player-add-scroll::-webkit-scrollbar,
+.multiple-players-list::-webkit-scrollbar {
   width: 6px;
 }
 
-.players-add-modal::-webkit-scrollbar-track {
+.player-add-scroll::-webkit-scrollbar-track,
+.multiple-players-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.players-add-modal::-webkit-scrollbar-thumb {
+.player-add-scroll::-webkit-scrollbar-thumb,
+.multiple-players-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border-highlight);
 }
 
-.players-add-modal::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+.player-add-scroll::-webkit-scrollbar-thumb:hover,
+.multiple-players-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
 }
 
 /* ============================================================
@@ -4919,11 +5106,16 @@ body {
 @media (max-width: 600px) {
   .players-add-modal {
     width: calc(100vw - 20px);
+    min-height: calc(100vh - 20px);
     max-height: calc(100vh - 20px);
   }
 
+  .players-add-modal .modal-header {
+    padding: 16px 18px;
+  }
+
   .player-add-tabs {
-    margin-bottom: 20px;
+    margin: 18px 18px 0;
   }
 
   .player-add-tab {
@@ -4932,21 +5124,61 @@ body {
     font-size: 12px;
   }
 
-  .player-add-modal .form-group {
-    margin-bottom: 17px;
+  .player-add-scroll {
+    padding: 30px 18px 0;
   }
 
-  .player-add-modal textarea {
-    min-height: 130px;
+  .player-add-modal .form-group {
+    margin-bottom: 44px;
+  }
+
+  .player-add-modal textarea.input-field {
+    min-height: 118px;
   }
 
   .multiple-players-preview {
-    padding: 12px 13px;
+    padding: 9px 10px;
+  }
+
+  .multiple-players-config-head {
+    align-items: stretch;
+  }
+
+  .multiple-players-bulk {
+    width: 100%;
+  }
+
+  .multiple-players-bulk .multiple-players-bulk-select {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+
+  .multiple-players-bulk .btn {
+    flex: 1 1 100%;
+  }
+
+  .multiple-players-list {
+    max-height: none;
+    overflow-y: visible;
+
+    margin-right: 0;
+    padding-right: 0;
+  }
+
+  .multiple-players-row {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .multiple-players-row-name {
+    grid-column: 1 / -1;
   }
 
   .player-add-modal .modal-actions {
     flex-direction: column-reverse;
     align-items: stretch;
+
+    padding: 20px 18px 22px;
   }
 
   .player-add-modal .modal-actions .btn {

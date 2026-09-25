@@ -18,6 +18,19 @@ function ovrTierClass(ovr) {
   return "ovr-low";
 }
 
+// Preenche a parte já percorrida do slider de nota (variável --range-progress
+// usada pelos estilos de input[type="range"] do modal).
+function syncRangeProgress(input) {
+  if (!input) return;
+
+  const min = Number(input.min) || 0;
+  const max = Number(input.max) || 0;
+  const value = Number(input.value) || 0;
+  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+
+  input.style.setProperty("--range-progress", `${percent}%`);
+}
+
 /**
  * Diaristas (day-rate guests) declutter the roster management screen once their
  * pelada is over — UNLESS they turn out to have real data: prior participation
@@ -32,6 +45,33 @@ export function isHiddenDiarista(player) {
     (entry.diaristaPlayerIds || []).includes(player.id),
   );
 }
+
+// ============================================================
+// OPÇÕES COMPARTILHADAS
+// ============================================================
+
+const PLAYER_STAR_OPTIONS = [
+  "5.0",
+  "4.5",
+  "4.0",
+  "3.5",
+  "3.0",
+  "2.5",
+  "2.0",
+  "1.5",
+  "1.0",
+  "0.5",
+];
+
+const PLAYER_POSITION_OPTIONS = [
+  { value: "", label: "Não definida" },
+  { value: "Fixo", label: "Fixo" },
+  { value: "Ala", label: "Ala" },
+  { value: "Pivô", label: "Pivô" },
+];
+
+// Nota com que cada jogador entra na lista do modo "vários jogadores".
+const DEFAULT_MULTIPLE_PLAYER_STARS = "3.0";
 
 export function renderPlayersView() {
   const container = document.createElement("div");
@@ -157,14 +197,12 @@ export function renderPlayersView() {
                 starsFilter === "all" ? "selected" : ""
               }>Todas as notas</option>
 
-              ${["5.0", "4.5", "4.0", "3.5", "3.0", "2.5", "2.0", "1.5", "1.0", "0.5"]
-                .map(
-                  (s) =>
-                    `<option value="${s}" ${
-                      starsFilter === s ? "selected" : ""
-                    }>${s} ★</option>`,
-                )
-                .join("")}
+              ${PLAYER_STAR_OPTIONS.map(
+                (stars) =>
+                  `<option value="${stars}" ${
+                    starsFilter === stars ? "selected" : ""
+                  }>${stars} ★</option>`,
+              ).join("")}
             </select>
           </div>
 
@@ -476,7 +514,7 @@ export function renderPlayersView() {
       <div class="modal-content players-add-modal">
 
         <div class="modal-header">
-          <h2>Adicionar Jogadores</h2>
+          <h2 class="modal-title">Adicionar Jogadores</h2>
 
           <button
             class="modal-close"
@@ -511,54 +549,60 @@ export function renderPlayersView() {
           class="player-add-mode active"
           data-mode="single"
         >
-          <div class="form-group">
-            <label for="player-name">
-              Nome
-            </label>
+          <div class="player-add-scroll">
 
-            <input
-              type="text"
-              id="player-name"
-              name="name"
-              placeholder="Digite o nome do jogador"
-              autocomplete="off"
-              required
-            />
-          </div>
+            <div class="form-group">
+              <label for="player-name">
+                Nome
+              </label>
 
-          <div class="form-group">
-            <label for="player-stars">
-              Nota inicial:
-              <strong id="player-stars-value">
-                3.0 ★
-              </strong>
-            </label>
+              <input
+                type="text"
+                id="player-name"
+                name="name"
+                class="input-field"
+                placeholder="Digite o nome do jogador"
+                autocomplete="off"
+                required
+              />
+            </div>
 
-            <input
-              type="range"
-              id="player-stars"
-              name="stars"
-              min="0.5"
-              max="5"
-              step="0.5"
-              value="3"
-            />
-          </div>
+            <div class="form-group">
+              <label for="player-stars">
+                Nota inicial:
+                <strong id="player-stars-value">
+                  3.0 ★
+                </strong>
+              </label>
 
-          <div class="form-group">
-            <label for="player-position">
-              Posição favorita
-            </label>
+              <input
+                type="range"
+                id="player-stars"
+                name="stars"
+                min="0.5"
+                max="5"
+                step="0.5"
+                value="3"
+              />
+            </div>
 
-            <select
-              id="player-position"
-              name="favoritePosition"
-            >
-              <option value="">Não definida</option>
-              <option value="Fixo">Fixo</option>
-              <option value="Ala">Ala</option>
-              <option value="Pivô">Pivô</option>
-            </select>
+            <div class="form-group">
+              <label for="player-position">
+                Posição favorita
+              </label>
+
+              <select
+                id="player-position"
+                name="favoritePosition"
+                class="input-field"
+              >
+                <option value="">Não definida</option>
+                <option value="Fixo">Fixo</option>
+                <option value="Ala">Ala</option>
+                <option value="Pivô">Pivô</option>
+              </select>
+            </div>
+
           </div>
 
           <div class="modal-actions">
@@ -584,66 +628,90 @@ export function renderPlayersView() {
           class="player-add-mode"
           data-mode="multiple"
         >
-          <div class="form-group">
-            <label for="multiple-player-names">
-              Jogadores
-            </label>
+          <div class="player-add-scroll">
 
-            <textarea
-              id="multiple-player-names"
-              name="names"
-              rows="7"
-              placeholder="Digite um jogador por linha&#10;&#10;João&#10;Pedro&#10;Marcos&#10;Rafael"
-              autocomplete="off"
-            ></textarea>
+            <div class="form-group">
+              <label for="multiple-player-names">
+                Nomes dos jogadores
+              </label>
 
-            <small class="form-hint">
-              Digite um jogador por linha.
-            </small>
-          </div>
+              <textarea
+                id="multiple-player-names"
+                name="names"
+                class="input-field"
+                rows="7"
+                placeholder="Digite um jogador por linha&#10;&#10;João&#10;Pedro&#10;Marcos&#10;Rafael"
+                autocomplete="off"
+              ></textarea>
 
-          <div
-            id="multiple-players-preview"
-            class="multiple-players-preview"
-          >
-            <div class="multiple-players-count">
-              Nenhum jogador informado
+              <small class="form-hint">
+                Digite ou cole um jogador por linha. Depois defina a nota e a
+                posição de cada um na lista abaixo.
+              </small>
+
+              <div
+                id="multiple-players-preview"
+                class="multiple-players-preview"
+              >
+                <div class="multiple-players-count">
+                  Nenhum jogador informado
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div class="form-group">
-            <label for="multiple-player-stars">
-              Nota inicial:
-              <strong id="multiple-player-stars-value">
-                3.0 ★
-              </strong>
-            </label>
+            <div class="form-group multiple-players-config">
+              <div class="multiple-players-config-head">
+                <span class="multiple-players-config-title">
+                  Nota e posição de cada jogador
+                </span>
 
-            <input
-              type="range"
-              id="multiple-player-stars"
-              name="stars"
-              min="0.5"
-              max="5"
-              step="0.5"
-              value="3"
-            />
-          </div>
+                <div class="multiple-players-bulk">
+                  <select
+                    id="multiple-players-bulk-stars"
+                    class="input-field multiple-players-bulk-select"
+                    aria-label="Definir a nota de todos os jogadores"
+                  >
+                    <option value="">Nota para todos</option>
 
-          <div class="form-group">
-            <label for="multiple-player-position">
-              Posição favorita
-            </label>
+                    ${PLAYER_STAR_OPTIONS.map(
+                      (stars) =>
+                        `<option value="${stars}">${stars} ★</option>`,
+                    ).join("")}
+                  </select>
 
-            <select
-              id="multiple-player-position"
-              name="favoritePosition"
-            >
-              <option value="">Não definida</option>
-              <option value="Fixo">Fixo</option>
-              <option value="Ala">Ala</option>
-              <option value="Pivô">Pivô</option>
-            </select>
+                  <select
+                    id="multiple-players-bulk-position"
+                    class="input-field multiple-players-bulk-select"
+                    aria-label="Definir a posição de todos os jogadores"
+                  >
+                    <option value="">Posição para todos</option>
+                    <option value="__undefined__">Não definida</option>
+                    <option value="Fixo">Fixo</option>
+                    <option value="Ala">Ala</option>
+                    <option value="Pivô">Pivô</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    id="multiple-players-bulk-apply"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    Aplicar a todos
+                  </button>
+                </div>
+              </div>
+
+              <div
+                id="multiple-players-list"
+                class="multiple-players-list"
+              >
+                <div class="multiple-players-empty">
+                  Informe os nomes acima para definir a nota e a posição de cada
+                  jogador.
+                </div>
+              </div>
+            </div>
+
           </div>
 
           <div class="modal-actions">
@@ -697,20 +765,28 @@ export function renderPlayersView() {
       "#player-stars-value",
     );
 
-    const multipleStars = modal.querySelector(
-      "#multiple-player-stars",
-    );
-
-    const multipleStarsValue = modal.querySelector(
-      "#multiple-player-stars-value",
-    );
-
     const multipleNames = modal.querySelector(
       "#multiple-player-names",
     );
 
     const multiplePreview = modal.querySelector(
       "#multiple-players-preview",
+    );
+
+    const multipleList = modal.querySelector(
+      "#multiple-players-list",
+    );
+
+    const multipleBulkStars = modal.querySelector(
+      "#multiple-players-bulk-stars",
+    );
+
+    const multipleBulkPosition = modal.querySelector(
+      "#multiple-players-bulk-position",
+    );
+
+    const multipleBulkApply = modal.querySelector(
+      "#multiple-players-bulk-apply",
     );
 
     const multipleSubmit = modal.querySelector(
@@ -744,6 +820,8 @@ export function renderPlayersView() {
             modal.querySelector("#player-name")?.focus();
           }, 50);
         } else {
+          updateMultipleMode();
+
           setTimeout(() => {
             multipleNames?.focus();
           }, 50);
@@ -758,16 +836,11 @@ export function renderPlayersView() {
     singleStars.addEventListener("input", () => {
       singleStarsValue.textContent =
         `${Number(singleStars.value).toFixed(1)} ★`;
+
+      syncRangeProgress(singleStars);
     });
 
-    // ============================================================
-    // NOTA - VÁRIOS
-    // ============================================================
-
-    multipleStars.addEventListener("input", () => {
-      multipleStarsValue.textContent =
-        `${Number(multipleStars.value).toFixed(1)} ★`;
-    });
+    syncRangeProgress(singleStars);
 
     // ============================================================
     // NORMALIZAÇÃO DOS NOMES
@@ -896,9 +969,209 @@ export function renderPlayersView() {
       }
     };
 
+    // ============================================================
+    // NOTA E POSIÇÃO DE CADA JOGADOR
+    // ============================================================
+
+    // Guarda a nota/posição escolhida para cada jogador. A chave é o nome em
+    // minúsculas, então os valores escolhidos sobrevivem enquanto o usuário
+    // digita na textarea (a lista é re-renderizada a cada alteração).
+    const multipleConfig = new Map();
+
+    const getPlayerConfig = (name) => {
+      const key = String(name).trim().toLocaleLowerCase();
+
+      if (!multipleConfig.has(key)) {
+        multipleConfig.set(key, {
+          stars: DEFAULT_MULTIPLE_PLAYER_STARS,
+          favoritePosition: "",
+        });
+      }
+
+      return multipleConfig.get(key);
+    };
+
+    const renderMultipleList = () => {
+      const names = getMultipleNames();
+      const existingNames = getExistingPlayerNames();
+
+      // Descarta as configurações de nomes que saíram da textarea.
+      const activeKeys = new Set(
+        names.map((name) => name.toLocaleLowerCase()),
+      );
+
+      Array.from(multipleConfig.keys()).forEach((key) => {
+        if (!activeKeys.has(key)) {
+          multipleConfig.delete(key);
+        }
+      });
+
+      if (!names.length) {
+        multipleList.innerHTML = `
+          <div class="multiple-players-empty">
+            Informe os nomes acima para definir a nota e a posição de cada
+            jogador.
+          </div>
+        `;
+
+        return;
+      }
+
+      multipleList.innerHTML = names
+        .map((name, index) => {
+          const key = name.toLocaleLowerCase();
+          const config = getPlayerConfig(key);
+          const alreadyExists = existingNames.has(key);
+
+          const starOptions = PLAYER_STAR_OPTIONS.map(
+            (stars) =>
+              `<option value="${stars}" ${
+                config.stars === stars ? "selected" : ""
+              }>${stars} ★</option>`,
+          ).join("");
+
+          const positionOptions = PLAYER_POSITION_OPTIONS.map(
+            (option) =>
+              `<option value="${option.value}" ${
+                config.favoritePosition === option.value
+                  ? "selected"
+                  : ""
+              }>${option.label}</option>`,
+          ).join("");
+
+          return `
+            <div
+              class="multiple-players-row${
+                alreadyExists ? " is-existing" : ""
+              }"
+              data-player-key="${escapeHtml(key)}"
+            >
+              <div class="multiple-players-row-name">
+                <span class="multiple-players-row-index">
+                  ${index + 1}
+                </span>
+
+                <span class="multiple-players-row-label">
+                  ${escapeHtml(name)}
+                </span>
+
+                ${
+                  alreadyExists
+                    ? `
+                      <span class="multiple-players-row-badge">
+                        já cadastrado
+                      </span>
+                    `
+                    : ""
+                }
+              </div>
+
+              <select
+                class="input-field multiple-players-row-stars"
+                data-field="stars"
+                aria-label="Nota de ${escapeHtml(name)}"
+                ${alreadyExists ? "disabled" : ""}
+              >
+                ${starOptions}
+              </select>
+
+              <select
+                class="input-field multiple-players-row-position"
+                data-field="favoritePosition"
+                aria-label="Posição de ${escapeHtml(name)}"
+                ${alreadyExists ? "disabled" : ""}
+              >
+                ${positionOptions}
+              </select>
+            </div>
+          `;
+        })
+        .join("");
+    };
+
+    const updateMultipleMode = () => {
+      renderMultipleList();
+      updateMultiplePreview();
+    };
+
+    // ============================================================
+    // APLICAR A TODOS
+    // ============================================================
+
+    multipleBulkApply.addEventListener("click", () => {
+      const stars = multipleBulkStars.value;
+      const position = multipleBulkPosition.value;
+
+      if (!stars && !position) {
+        showToast(
+          "Escolha uma nota ou uma posição para aplicar a todos.",
+        );
+
+        return;
+      }
+
+      const names = getMultipleNames();
+
+      if (!names.length) {
+        showToast(
+          "Informe os jogadores na lista de nomes primeiro.",
+        );
+
+        return;
+      }
+
+      names.forEach((name) => {
+        const config = getPlayerConfig(name);
+
+        if (stars) {
+          config.stars = stars;
+        }
+
+        if (position) {
+          config.favoritePosition =
+            position === "__undefined__" ? "" : position;
+        }
+      });
+
+      renderMultipleList();
+
+      multipleBulkStars.value = "";
+      multipleBulkPosition.value = "";
+
+      showToast(
+        `Aplicado a ${names.length} jogador${
+          names.length === 1 ? "" : "es"
+        }.`,
+      );
+    });
+
+    // ============================================================
+    // TROCA DE NOTA / POSIÇÃO DE UM JOGADOR
+    // ============================================================
+
+    multipleList.addEventListener("change", (e) => {
+      const field = e.target.dataset?.field;
+
+      if (!field) return;
+
+      const row = e.target.closest(".multiple-players-row");
+
+      if (!row) return;
+
+      const config = getPlayerConfig(
+        row.getAttribute("data-player-key"),
+      );
+
+      config[field] = e.target.value;
+    });
+
+    // ============================================================
+    // NOMES → LISTA
+    // ============================================================
+
     multipleNames.addEventListener(
       "input",
-      updateMultiplePreview,
+      updateMultipleMode,
     );
 
     // ============================================================
@@ -965,20 +1238,15 @@ export function renderPlayersView() {
         return;
       }
 
-      const stars = parseFloat(
-        multipleStars.value,
-      );
-
-      const favoritePosition =
-        multipleForm.elements.favoritePosition.value;
-
       let addedCount = 0;
 
       namesToAdd.forEach((name) => {
+        const config = getPlayerConfig(name);
+
         const created = store.addPlayer(
           name,
-          stars,
-          favoritePosition,
+          parseFloat(config.stars),
+          config.favoritePosition,
         );
 
         if (created) {
