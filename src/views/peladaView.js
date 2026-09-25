@@ -81,6 +81,12 @@ function renderPeladaConfig(container, onNavigate) {
   let filterText = "";
 
   function update() {
+    // .player-chips-grid scrolls internally (long rosters); update() rebuilds
+    // the whole container's innerHTML on every click, which would otherwise
+    // destroy and recreate that element and silently reset its scroll to the
+    // top — jumping the admin back up the list after every single tap.
+    const previousScrollTop = container.querySelector(".player-chips-grid")?.scrollTop;
+
     const teamSize = store.teamSize;
     const minPlayers = minPeladaPlayers(teamSize);
     const maxPlayers = teamCount * teamSize; // admin's chosen ceiling — selection is still capped here
@@ -236,6 +242,11 @@ function renderPeladaConfig(container, onNavigate) {
         </div>
       </div>
     `;
+
+    if (previousScrollTop) {
+      const chipsGrid = container.querySelector(".player-chips-grid");
+      if (chipsGrid) chipsGrid.scrollTop = previousScrollTop;
+    }
 
     // Bind team count buttons
     container.querySelectorAll(".btn-team-count").forEach((btn) => {
