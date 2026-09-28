@@ -2,7 +2,7 @@ import { store } from '../state/store.js';
 import { calculatePointsFromStats } from '../data/seedData.js';
 
 export function renderPlayerComparisonView() {
-  const players = [...store.players]
+  const players = store.getActivePlayers()
     .filter(player => !player.isGuest)
     .sort((a, b) => a.name.localeCompare(b.name));
 

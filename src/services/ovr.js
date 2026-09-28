@@ -144,9 +144,10 @@ export function computeCumulativeOVRsAsOf(store, year, month, isAnnual) {
     });
   }
 
+  const players = store.getActivePlayers();
   const statsById = {};
-  store.players.forEach(p => { statsById[p.id] = toFormStats(raw[p.id]); });
-  return computeOVRs(store.players, statsById);
+  players.forEach(p => { statsById[p.id] = toFormStats(raw[p.id]); });
+  return computeOVRs(players, statsById);
 }
 
 /** The player's OVR right now — used in the profile modal and the live pitch view. */

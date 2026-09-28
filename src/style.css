@@ -326,6 +326,12 @@ body {
   gap: 10px;
 }
 
+@media (max-width: 600px) {
+  #cloud-status-badge {
+    display: none;
+  }
+}
+
 .live-badge {
   display: inline-flex;
   align-items: center;

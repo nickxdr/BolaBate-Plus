@@ -31,21 +31,6 @@ function syncRangeProgress(input) {
   input.style.setProperty("--range-progress", `${percent}%`);
 }
 
-/**
- * Diaristas (day-rate guests) declutter the roster management screen once their
- * pelada is over — UNLESS they turn out to have real data: prior participation
- * as a mensalista (player.participacao, synced from monthlyStats, never counts
- * diarista appearances) or in any past ranking table. Purely a display filter —
- * the player record itself is untouched, so history/attendance still work.
- */
-export function isHiddenDiarista(player) {
-  if (Number(player.participacao) > 0) return false;
-
-  return store.history.some((entry) =>
-    (entry.diaristaPlayerIds || []).includes(player.id),
-  );
-}
-
 // ============================================================
 // OPÇÕES COMPARTILHADAS
 // ============================================================
@@ -83,8 +68,8 @@ export function renderPlayersView() {
   let starsFilter = "all";
 
   function getFilteredPlayers() {
-    return store.players
-      .filter((p) => !isHiddenDiarista(p))
+    return store
+      .getActivePlayers()
       .filter((p) => {
         const term = searchTerm.trim().toLowerCase();
 
@@ -829,7 +814,7 @@ export function renderPlayersView() {
 
     const getExistingPlayerNames = () => {
       return new Set(
-        store.players.map((player) =>
+        store.getActivePlayers().map((player) =>
           String(player.name || "")
             .trim()
             .toLocaleLowerCase(),

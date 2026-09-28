@@ -519,6 +519,23 @@ class Store {
     return this.players.find(p => p.id === id);
   }
 
+  /**
+   * Diaristas (day-rate guests) stop being "real" roster members once their
+   * pelada is over — UNLESS they have real data: prior participation as a
+   * mensalista (player.participacao, synced from monthlyStats, never counts
+   * diarista appearances). The record itself is kept so history still resolves
+   * their name via getPlayer(); they're just excluded from every player list.
+   */
+  isHiddenDiarista(player) {
+    if (Number(player.participacao) > 0) return false;
+    return this.history.some(entry => (entry.diaristaPlayerIds || []).includes(player.id));
+  }
+
+  /** The roster as shown in Jogadores — use this (not this.players) for anything that lists players. */
+  getActivePlayers() {
+    return this.players.filter(p => !this.isHiddenDiarista(p));
+  }
+
   addPlayer(name, stars = 3.0, favoritePosition = '') {
     const trimmed = name.trim();
     if (!trimmed) return null;

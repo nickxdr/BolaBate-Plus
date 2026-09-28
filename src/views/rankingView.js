@@ -39,7 +39,7 @@ export function renderRankingView() {
 
   // Calculate sorted rankings from period snapshot (fallback to zeros)
   const periodOvrMap = computeCumulativeOVRsAsOf(store, Number(selYear), Number(selMonth) || 1, isAnnual);
-  const rankedPlayers = [...store.players]
+  const rankedPlayers = store.getActivePlayers()
     .map((p) => {
       const stats =
         (snapshot && snapshot.players && snapshot.players[p.id]) ||

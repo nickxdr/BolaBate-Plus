@@ -6,7 +6,6 @@ import {
   getSubstituteSuggestions,
 } from "../services/balancer.js";
 import { showToast } from "./rankingView.js";
-import { isHiddenDiarista } from "./playersView.js";
 import { getAvatarDataUri } from "../services/avatar.js";
 import { computeCurrentOVRs } from "../services/ovr.js";
 import confetti from "canvas-confetti";
@@ -94,8 +93,8 @@ function renderPeladaConfig(container, onNavigate) {
     // real data (never a mensalista, no ranking history) shouldn't linger here
     // forever just because they subbed in once — they were never added as a
     // "real" player.
-    const players = store.players
-      .filter((p) => !isHiddenDiarista(p))
+    const players = store
+      .getActivePlayers()
       .filter((p) => p.name.toLowerCase().includes(filterText.toLowerCase()));
 
     const count = selectedIds.size;
@@ -274,7 +273,7 @@ function renderPeladaConfig(container, onNavigate) {
     container.querySelector("#btn-quick-fill").addEventListener("click", () => {
       selectedIds.clear();
       diaristaIds.clear();
-      const pool = store.players.filter((p) => !isHiddenDiarista(p)).slice(0, maxPlayers);
+      const pool = store.getActivePlayers().slice(0, maxPlayers);
       pool.forEach((p) => selectedIds.add(p.id));
       update();
     });

@@ -32,7 +32,7 @@ function normalizeText(text) {
 }
 
 function getPlayers() {
-  return Array.isArray(store.players) ? store.players : [];
+  return Array.isArray(store.players) ? store.getActivePlayers() : [];
 }
 
 function getPelada() {
