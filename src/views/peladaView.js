@@ -1391,6 +1391,63 @@ function handleReclaimedGuests(reclaimedGuests, onAllDone) {
   openNext();
 }
 
+function normalizeSearchText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+/** Search box listing every waiting-queue player — a manual alternative to the ranked suggestions below it. */
+function renderQueueSearchHtml(candidatePlayers) {
+  if (!candidatePlayers.length) return "";
+  return `
+    <div class="queue-search">
+      <input type="text" class="input-field queue-search-input" placeholder="🔍 Buscar jogador da fila de espera..." autocomplete="off" />
+      <div class="queue-search-results" hidden></div>
+    </div>
+  `;
+}
+
+function bindQueueSearch(root, candidatePlayers, onPick) {
+  const input = root.querySelector(".queue-search-input");
+  const results = root.querySelector(".queue-search-results");
+  if (!input || !results) return;
+
+  const sorted = [...candidatePlayers].sort((a, b) => a.name.localeCompare(b.name));
+
+  const renderResults = () => {
+    const term = normalizeSearchText(input.value.trim());
+    const matches = sorted.filter((p) => normalizeSearchText(p.name).includes(term));
+    results.innerHTML = matches.length
+      ? matches
+          .map(
+            (p) => `
+          <button type="button" class="queue-search-option" data-guest-id="${p.id}">
+            <span class="queue-search-name">${escapeHtml(p.name)}</span>
+            <span class="star-badge" style="font-size: 0.72rem;">${p.stars}★</span>
+          </button>
+        `,
+          )
+          .join("")
+      : `<div class="queue-search-empty">Nenhum jogador da fila encontrado.</div>`;
+    results.hidden = false;
+  };
+
+  input.addEventListener("focus", renderResults);
+  input.addEventListener("input", renderResults);
+  input.addEventListener("blur", () => {
+    results.hidden = true;
+  });
+  // mousedown (not click) + preventDefault: keeps the input focused so the blur
+  // above doesn't hide the list before the pick registers.
+  results.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const option = e.target.closest(".queue-search-option");
+    if (option) onPick(option.getAttribute("data-guest-id"));
+  });
+}
+
 function openSubstituteModal(
   departingPlayerId,
   teamId,
@@ -1443,6 +1500,8 @@ function openSubstituteModal(
               : `${escapeHtml(departingPlayer.name)} está saindo mais cedo. Os gols e assistências que ele fez até agora <strong>permanecem salvos</strong>.`
           }
         </p>
+
+        ${renderQueueSearchHtml(candidatePlayers)}
 
         <div class="card" style="background: var(--bg-card-subtle); padding: 14px; margin-bottom: 16px;">
           <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--pitch-green);">
@@ -1503,23 +1562,26 @@ function openSubstituteModal(
   // Mark player departed (idempotent — already true when reopened after a reclaim)
   store.markPlayerDeparted(departingPlayerId, teamId);
 
-  // Substitute buttons
+  const pickSubstitute = (guestId) => {
+    const result = store.assignGuestSubstitute(departingPlayerId, guestId, teamId);
+    const guest = store.getPlayer(guestId);
+    close();
+    if (result?.success === false) {
+      showToast("⚠️ " + result.error);
+    } else {
+      showToast(
+        `${guest?.name} agora está completando o time! Gols dele não pontuam no ranking.`,
+      );
+    }
+    onDone();
+  };
+
   modalContainer.querySelectorAll(".btn-select-substitute").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      const guestId = e.currentTarget.getAttribute("data-guest-id");
-      const result = store.assignGuestSubstitute(departingPlayerId, guestId, teamId);
-      const guest = store.getPlayer(guestId);
-      close();
-      if (result?.success === false) {
-        showToast("⚠️ " + result.error);
-      } else {
-        showToast(
-          `${guest?.name} agora está completando o time! Gols dele não pontuam no ranking.`,
-        );
-      }
-      onDone();
+      pickSubstitute(e.currentTarget.getAttribute("data-guest-id"));
     });
   });
+  bindQueueSearch(modalContainer, candidatePlayers, pickSubstitute);
 
   modalContainer
     .querySelector("#btn-no-substitute")
@@ -1592,6 +1654,8 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
           }
         </p>
 
+        ${renderQueueSearchHtml(candidatePlayers)}
+
         <div class="card" style="background: var(--bg-card-subtle); padding: 14px; margin-bottom: 16px;">
           <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--pitch-green);">
             💡 Sugestões (equilíbrio de estrelas do time):
@@ -1645,22 +1709,26 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
     if (e.target === overlay) close();
   });
 
+  const pickCompletion = (guestId) => {
+    const result = store.assignTeamCompletion(teamId, guestId);
+    const guest = store.getPlayer(guestId);
+    close();
+    if (result?.success === false) {
+      showToast("⚠️ " + result.error);
+    } else {
+      showToast(
+        `${guest?.name} entrou para completar o ${team.name}! Gols dele não pontuam no ranking.`,
+      );
+    }
+    onDone();
+  };
+
   modalContainer.querySelectorAll(".btn-select-completion").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      const guestId = e.currentTarget.getAttribute("data-guest-id");
-      const result = store.assignTeamCompletion(teamId, guestId);
-      const guest = store.getPlayer(guestId);
-      close();
-      if (result?.success === false) {
-        showToast("⚠️ " + result.error);
-      } else {
-        showToast(
-          `${guest?.name} entrou para completar o ${team.name}! Gols dele não pontuam no ranking.`,
-        );
-      }
-      onDone();
+      pickCompletion(e.currentTarget.getAttribute("data-guest-id"));
     });
   });
+  bindQueueSearch(modalContainer, candidatePlayers, pickCompletion);
 
   modalContainer
     .querySelector("#btn-no-completion")

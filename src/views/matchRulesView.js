@@ -128,7 +128,7 @@ export function renderMatchRulesView(navigateTo) {
         <div class="rule-row">
           <div class="rule-row-info">
             <div class="rule-row-title">🔥 Limite de vitórias</div>
-            <div class="rule-row-desc">Time vencedor continua em campo até ser derrotado.</div>
+            <div class="rule-row-desc">Escolha se o time vencedor descansa após uma série de vitórias.</div>
           </div>
           <button
             type="button"
@@ -199,29 +199,43 @@ export function renderMatchRulesView(navigateTo) {
 
     function syncDurationButtons() {
       const value = Number(customInput.value);
-      durationMinusBtn.disabled = Number.isFinite(value) && value <= MIN_MATCH_DURATION_MIN;
-      durationPlusBtn.disabled = Number.isFinite(value) && value >= MAX_MATCH_DURATION_MIN;
+      durationMinusBtn.disabled =
+        Number.isFinite(value) && value <= MIN_MATCH_DURATION_MIN;
+      durationPlusBtn.disabled =
+        Number.isFinite(value) && value >= MAX_MATCH_DURATION_MIN;
     }
 
     function stepDuration(delta) {
       const current = Number(customInput.value);
-      const base = Number.isFinite(current) && current > 0 ? current : DEFAULT_MINUTES;
+      const base =
+        Number.isFinite(current) && current > 0 ? current : DEFAULT_MINUTES;
       customInput.value = String(
-        clamp(Math.round(base) + delta, MIN_MATCH_DURATION_MIN, MAX_MATCH_DURATION_MIN),
+        clamp(
+          Math.round(base) + delta,
+          MIN_MATCH_DURATION_MIN,
+          MAX_MATCH_DURATION_MIN,
+        ),
       );
       syncDurationButtons();
     }
 
     function saveDuration() {
       const value = Number(customInput.value);
-      if (!Number.isFinite(value) || value < MIN_MATCH_DURATION_MIN || value > MAX_MATCH_DURATION_MIN) {
+      if (
+        !Number.isFinite(value) ||
+        value < MIN_MATCH_DURATION_MIN ||
+        value > MAX_MATCH_DURATION_MIN
+      ) {
         showToast(
           `⚠️ Escolha um valor entre ${MIN_MATCH_DURATION_MIN} e ${MAX_MATCH_DURATION_MIN} minutos.`,
         );
         return;
       }
       const minutes = Math.round(value);
-      commit(store.setMatchDuration(minutes), `⏱️ Duração alterada para ${minutes} min!`);
+      commit(
+        store.setMatchDuration(minutes),
+        `⏱️ Duração alterada para ${minutes} min!`,
+      );
     }
 
     durationMinusBtn.addEventListener("click", () => stepDuration(-1));
