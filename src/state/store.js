@@ -49,7 +49,7 @@ const ADMIN_ONLY_METHODS = [
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
   'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
-  'finishPelada', 'updateHistoryAwards', 'cancelPelada', 'deleteHistoryEntry',
+  'finishPelada', 'updateHistoryAwards', 'updateHistoryPlayerStats', 'cancelPelada', 'deleteHistoryEntry',
   'importFromJson', 'resetToDefaults',
 ];
 
@@ -594,23 +594,8 @@ class Store {
     if (updates.stars !== undefined) player.stars = Math.max(0.5, Math.min(5.0, Number(updates.stars)));
     if (updates.favoritePosition !== undefined) player.favoritePosition = String(updates.favoritePosition || '');
 
-    const hasStatUpdate = STAT_FIELDS.some(f => updates[f] !== undefined);
-    if (hasStatUpdate && !this.isAnnualSelected()) {
-      const key = this.selectedPeriodKey || parseDateToPeriod(new Date().toISOString());
-      this.ensurePeriodByKey(key);
-      if (!this.monthlyStats[key].players[id]) {
-        this.monthlyStats[key].players[id] = emptyPlayerStats();
-      }
-      const target = this.monthlyStats[key].players[id];
-      STAT_FIELDS.forEach(f => {
-        if (updates[f] !== undefined) target[f] = Math.max(0, Number(updates[f]));
-      });
-      this.syncCareerStatsFromMonthly({ silent: true });
-    }
-
     this.save();
     return true;
-      target.draws = Number(stats.draws) || 0;
   }
 
   deletePlayer(id) {
@@ -1837,6 +1822,49 @@ class Store {
     this.syncCareerStatsFromMonthly({ silent: true });
     this.save();
     return { success: true };
+  }
+
+  /**
+   * Corrects the goals/assists recorded for players in a finished pelada — the only place
+   * these stats are edited (the ranking table is read-only and derives from history).
+   * `statsByPlayer` is { playerId: { goals, assists } }. Each change is applied to the pelada's
+   * month as a difference, the same way award edits are, so the ranking follows. Diaristas'
+   * numbers are stored on the pelada but never count toward the ranking, as at finish time.
+   * Per-match breakdowns (entry.matches[].statsDelta, used by Head-to-Head) aren't rewritten,
+   * since an edit to a day's total can't say which match it belongs to.
+   */
+  updateHistoryPlayerStats(historyId, statsByPlayer = {}) {
+    const entry = this.getHistoryEntry(historyId);
+    if (!entry) return { success: false, error: 'Pelada não encontrada no histórico.' };
+
+    const rostered = new Set((entry.teams || []).flatMap(t => t.playerIds || []));
+    const diaristas = new Set(entry.diaristaPlayerIds || []);
+    const key = parseDateToPeriod(entry.dateISO || entry.date) || this.currentPeriodKey();
+    if (!entry.stats || typeof entry.stats !== 'object') entry.stats = {};
+
+    let changed = 0;
+    Object.entries(statsByPlayer).forEach(([pid, next]) => {
+      if (!rostered.has(pid)) return;
+      const current = entry.stats[pid] || { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
+      ['goals', 'assists'].forEach(field => {
+        if (next?.[field] === undefined) return;
+        const value = Math.max(0, Math.round(Number(next[field]) || 0));
+        const delta = value - (Number(current[field]) || 0);
+        if (!delta) return;
+        current[field] = value;
+        changed += 1;
+        if (!diaristas.has(pid)) {
+          const periodStats = this.getOrCreatePeriodPlayer(key, pid);
+          periodStats[field] = Math.max(0, (Number(periodStats[field]) || 0) + delta);
+        }
+      });
+      entry.stats[pid] = current;
+    });
+
+    if (!changed) return { success: true, changed: 0 };
+    this.syncCareerStatsFromMonthly({ silent: true });
+    this.save();
+    return { success: true, changed };
   }
 
   /** Removes a pelada from history and subtracts its stats from the monthly table. */

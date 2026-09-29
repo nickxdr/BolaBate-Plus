@@ -75,6 +75,11 @@ export function renderHistoryView() {
       </button>
 
       <div class="history-card-body"${isExpanded ? '' : ' hidden'}>
+        ${store.isAdmin ? `
+        <div class="history-stats-edit-bar">
+          <button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ Editar gols e assistências</button>
+        </div>
+        ` : ''}
         <div class="history-teams-grid">
           ${renderTeamsSection(entry)}
         </div>
@@ -180,6 +185,9 @@ export function renderHistoryView() {
 
       showToast('Votações salvas! Ranking atualizado.');
       refreshCardBadges(card, entry.id);
+    });
+    card.querySelector('.history-edit-stats-btn')?.addEventListener('click', () => {
+      openEditHistoryStatsModal(entry);
     });
     card.querySelector('.history-delete-btn')?.addEventListener('click', () => {
       openDeleteHistoryModal(entry);
@@ -299,6 +307,116 @@ function bindSelecaoPicker(picker) {
   });
 
   sync();
+}
+
+/**
+ * Admin editor for a finished pelada's goals/assists. The ranking table is read-only, so
+ * this is where stats get corrected; saving pushes the difference into that month's ranking
+ * (store.updateHistoryPlayerStats).
+ */
+function openEditHistoryStatsModal(entry) {
+  const modalContainer = document.getElementById('modal-container');
+  const diaristas = new Set(entry.diaristaPlayerIds || []);
+  const draft = {};
+
+  const stepper = (pid, field, value) => `
+    <div class="history-stat-stepper" data-pid="${pid}" data-field="${field}">
+      <button type="button" class="history-stat-step" data-delta="-1" aria-label="Diminuir" ${value <= 0 ? 'disabled' : ''}>−</button>
+      <span class="history-stat-step-value">${value}</span>
+      <button type="button" class="history-stat-step" data-delta="1" aria-label="Aumentar">+</button>
+    </div>
+  `;
+
+  const teamsHtml = (entry.teams || []).map(team => {
+    const rows = (team.playerIds || []).map(pid => {
+      const player = store.getPlayer(pid);
+      if (!player) return '';
+      const stats = entry.stats?.[pid] || {};
+      const goals = Number(stats.goals) || 0;
+      const assists = Number(stats.assists) || 0;
+      draft[pid] = { goals, assists };
+      return `
+        <div class="history-stats-edit-row">
+          <span class="history-stats-edit-name">
+            ${escapeHtml(player.name)}
+            ${diaristas.has(pid) ? '<span class="diarista-badge" title="Diarista — não conta no ranking">💰</span>' : ''}
+          </span>
+          <span class="history-stats-edit-field"><span class="history-stats-edit-icon">⚽</span>${stepper(pid, 'goals', goals)}</span>
+          <span class="history-stats-edit-field"><span class="history-stats-edit-icon">👟</span>${stepper(pid, 'assists', assists)}</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <section class="history-stats-edit-team" style="--team-color: ${team.color || 'var(--pitch-green)'}">
+        <h4><span class="history-team-dot"></span>${escapeHtml(team.name || 'Time')}</h4>
+        ${rows || '<p class="history-team-empty">Nenhum jogador registrado.</p>'}
+      </section>
+    `;
+  }).join('');
+
+  const original = JSON.parse(JSON.stringify(draft));
+
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="edit-history-stats-overlay">
+      <div class="modal-content" style="max-width: 560px;">
+        <div class="modal-header">
+          <h2 class="modal-title">✏️ Gols e assistências — ${escapeHtml(entry.date || '')}</h2>
+          <button class="modal-close" id="edit-history-stats-close" title="Fechar">✕</button>
+        </div>
+
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">
+          Corrija os números desta pelada. Ao salvar, o ranking do mês é atualizado automaticamente.
+          Diaristas (💰) ficam registrados na pelada, mas não contam no ranking.
+        </p>
+
+        <div class="history-stats-edit-list">${teamsHtml}</div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+          <button id="edit-history-stats-cancel" class="btn btn-secondary">Cancelar</button>
+          <button id="edit-history-stats-save" class="btn btn-primary" disabled>Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const overlay = modalContainer.querySelector('#edit-history-stats-overlay');
+  const saveBtn = modalContainer.querySelector('#edit-history-stats-save');
+  const close = () => { modalContainer.innerHTML = ''; };
+  modalContainer.querySelector('#edit-history-stats-close').addEventListener('click', close);
+  modalContainer.querySelector('#edit-history-stats-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+
+  const changedPlayers = () => Object.keys(draft).filter(pid =>
+    draft[pid].goals !== original[pid].goals || draft[pid].assists !== original[pid].assists
+  );
+
+  modalContainer.querySelector('.history-stats-edit-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('.history-stat-step');
+    if (!btn) return;
+    const box = btn.closest('.history-stat-stepper');
+    const { pid, field } = box.dataset;
+    const next = Math.max(0, draft[pid][field] + Number(btn.dataset.delta));
+    draft[pid][field] = next;
+    box.querySelector('.history-stat-step-value').textContent = String(next);
+    box.querySelector('[data-delta="-1"]').disabled = next <= 0;
+    box.classList.toggle('changed', next !== original[pid][field]);
+    saveBtn.disabled = changedPlayers().length === 0;
+  });
+
+  saveBtn.addEventListener('click', () => {
+    const updates = {};
+    changedPlayers().forEach(pid => { updates[pid] = draft[pid]; });
+    const result = store.updateHistoryPlayerStats(entry.id, updates);
+    close();
+    if (result?.success) {
+      showToast('Gols e assistências atualizados! Ranking recalculado.');
+    } else if (result?.error) {
+      showToast(result.error);
+    }
+  });
 }
 
 /** Confirmation modal for deleting a pelada from history (admin only). */

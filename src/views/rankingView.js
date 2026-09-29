@@ -191,7 +191,6 @@ export function renderRankingView() {
         <th class="${thClass("craque")}" data-sort="craque" title="Ordenar por craques">Craque (+5) ${sortArrow("craque")}</th>
         <th class="${thClass("bagre")}" data-sort="bagre" title="Ordenar por bagres">Bagre (-3) ${sortArrow("bagre")}</th>
         <th class="${thClass("participacao")}" data-sort="participacao" title="Ordenar por participações">Part. (+1) ${sortArrow("participacao")}</th>
-        ${isAnnual ? "" : '<th style="width: 40px;">Ação</th>'}
       </tr>
     `;
   }
@@ -214,13 +213,6 @@ export function renderRankingView() {
         else if (isG4) rowClass = "in-g4";
         else if (isZ4) rowClass = "in-z4";
 
-        let actionCell = "<td></td>";
-        if (store.isAdmin && !isAnnual) {
-          actionCell = `<td>
-            <button class="btn btn-secondary btn-sm edit-player-stat-btn" data-id="${player.id}" style="padding: 3px 7px;" title="Editar dados">✏️</button>
-          </td>`;
-        }
-
         return `
       <tr class="${rowClass}">
         <td style="font-weight: 800;">${isTop1 ? "1º" : pos + "º"}</td>
@@ -239,7 +231,6 @@ export function renderRankingView() {
         <td>${player.craque}</td>
         <td>${player.bagre}</td>
         <td>${player.participacao}</td>
-        ${actionCell}
       </tr>
     `;
       })
@@ -254,15 +245,7 @@ export function renderRankingView() {
     if (headRow) headRow.innerHTML = renderHeadRowHtml();
 
     const tbody = table.querySelector("#ranking-tbody");
-    if (tbody) {
-      tbody.innerHTML = renderRowsHtml();
-      container.querySelectorAll(".edit-player-stat-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const pid = e.currentTarget.getAttribute("data-id");
-          openEditPlayerModal(pid);
-        });
-      });
-    }
+    if (tbody) tbody.innerHTML = renderRowsHtml();
   }
 
   function setSort(key) {
@@ -355,98 +338,6 @@ function shareRankingWhatsApp(rankedPlayers, periodLabel = "") {
       document.execCommand("copy");
       document.body.removeChild(textarea);
       showToast("Tabela copiada para a área de transferência!");
-    });
-}
-
-function openEditPlayerModal(playerId) {
-  const player = store.getPlayer(playerId);
-  if (!player) return;
-  const stats = store.getPeriodPlayerStats(playerId);
-
-  const modalContainer = document.getElementById("modal-container");
-  modalContainer.innerHTML = `
-    <div class="modal-overlay" id="edit-player-overlay">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 class="modal-title">Editar Dados: ${escapeHtml(player.name)}</h2>
-          <button class="modal-close" id="modal-close-btn">&times;</button>
-        </div>
-
-        <form id="edit-player-stats-form">
-          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px;">
-            As alterações valem só para o mês selecionado no ranking.
-          </p>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Gols (+3 pts)</label>
-              <input type="number" class="input-field" name="goals" value="${stats.goals || 0}" min="0" />
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Assists (+2 pts)</label>
-              <input type="number" class="input-field" name="assists" value="${stats.assists || 0}" min="0" />
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Craque (+5 pts)</label>
-              <input type="number" class="input-field" name="craque" value="${stats.craque || 0}" min="0" />
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Seleção (+4 pts)</label>
-              <input type="number" class="input-field" name="selecao" value="${stats.selecao || 0}" min="0" />
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Puskas (+3 pts)</label>
-              <input type="number" class="input-field" name="puskas" value="${stats.puskas || 0}" min="0" />
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Bagre (-3 pts)</label>
-              <input type="number" class="input-field" name="bagre" value="${stats.bagre || 0}" min="0" />
-            </div>
-            <div style="grid-column: span 2;">
-              <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Participações (+1 pt)</label>
-              <input type="number" class="input-field" name="participacao" value="${stats.participacao || 0}" min="0" />
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 10px; justify-content: flex-end;">
-            <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar Alterações</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-
-  const overlay = modalContainer.querySelector("#edit-player-overlay");
-  const close = () => {
-    modalContainer.innerHTML = "";
-  };
-
-  modalContainer
-    .querySelector("#modal-close-btn")
-    .addEventListener("click", close);
-  modalContainer
-    .querySelector("#modal-cancel-btn")
-    .addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
-
-  modalContainer
-    .querySelector("#edit-player-stats-form")
-    .addEventListener("submit", (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      store.updatePlayer(playerId, {
-        goals: formData.get("goals"),
-        assists: formData.get("assists"),
-        craque: formData.get("craque"),
-        selecao: formData.get("selecao"),
-        puskas: formData.get("puskas"),
-        bagre: formData.get("bagre"),
-        participacao: formData.get("participacao"),
-      });
-      close();
-      showToast(`Dados de ${player.name} atualizados!`);
     });
 }
 
