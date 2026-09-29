@@ -1146,6 +1146,15 @@ function renderLivePelada(container, onNavigate) {
       });
     });
 
+    // Bind "Trocar" (swap teams with another pelada player) — only rendered while the rule is on
+    container.querySelectorAll(".btn-swap-player").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const pid = e.currentTarget.getAttribute("data-id");
+        const teamId = e.currentTarget.getAttribute("data-team");
+        openSwapModal(pid, teamId, render);
+      });
+    });
+
     // Bind "team needs completion" pill (fewer than 5 active players)
     container.querySelectorAll(".btn-complete-team").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -1399,11 +1408,11 @@ function normalizeSearchText(text) {
 }
 
 /** Search box listing every waiting-queue player — a manual alternative to the ranked suggestions below it. */
-function renderQueueSearchHtml(candidatePlayers) {
+function renderQueueSearchHtml(candidatePlayers, placeholder = "🔍 Buscar jogador da fila de espera...") {
   if (!candidatePlayers.length) return "";
   return `
     <div class="queue-search">
-      <input type="text" class="input-field queue-search-input" placeholder="🔍 Buscar jogador da fila de espera..." autocomplete="off" />
+      <input type="text" class="input-field queue-search-input" placeholder="${placeholder}" autocomplete="off" />
       <div class="queue-search-results" hidden></div>
     </div>
   `;
@@ -1736,6 +1745,136 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
       close();
       onDone();
     });
+}
+
+/**
+ * "Trocar" (only while the swap rule is on): the player swaps teams with any active,
+ * rostered player of another team in this pelada. Both keep counting for the ranking —
+ * see store.swapPlayers. Departed players and guests currently completing a team can't
+ * be swapped, so they're left out of the list.
+ */
+function openSwapModal(playerId, teamId, onDone) {
+  const player = store.getPlayer(playerId);
+  const pelada = store.activePelada;
+  const ownTeam = pelada.teams.find((t) => t.id === teamId);
+  if (!player || !ownTeam) {
+    onDone();
+    return;
+  }
+
+  const departed = new Set(pelada.departedPlayerIds || []);
+  const guesting = new Set((pelada.guestSlots || []).map((g) => g.guestPlayerId));
+  const diaristaIds = new Set(pelada.diaristaPlayerIds || []);
+  const match = pelada.rotation?.currentMatch;
+  const onPitch = new Set(match ? [match.teamAId, match.teamBId] : []);
+
+  const groups = pelada.teams
+    .filter((t) => t.id !== teamId)
+    .map((t) => ({
+      team: t,
+      players: t.playerIds
+        .filter((pid) => !departed.has(pid) && !guesting.has(pid))
+        .map((pid) => store.getPlayer(pid))
+        .filter(Boolean),
+    }))
+    .filter((g) => g.players.length > 0)
+    // Opponent on the pitch first, then the waiting teams in team order.
+    .sort((a, b) => Number(onPitch.has(b.team.id)) - Number(onPitch.has(a.team.id)));
+
+  const candidatePlayers = groups.flatMap((g) => g.players);
+
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="swap-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">🔄 Trocar: ${escapeHtml(player.name)}</h2>
+          <button class="modal-close" id="swap-modal-close">&times;</button>
+        </div>
+
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
+          Escolha com quem ${escapeHtml(player.name)} troca de time. O escolhido entra no
+          <strong>${escapeHtml(ownTeam.name)}</strong> e ${escapeHtml(player.name)} vai para o time dele —
+          os dois continuam <strong>pontuando normalmente</strong> no ranking.
+        </p>
+
+        ${renderQueueSearchHtml(candidatePlayers, "🔍 Buscar jogador da pelada...")}
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          ${
+            groups.length > 0
+              ? groups
+                  .map(
+                    (g) => `
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <span style="width: 10px; height: 10px; border-radius: 50%; background: ${g.team.color};"></span>
+                <strong style="font-size: 0.9rem;">${escapeHtml(g.team.name)}</strong>
+                <span style="font-size: 0.72rem; color: var(--text-dim);">${onPitch.has(g.team.id) ? "Em campo" : "Na fila"}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                ${g.players
+                  .map(
+                    (p) => `
+                <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-card-subtle); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <div>
+                    <strong>${escapeHtml(p.name)}</strong>
+                    <span class="star-badge" style="font-size: 0.72rem; margin-left: 6px;">${p.stars}★</span>
+                    ${diaristaIds.has(p.id) ? '<span class="diarista-badge" style="margin-left: 4px;">💰</span>' : ""}
+                  </div>
+                  <button class="btn btn-primary btn-sm btn-select-swap" data-target-id="${p.id}">
+                    Trocar
+                  </button>
+                </div>
+              `,
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `,
+                  )
+                  .join("")
+              : `
+            <p style="font-size: 0.8rem; color: var(--text-dim); text-align: center; padding: 8px 0;">
+              Nenhum outro jogador disponível para troca.
+            </p>
+          `
+          }
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#swap-overlay");
+  modalContainer.querySelector("#swap-modal-close").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  const pickSwap = (targetId) => {
+    const target = store.getPlayer(targetId);
+    const targetTeam = pelada.teams.find((t) => t.playerIds.includes(targetId));
+    const result = store.swapPlayers(playerId, targetId);
+    close();
+    if (result?.success === false) {
+      showToast("⚠️ " + result.error);
+    } else if (result?.success) {
+      showToast(
+        `🔄 ${target?.name} foi para o ${ownTeam.name} e ${player.name} para o ${targetTeam?.name}.`,
+      );
+    }
+    onDone();
+  };
+
+  modalContainer.querySelectorAll(".btn-select-swap").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      pickSwap(e.currentTarget.getAttribute("data-target-id"));
+    });
+  });
+  bindQueueSearch(modalContainer, candidatePlayers, pickSwap);
 }
 
 // ----------------------------------------------------
@@ -2180,9 +2319,20 @@ function renderActiveTeamCard(pelada, team) {
                 `
                     : store.isAdmin
                       ? `
-                  <button class="btn btn-secondary btn-sm btn-mark-departure" data-id="${p.id}" data-team="${team.id}" title="Jogador foi embora mais cedo" style="padding: 3px 6px; font-size: 0.72rem; color: var(--accent-red); white-space: nowrap; flex-shrink: 0;">
-                    🚪 Saiu
-                  </button>
+                  <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                    ${
+                      store.swapEnabled
+                        ? `
+                    <button class="btn btn-secondary btn-sm btn-swap-player" data-id="${p.id}" data-team="${team.id}" title="Trocar de time com outro jogador da pelada" style="padding: 3px 6px; font-size: 0.72rem; white-space: nowrap;">
+                      🔄 Trocar
+                    </button>
+                  `
+                        : ""
+                    }
+                    <button class="btn btn-secondary btn-sm btn-mark-departure" data-id="${p.id}" data-team="${team.id}" title="Jogador foi embora mais cedo" style="padding: 3px 6px; font-size: 0.72rem; color: var(--accent-red); white-space: nowrap;">
+                      🚪 Saiu
+                    </button>
+                  </div>
                 `
                       : `
                   <span style="font-size: 0.8rem; color: var(--text-main); white-space: nowrap; flex-shrink: 0;">
@@ -2475,6 +2625,19 @@ function renderTimelineEntries(pelada) {
           <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
             <span>
               ⚠️ Ajuste manual: <strong>${escapeHtml(teamName)}</strong> ${ev.delta > 0 ? "+1" : "-1"} (gol contra / correção)
+            </span>
+            <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
+          </div>
+        `;
+      }
+      if (ev.type === "swap") {
+        const nameOf = (id) => store.getPlayer(id)?.name || "Atleta";
+        const teamNameOf = (id) => pelada.teams.find((t) => t.id === id)?.name || "Time";
+        return `
+          <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
+            <span>
+              🔄 Troca: <strong>${escapeHtml(nameOf(ev.playerId))}</strong> → ${escapeHtml(teamNameOf(ev.toTeamId))},
+              <strong>${escapeHtml(nameOf(ev.targetPlayerId))}</strong> → ${escapeHtml(teamNameOf(ev.fromTeamId))}
             </span>
             <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
           </div>

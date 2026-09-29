@@ -57,6 +57,50 @@ export function addPlayerStats(target, source, { includeGuest = false } = {}) {
   return dest;
 }
 
+/**
+ * Who played for `teamId` in one match. Matches logged since the "Trocar" (player swap) rule
+ * carry their own `rosters` snapshot; older ones fall back to the team's final roster, which
+ * is exact for them since rosters couldn't change mid-pelada before swaps existed.
+ */
+function matchRoster(match, teamId, teams) {
+  if (match.rosters && Array.isArray(match.rosters[teamId])) return match.rosters[teamId];
+  const team = (teams || []).find(t => t.id === teamId);
+  return team ? team.playerIds || [] : [];
+}
+
+/** The team a player was on in a given match, or null if they didn't play in it. */
+export function getPlayerTeamInMatch(match, playerId, teams) {
+  for (const teamId of [match.teamAId, match.teamBId]) {
+    if (matchRoster(match, teamId, teams).includes(playerId)) return teamId;
+  }
+  return null;
+}
+
+/**
+ * Wins/draws/losses per player, credited match by match to whoever was actually on each team.
+ * With no swaps this equals every player getting their team's full-day record.
+ */
+export function computePlayerRecordsFromMatches(matches, teams) {
+  const records = {};
+  (matches || []).forEach(match => {
+    [match.teamAId, match.teamBId].forEach(teamId => {
+      if (!teamId) return;
+      const field = !match.winnerId ? 'draws' : match.winnerId === teamId ? 'wins' : 'losses';
+      matchRoster(match, teamId, teams).forEach(pid => {
+        if (!records[pid]) records[pid] = { wins: 0, draws: 0, losses: 0 };
+        records[pid][field] += 1;
+      });
+    });
+  });
+  return records;
+}
+
+/** A history entry's per-player record, preferring the swap-aware playerRecords when it has them. */
+function historyRecordFor(entry, pid, team) {
+  if (entry.playerRecords) return entry.playerRecords[pid] || {};
+  return team || {};
+}
+
 export function applyHistoryEntryToPeriod(period, entry) {
   const diaristas = new Set(entry.diaristaPlayerIds || []);
   const teamByPlayer = {};
@@ -72,13 +116,13 @@ export function applyHistoryEntryToPeriod(period, entry) {
   participating.forEach(pid => {
     if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
     const stats = (entry.stats && entry.stats[pid]) || {};
-    const team = teamByPlayer[pid];
+    const record = historyRecordFor(entry, pid, teamByPlayer[pid]);
     period.players[pid].goals += Number(stats.goals) || 0;
     period.players[pid].assists += Number(stats.assists) || 0;
     period.players[pid].participacao += 1;
-    period.players[pid].wins += Number(team?.wins) || 0;
-    period.players[pid].draws += Number(team?.draws) || 0;
-    period.players[pid].losses += Number(team?.losses) || 0;
+    period.players[pid].wins += Number(record.wins) || 0;
+    period.players[pid].draws += Number(record.draws) || 0;
+    period.players[pid].losses += Number(record.losses) || 0;
   });
 
   const awards = entry.awards || {};
@@ -123,13 +167,13 @@ export function removeHistoryEntryFromPeriod(period, entry) {
     const target = period.players[pid];
     if (!target) return;
     const stats = (entry.stats && entry.stats[pid]) || {};
-    const team = teamByPlayer[pid];
+    const record = historyRecordFor(entry, pid, teamByPlayer[pid]);
     target.goals = Math.max(0, target.goals - (Number(stats.goals) || 0));
     target.assists = Math.max(0, target.assists - (Number(stats.assists) || 0));
     target.participacao = Math.max(0, target.participacao - 1);
-    target.wins = Math.max(0, target.wins - (Number(team?.wins) || 0));
-    target.draws = Math.max(0, target.draws - (Number(team?.draws) || 0));
-    target.losses = Math.max(0, target.losses - (Number(team?.losses) || 0));
+    target.wins = Math.max(0, target.wins - (Number(record.wins) || 0));
+    target.draws = Math.max(0, target.draws - (Number(record.draws) || 0));
+    target.losses = Math.max(0, target.losses - (Number(record.losses) || 0));
   });
 
   const awards = entry.awards || {};

@@ -8,6 +8,7 @@ import {
   parseDateToPeriod,
   emptyPlayerStats,
   createEmptyPeriod,
+  computePlayerRecordsFromMatches,
   STAT_FIELDS,
 } from '../services/periodStats.js';
 
@@ -44,6 +45,7 @@ const ADMIN_ONLY_METHODS = [
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion',
   'setTeamSize', 'setMatchDuration', 'setGoalsToFinish', 'setGoalLimitEnabled', 'setWinLimitEnabled', 'setWinStreakToRest',
+  'setSwapEnabled', 'swapPlayers',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
   'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
@@ -62,6 +64,7 @@ const DEFAULT_GOALS_TO_FINISH = 2;       // goals a team needs to end the match 
 const DEFAULT_GOAL_LIMIT_ENABLED = true; // goal target can end a match before the clock runs out
 const DEFAULT_WIN_LIMIT_ENABLED = true;  // winner steps aside after the configured win streak
 const DEFAULT_WIN_STREAK_TO_REST = 3;    // consecutive wins before the winner steps aside
+const DEFAULT_SWAP_ENABLED = false;      // "Trocar": swap two players between teams mid-pelada
 
 export const MIN_GOALS_TO_FINISH = 1;
 export const MAX_GOALS_TO_FINISH = 10;
@@ -87,6 +90,7 @@ class Store {
     this.goalLimitEnabled = this.loadGoalLimitEnabled();
     this.winLimitEnabled = this.loadWinLimitEnabled();
     this.winStreakToRest = this.loadWinStreakToRest();
+    this.swapEnabled = this.loadSwapEnabled();
     this.avatars = this.loadAvatars(); // playerId -> avatar config; anyone can edit anyone's, synced independently
     this.activePelada = this.loadPelada();
     // Self-heal a team over-filled by an older build (e.g. a completion guest left behind
@@ -323,6 +327,30 @@ class Store {
   }
 
   /**
+   * "Troca de jogadores" toggle. When on, the live pelada offers a "Trocar" button beside
+   * "Saiu": the player swaps teams with another athlete of the pelada, and — unlike guests
+   * completing a team — both keep scoring for the ranking normally (see swapPlayers).
+   */
+  loadSwapEnabled() {
+    try {
+      const raw = localStorage.getItem(this.scopedKey('_swap_enabled'));
+      if (raw === 'true') return true;
+      if (raw === 'false') return false;
+    } catch (e) {
+      console.error('Error loading swap rule:', e);
+    }
+    return DEFAULT_SWAP_ENABLED;
+  }
+
+  setSwapEnabled(enabled) {
+    const value = !!enabled;
+    if (value === this.swapEnabled) return { success: true };
+    this.swapEnabled = value;
+    this.save();
+    return { success: true };
+  }
+
+  /**
    * Single source of truth for "can this match be ended now?" — mirrored by the store's
    * own endCurrentMatch() guard and by peladaView's button/label state. A match always
    * ends once the clock reaches 0; before that it can only end early while the goal limit
@@ -449,6 +477,7 @@ class Store {
       localStorage.setItem(this.scopedKey('_goal_limit_enabled'), String(this.goalLimitEnabled));
       localStorage.setItem(this.scopedKey('_win_limit_enabled'), String(this.winLimitEnabled));
       localStorage.setItem(this.scopedKey('_win_streak_to_rest'), String(this.winStreakToRest));
+      localStorage.setItem(this.scopedKey('_swap_enabled'), String(this.swapEnabled));
       localStorage.setItem(THEME_KEY, this.theme);
     } catch (e) {
       console.error('Error saving state:', e);
@@ -966,6 +995,7 @@ class Store {
     rotation.log.unshift({
       teamAId, teamBId, scoreA, scoreB, winnerId,
       statsDelta: this.computeMatchStatsDelta(match.statsSnapshot, this.activePelada.stats),
+      rosters: this.snapshotMatchRosters(teamAId, teamBId),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
@@ -1020,6 +1050,64 @@ class Store {
 
     this.save();
     return { success: true, winnerId, teamAId, teamBId, scoreA, scoreB, reclaimedGuests };
+  }
+
+  /** Who was on each side when a match was logged — lets swaps credit results to the right players. */
+  snapshotMatchRosters(teamAId, teamBId) {
+    const rosters = {};
+    [teamAId, teamBId].forEach(teamId => {
+      const team = this.activePelada.teams.find(t => t.id === teamId);
+      if (team) rosters[teamId] = [...team.playerIds];
+    });
+    return rosters;
+  }
+
+  /**
+   * "Trocar": two rostered players swap teams — each takes the other's exact slot. Unlike a
+   * guest completing a team, both stay regular members of their new team, so their goals,
+   * assists and results keep counting toward the ranking. Results already logged stay with
+   * the team each player was on at the time (see snapshotMatchRosters).
+   */
+  swapPlayers(playerId, targetPlayerId) {
+    const pelada = this.activePelada;
+    if (pelada.status !== 'live') {
+      return { success: false, error: 'Só é possível trocar jogadores com a pelada em andamento.' };
+    }
+    if (!this.swapEnabled) {
+      return { success: false, error: 'A troca de jogadores está desativada nas Regras da Partida.' };
+    }
+    const fromTeam = pelada.teams.find(t => t.playerIds.includes(playerId));
+    const toTeam = pelada.teams.find(t => t.playerIds.includes(targetPlayerId));
+    if (!fromTeam || !toTeam) {
+      return { success: false, error: 'Jogador não encontrado nos times desta pelada.' };
+    }
+    if (fromTeam.id === toTeam.id) {
+      return { success: false, error: 'Os dois jogadores já estão no mesmo time.' };
+    }
+    const departed = new Set(pelada.departedPlayerIds || []);
+    if (departed.has(playerId) || departed.has(targetPlayerId)) {
+      return { success: false, error: 'Não é possível trocar um jogador que já saiu.' };
+    }
+    const guesting = new Set((pelada.guestSlots || []).map(g => g.guestPlayerId));
+    if (guesting.has(playerId) || guesting.has(targetPlayerId)) {
+      return { success: false, error: 'Não é possível trocar um jogador que está completando outro time.' };
+    }
+
+    fromTeam.playerIds[fromTeam.playerIds.indexOf(playerId)] = targetPlayerId;
+    toTeam.playerIds[toTeam.playerIds.indexOf(targetPlayerId)] = playerId;
+
+    pelada.events.unshift({
+      id: 'ev_' + Date.now(),
+      type: 'swap',
+      playerId,
+      targetPlayerId,
+      fromTeamId: fromTeam.id,
+      toTeamId: toTeam.id,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+
+    this.save();
+    return { success: true, fromTeamId: fromTeam.id, toTeamId: toTeam.id };
   }
 
   /** Finds which team a player currently belongs to (original roster or an active guest slot). */
@@ -1127,7 +1215,12 @@ class Store {
         this.activePelada.stats[playerId].goals -= 1;
       }
     }
-    this.bumpMatchScore(this.findPlayerTeamId(playerId), -1);
+    // The goal's own event knows which team it was scored for — after a "Trocar" swap that
+    // can differ from the player's current team.
+    const goalEvent = this.activePelada.events.find(
+      ev => ev.type === 'goal' && ev.playerId === playerId && !!ev.isGuest === !!isGuest
+    );
+    this.bumpMatchScore(goalEvent?.teamId || this.findPlayerTeamId(playerId), -1);
     this.removeMostRecentEvent('goal', playerId, isGuest);
     this.saveQuiet();
   }
@@ -1272,10 +1365,12 @@ class Store {
           scoreB: currentMatch.scoreB,
           winnerId,
           statsDelta: this.computeMatchStatsDelta(currentMatch.statsSnapshot, this.activePelada.stats),
+          rosters: this.snapshotMatchRosters(currentMatch.teamAId, currentMatch.teamBId),
         });
       }
     }
     const teamRecord = this.getTeamRecordFromLog(rotationLog);
+    const playerRecords = computePlayerRecordsFromMatches(rotationLog, this.activePelada.teams);
 
     const now = new Date();
     const historyEntry = this.normalizeHistoryEntry({
@@ -1291,6 +1386,7 @@ class Store {
       })),
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
       matches: rotationLog,
+      playerRecords,
       diaristaPlayerIds: Array.from(diaristaIds),
       awards: {
         craqueId: null,
@@ -1309,16 +1405,11 @@ class Store {
     const key = parseDateToPeriod(historyEntry.dateISO) || this.currentPeriodKey();
     this.ensurePeriodByKey(key);
 
-    const teamByPlayer = {};
-    this.activePelada.teams.forEach(team => {
-      team.playerIds.forEach(pid => { teamByPlayer[pid] = team; });
-    });
-
     participatingPlayerIds.forEach(pid => {
       if (diaristaIds.has(pid)) return; // Diaristas don't count toward the ranking table
       const pStats = this.activePelada.stats[pid];
       const periodStats = this.getOrCreatePeriodPlayer(key, pid);
-      const record = teamRecord[teamByPlayer[pid]?.id];
+      const record = playerRecords[pid];
       periodStats.participacao += 1;
       periodStats.wins += Number(record?.wins) || 0;
       periodStats.draws += Number(record?.draws) || 0;
@@ -1540,18 +1631,17 @@ class Store {
     if (this.activePelada.status !== 'live') return overlay;
     const diaristaIds = new Set(this.activePelada.diaristaPlayerIds || []);
     const participatingPlayerIds = new Set();
-    const teamByPlayer = {};
     this.activePelada.teams.forEach(team => {
-      team.playerIds.forEach(pid => {
-        participatingPlayerIds.add(pid);
-        teamByPlayer[pid] = team.id;
-      });
+      team.playerIds.forEach(pid => participatingPlayerIds.add(pid));
     });
-    const teamRecord = this.getTeamRecordFromLog(this.activePelada.rotation?.log);
+    const playerRecords = computePlayerRecordsFromMatches(
+      this.activePelada.rotation?.log,
+      this.activePelada.teams,
+    );
     participatingPlayerIds.forEach(pid => {
       if (diaristaIds.has(pid)) return;
       const pStats = this.activePelada.stats[pid];
-      const record = teamRecord[teamByPlayer[pid]];
+      const record = playerRecords[pid];
       const entry = emptyPlayerStats();
       entry.participacao = 1;
       entry.goals = Number(pStats?.goals) || 0;
@@ -1663,6 +1753,10 @@ class Store {
       // players' teams, not the whole session. Peladas finished before this field existed
       // have no way to retroactively reconstruct it — defaults to an empty list.
       matches: Array.isArray(entry.matches) ? entry.matches : [],
+      // Per-player wins/draws/losses credited match by match (swap-aware). null for peladas
+      // finished before it existed — those fall back to each player's team record. Must be
+      // null, not undefined: Firestore rejects undefined field values.
+      playerRecords: entry.playerRecords && typeof entry.playerRecords === 'object' ? entry.playerRecords : null,
       diaristaPlayerIds: Array.isArray(entry.diaristaPlayerIds) ? [...entry.diaristaPlayerIds] : [],
       awards: {
         craqueId: awards.craqueId || null,
@@ -1789,6 +1883,7 @@ class Store {
       goalLimitEnabled: this.goalLimitEnabled,
       winLimitEnabled: this.winLimitEnabled,
       winStreakToRest: this.winStreakToRest,
+      swapEnabled: this.swapEnabled,
       players: this.players,
       history: this.history.map(entry => this.normalizeHistoryEntry(entry)).filter(Boolean),
       monthlyStats: this.monthlyStats,
@@ -1866,6 +1961,9 @@ class Store {
           Math.max(MIN_WIN_STREAK_TO_REST, Math.round(importedStreak)),
         );
       }
+      if (typeof data.swapEnabled === 'boolean') {
+        this.swapEnabled = data.swapEnabled;
+      }
 
       this.save();
       return {
@@ -1889,6 +1987,7 @@ class Store {
     this.goalLimitEnabled = DEFAULT_GOAL_LIMIT_ENABLED;
     this.winLimitEnabled = DEFAULT_WIN_LIMIT_ENABLED;
     this.winStreakToRest = DEFAULT_WIN_STREAK_TO_REST;
+    this.swapEnabled = DEFAULT_SWAP_ENABLED;
     this.syncCareerStatsFromMonthly({ silent: true });
     this.activePelada = {
       status: 'idle',

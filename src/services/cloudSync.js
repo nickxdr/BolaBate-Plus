@@ -174,6 +174,7 @@ function serialize(store) {
     goalLimitEnabled: store.goalLimitEnabled,
     winLimitEnabled: store.winLimitEnabled,
     winStreakToRest: store.winStreakToRest,
+    swapEnabled: store.swapEnabled,
     savedAt: new Date().toISOString(),
     savedBy: auth.currentUser ? auth.currentUser.uid : "unknown",
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -220,6 +221,9 @@ function applyRemote(data) {
     }
     if (Number.isFinite(data.winStreakToRest) && data.winStreakToRest > 0) {
       store.winStreakToRest = data.winStreakToRest;
+    }
+    if (typeof data.swapEnabled === "boolean") {
+      store.swapEnabled = data.swapEnabled;
     }
     // A snapshot from another device can still carry an over-filled team (older data) — trim
     // it here so every client converges on the same, correctly-sized rosters.
@@ -632,6 +636,7 @@ export async function createPelada(peladaId, name, password) {
     goalLimitEnabled: true,
     winLimitEnabled: true,
     winStreakToRest: DEFAULT_WIN_STREAK_TO_REST,
+    swapEnabled: false,
     savedAt: now,
     savedBy: createdBy,
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

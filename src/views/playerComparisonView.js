@@ -1,5 +1,6 @@
 import { store } from '../state/store.js';
 import { calculatePointsFromStats } from '../data/seedData.js';
+import { getPlayerTeamInMatch } from '../services/periodStats.js';
 
 export function renderPlayerComparisonView() {
   const players = store.getActivePlayers()
@@ -253,23 +254,24 @@ function renderComparisonResult(player1Id, player2Id) {
 function getDirectHistory(player1Id, player2Id) {
   const matches = [];
 
-  store.history.forEach(entry => {
-    const team1 = (entry.teams || []).find(team => (team.playerIds || []).includes(player1Id));
-    const team2 = (entry.teams || []).find(team => (team.playerIds || []).includes(player2Id));
-    if (!team1 || !team2 || team1.id === team2.id) return;
+  // Team membership is resolved per match, not per pelada — with the "Trocar" rule a player
+  // can play for different teams on the same day.
+  const teamName = (teams, id, fallback) => (teams || []).find(t => t.id === id)?.name || fallback;
 
+  store.history.forEach(entry => {
     (entry.matches || []).forEach(match => {
-      const player1IsA = match.teamAId === team1.id && match.teamBId === team2.id;
-      const player2IsA = match.teamAId === team2.id && match.teamBId === team1.id;
-      if (!player1IsA && !player2IsA) return; // a match against a different opponent that day
+      const team1Id = getPlayerTeamInMatch(match, player1Id, entry.teams);
+      const team2Id = getPlayerTeamInMatch(match, player2Id, entry.teams);
+      if (!team1Id || !team2Id || team1Id === team2Id) return; // not facing each other in this match
+      const player1IsA = match.teamAId === team1Id;
 
       const delta = match.statsDelta || {};
       matches.push({
         date: entry.date || 'Data não informada',
         dateISO: entry.dateISO || '',
         isActive: false,
-        team1Name: team1.name || 'Time 1',
-        team2Name: team2.name || 'Time 2',
+        team1Name: teamName(entry.teams, team1Id, 'Time 1'),
+        team2Name: teamName(entry.teams, team2Id, 'Time 2'),
         score1: Number(player1IsA ? match.scoreA : match.scoreB) || 0,
         score2: Number(player1IsA ? match.scoreB : match.scoreA) || 0,
         goals1: Number(delta[player1Id]?.goals) || 0,
@@ -290,21 +292,19 @@ function getDirectHistory(player1Id, player2Id) {
   // (endCurrentMatch computes it the same way); the still-ongoing match doesn't have one
   // yet, so it's computed live from its own kickoff snapshot.
   const activePelada = store.activePelada;
-  const activeTeam1 = (activePelada?.teams || []).find(team => (team.playerIds || []).includes(player1Id));
-  const activeTeam2 = (activePelada?.teams || []).find(team => (team.playerIds || []).includes(player2Id));
 
-  if (activePelada?.status === 'live' && activeTeam1 && activeTeam2 && activeTeam1.id !== activeTeam2.id) {
+  if (activePelada?.status === 'live') {
     const currentMatch = activePelada.rotation?.currentMatch;
     const liveMatches = [
       ...(activePelada.rotation?.log || []),
       ...(currentMatch ? [{ ...currentMatch, isOngoing: true }] : []),
-    ].filter(match => (
-      (match.teamAId === activeTeam1.id && match.teamBId === activeTeam2.id) ||
-      (match.teamBId === activeTeam1.id && match.teamAId === activeTeam2.id)
-    ));
+    ];
 
     liveMatches.forEach(match => {
-      const player1IsA = match.teamAId === activeTeam1.id;
+      const team1Id = getPlayerTeamInMatch(match, player1Id, activePelada.teams);
+      const team2Id = getPlayerTeamInMatch(match, player2Id, activePelada.teams);
+      if (!team1Id || !team2Id || team1Id === team2Id) return;
+      const player1IsA = match.teamAId === team1Id;
       const delta = match.isOngoing
         ? store.computeMatchStatsDelta(match.statsSnapshot, activePelada.stats)
         : (match.statsDelta || {});
@@ -313,8 +313,8 @@ function getDirectHistory(player1Id, player2Id) {
         date: match.isOngoing ? 'Em andamento' : `Hoje${match.time ? `, ${match.time}` : ''}`,
         dateISO: new Date().toISOString(),
         isActive: !!match.isOngoing,
-        team1Name: activeTeam1.name || 'Time 1',
-        team2Name: activeTeam2.name || 'Time 2',
+        team1Name: teamName(activePelada.teams, team1Id, 'Time 1'),
+        team2Name: teamName(activePelada.teams, team2Id, 'Time 2'),
         score1: Number(player1IsA ? match.scoreA : match.scoreB) || 0,
         score2: Number(player1IsA ? match.scoreB : match.scoreA) || 0,
         goals1: Number(delta[player1Id]?.goals) || 0,

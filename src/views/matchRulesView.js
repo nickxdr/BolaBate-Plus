@@ -154,6 +154,28 @@ export function renderMatchRulesView(navigateTo) {
           ℹ️ As regras de placar e rodízio passam a valer imediatamente, inclusive para a partida em andamento.
         </p>
       </div>
+
+      <!-- Substitutions -->
+      <div class="card">
+        <h2 class="rule-section-title">🔄 Substituições</h2>
+
+        <div class="rule-row">
+          <div class="rule-row-info">
+            <div class="rule-row-title">🔄 Troca de jogadores</div>
+            <div class="rule-row-desc">Mostra o botão “Trocar” ao lado de “Saiu” na pelada ao vivo: o jogador troca de time com outro atleta da pelada, e os dois continuam pontuando normalmente no ranking.</div>
+          </div>
+          <button
+            type="button"
+            class="rule-toggle ${store.swapEnabled ? "on" : ""}"
+            id="toggle-swap"
+            role="switch"
+            aria-checked="${store.swapEnabled ? "true" : "false"}"
+            aria-label="Troca de jogadores"
+          >
+            <span class="rule-toggle-knob"></span>
+          </button>
+        </div>
+      </div>
       `
           : `
       <div class="card">
@@ -163,6 +185,7 @@ export function renderMatchRulesView(navigateTo) {
           <div class="rules-summary-row"><span>🥅 Limite de gols</span><strong>${store.goalLimitEnabled ? `Até ${store.goalsToFinish} gol(s)` : "Só quando o tempo zerar"}</strong></div>
           <div class="rules-summary-row"><span>🔥 Limite de vitórias</span><strong>${store.winLimitEnabled ? `Após ${store.winStreakToRest} vitória(s)` : "Até perder"}</strong></div>
           <div class="rules-summary-row"><span>🔥 Vitórias seguidas para descansar</span><strong>${store.winStreakToRest}</strong></div>
+          <div class="rules-summary-row"><span>🔄 Troca de jogadores</span><strong>${store.swapEnabled ? "Ativada" : "Desativada"}</strong></div>
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 14px; text-align: center;">
           🔒 Apenas o administrador pode alterar as regras da partida.
@@ -311,6 +334,18 @@ export function renderMatchRulesView(navigateTo) {
         next
           ? `🔥 Limite de vitórias ativado: o vencedor descansa após ${store.winStreakToRest} vitória(s).`
           : "🔥 Time vencedor continua em campo até ser derrotado.",
+      );
+    });
+
+    // --- Swap toggle --------------------------------------------------------
+    const swapToggle = container.querySelector("#toggle-swap");
+    swapToggle.addEventListener("click", () => {
+      const next = !store.swapEnabled;
+      commit(
+        store.setSwapEnabled(next),
+        next
+          ? "🔄 Troca de jogadores ativada: use “Trocar” na pelada ao vivo."
+          : "🔄 Troca de jogadores desativada.",
       );
     });
   }
