@@ -1,4 +1,4 @@
-import { store } from "../state/store.js";
+import { store, isGoalkeeper, GOALKEEPER_POSITION } from "../state/store.js";
 import { showToast } from "./rankingView.js";
 import { suggestPlayerRating } from "../services/ratingSuggestion.js";
 import { getPlayerAchievements } from "../services/achievement.js";
@@ -53,7 +53,15 @@ const PLAYER_POSITION_OPTIONS = [
   { value: "Fixo", label: "Fixo" },
   { value: "Ala", label: "Ala" },
   { value: "Pivô", label: "Pivô" },
+  { value: GOALKEEPER_POSITION, label: "🧤 Goleiro" },
 ];
+
+/** <option> tags for every real position (no "Não definida"), for the add/edit selects. */
+function positionOptionsHtml(selected = "") {
+  return PLAYER_POSITION_OPTIONS.filter((opt) => opt.value)
+    .map((opt) => `<option value="${opt.value}" ${opt.value === selected ? "selected" : ""}>${opt.label}</option>`)
+    .join("");
+}
 
 // Nota com que cada jogador entra na lista do modo "vários jogadores".
 const DEFAULT_MULTIPLE_PLAYER_STARS = "3.0";
@@ -216,6 +224,10 @@ export function renderPlayersView() {
                 positionFilter === "Pivô" ? "selected" : ""
               }>Pivô</option>
 
+              <option value="${GOALKEEPER_POSITION}" ${
+                positionFilter === GOALKEEPER_POSITION ? "selected" : ""
+              }>🧤 Goleiro</option>
+
               <option value="none" ${
                 positionFilter === "none" ? "selected" : ""
               }>Não definida</option>
@@ -312,9 +324,11 @@ export function renderPlayersView() {
                       style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;"
                     >
                       <span class="player-position-label">
-                        ${escapeHtml(
-                          player.favoritePosition || "Posição não definida",
-                        )}
+                        ${
+                          isGoalkeeper(player)
+                            ? "🧤 Goleiro"
+                            : escapeHtml(player.favoritePosition || "Posição não definida")
+                        }
                       </span>
                     </div>
                   </div>
@@ -562,9 +576,7 @@ export function renderPlayersView() {
                 class="input-field"
               >
                 <option value="">Não definida</option>
-                <option value="Fixo">Fixo</option>
-                <option value="Ala">Ala</option>
-                <option value="Pivô">Pivô</option>
+                ${positionOptionsHtml()}
               </select>
             </div>
 
@@ -650,9 +662,7 @@ export function renderPlayersView() {
                   >
                     <option value="">Posição para todos</option>
                     <option value="__undefined__">Não definida</option>
-                    <option value="Fixo">Fixo</option>
-                    <option value="Ala">Ala</option>
-                    <option value="Pivô">Pivô</option>
+                    ${positionOptionsHtml()}
                   </select>
 
                   <button
@@ -1204,13 +1214,12 @@ export function renderPlayersView() {
 
     const modalContainer = document.getElementById("modal-container");
 
-    const suggestion = suggestPlayerRating(
-      store.monthlyStats,
-      player,
-      store.currentPeriodKey(),
-    );
-
-    const suggestionHtml = buildRatingSuggestionHtml(suggestion);
+    // The rating suggestion is based on goals/assists, which goalkeepers don't have.
+    const suggestionHtml = isGoalkeeper(player)
+      ? ""
+      : buildRatingSuggestionHtml(
+          suggestPlayerRating(store.monthlyStats, player, store.currentPeriodKey()),
+        );
 
     modalContainer.innerHTML = `
       <div
@@ -1497,6 +1506,13 @@ export function renderPlayersView() {
       "wins",
       "draws",
       "losses",
+      "saves",
+      "goalsConceded",
+      "cleanSheets",
+      "gkParticipacao",
+      "gkWins",
+      "gkDraws",
+      "gkLosses",
     ].reduce((result, field) => {
       result[field] = months.reduce(
         (sum, month) => sum + (Number(month.stats[field]) || 0),
@@ -1506,10 +1522,16 @@ export function renderPlayersView() {
       return result;
     }, {});
 
-    const totalMatches = totals.wins + totals.draws + totals.losses;
+    // Goalkeepers are shown with their own numbers (saves, goals conceded, clean sheets).
+    const gk = isGoalkeeper(player);
+    const record = gk
+      ? { wins: totals.gkWins, draws: totals.gkDraws, losses: totals.gkLosses }
+      : { wins: totals.wins, draws: totals.draws, losses: totals.losses };
+
+    const totalMatches = record.wins + record.draws + record.losses;
 
     const winRate =
-      totalMatches > 0 ? Math.round((totals.wins / totalMatches) * 100) : 0;
+      totalMatches > 0 ? Math.round((record.wins / totalMatches) * 100) : 0;
 
     const winRateTone =
       winRate >= 60
@@ -1520,7 +1542,7 @@ export function renderPlayersView() {
 
     const frequentCompanions = getFrequentCompanions(id);
 
-    const positions = ["Fixo", "Ala", "Pivô"];
+    const positions = PLAYER_POSITION_OPTIONS.filter((opt) => opt.value);
 
     const achievements = getPlayerAchievements(id);
 
@@ -1610,12 +1632,12 @@ export function renderPlayersView() {
                   .map(
                     (position) => `
                       <option
-                        value="${position}"
+                        value="${position.value}"
                         ${
-                          player.favoritePosition === position ? "selected" : ""
+                          player.favoritePosition === position.value ? "selected" : ""
                         }
                       >
-                        ${position}
+                        ${position.label}
                       </option>
                     `,
                   )
@@ -1640,6 +1662,18 @@ export function renderPlayersView() {
 
           <div class="profile-summary-grid">
 
+            ${
+              gk
+                ? `
+            ${profileMetric("🧤", "Defesas", totals.saves, "goals")}
+
+            ${profileMetric("🥅", "Gols sofridos", totals.goalsConceded, "assists")}
+
+            ${profileMetric("🧱", "Jogos sem sofrer gol", totals.cleanSheets, "awards")}
+
+            ${profileMetric("📅", "Participações", totals.gkParticipacao, "matches")}
+            `
+                : `
             ${profileMetric("⚽", "Gols", totals.goals, "goals")}
 
             ${profileMetric("👟", "Assistências", totals.assists, "assists")}
@@ -1657,10 +1691,12 @@ export function renderPlayersView() {
               totals.selecao + totals.puskas + totals.craque + totals.bagre,
               "awards",
             )}
+            `
+            }
 
             ${profileMetric(
               "📈",
-              `Aproveitamento (${totals.wins}V / ${totals.draws}E / ${totals.losses}D)`,
+              `Aproveitamento (${record.wins}V / ${record.draws}E / ${record.losses}D)`,
               `${winRate}%`,
               `win-rate ${winRateTone}`,
             )}
@@ -1684,10 +1720,11 @@ export function renderPlayersView() {
               <thead>
                 <tr>
                   <th>Mês</th>
-                  <th>Gols</th>
-                  <th>Assist.</th>
-                  <th>Part.</th>
-                  <th>Prêmios</th>
+                  ${
+                    gk
+                      ? "<th>Defesas</th><th>Sofridos</th><th>Sem sofrer</th><th>Part.</th>"
+                      : "<th>Gols</th><th>Assist.</th><th>Part.</th><th>Prêmios</th>"
+                  }
                 </tr>
               </thead>
 
@@ -1695,6 +1732,18 @@ export function renderPlayersView() {
                 ${months
                   .map((month) => {
                     const stats = month.stats;
+
+                    if (gk) {
+                      return `
+                      <tr>
+                        <th scope="row">${month.label}</th>
+                        <td class="profile-goals">${Number(stats.saves) || 0}</td>
+                        <td class="profile-assists">${Number(stats.goalsConceded) || 0}</td>
+                        <td>${Number(stats.cleanSheets) || 0}</td>
+                        <td>${Number(stats.gkParticipacao) || 0}</td>
+                      </tr>
+                    `;
+                    }
 
                     const awards =
                       (Number(stats.selecao) || 0) +
@@ -1804,6 +1853,10 @@ export function renderPlayersView() {
               .join("")}
           </div>
 
+          ${
+            gk
+              ? ""
+              : `
           <p class="profile-awards-note">
             Prêmios:
             ${totals.craque} Craque,
@@ -1858,6 +1911,8 @@ export function renderPlayersView() {
 
             </section>
           </div>
+          `
+          }
 
         </div>
       </div>
@@ -1885,9 +1940,14 @@ export function renderPlayersView() {
         const position =
           modalContainer.querySelector("#profile-position").value;
 
-        store.updatePlayer(id, {
+        const result = store.updatePlayer(id, {
           favoritePosition: position,
         });
+
+        if (result?.success === false) {
+          showToast("⚠️ " + result.error);
+          return;
+        }
 
         showToast("Posição favorita atualizada.");
 

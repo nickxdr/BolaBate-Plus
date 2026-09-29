@@ -1,4 +1,4 @@
-import { store } from "../state/store.js";
+import { store, isGoalkeeper } from "../state/store.js";
 import {
   autoBalanceTeams,
   randomizeTeams,
@@ -76,6 +76,8 @@ function renderPeladaConfig(container, onNavigate) {
   // Start with a completely clean list: NO pre-selected players
   let selectedIds = new Set();
   let diaristaIds = new Set();
+  // Goalkeepers are picked separately: they never count toward the outfield headcount.
+  let keeperIds = new Set();
   store.activePelada.presentPlayerIds = [];
   let filterText = "";
 
@@ -84,22 +86,34 @@ function renderPeladaConfig(container, onNavigate) {
     // the whole container's innerHTML on every click, which would otherwise
     // destroy and recreate that element and silently reset its scroll to the
     // top — jumping the admin back up the list after every single tap.
-    const previousScrollTop = container.querySelector(".player-chips-grid")?.scrollTop;
+    const previousScrollTop =
+      container.querySelector(".player-chips-grid")?.scrollTop;
 
     const teamSize = store.teamSize;
+    const gkMode = store.goalkeeperMode;
     const minPlayers = minPeladaPlayers(teamSize);
     const maxPlayers = teamCount * teamSize; // admin's chosen ceiling — selection is still capped here
     // Same declutter rule as the roster management screen: a diarista with no
     // real data (never a mensalista, no ranking history) shouldn't linger here
     // forever just because they subbed in once — they were never added as a
-    // "real" player.
+    // "real" player. With the goalkeeper rule off, goalkeepers aren't offered at all.
     const players = store
       .getActivePlayers()
+      .filter((p) => gkMode !== "none" || !isGoalkeeper(p))
       .filter((p) => p.name.toLowerCase().includes(filterText.toLowerCase()));
 
     const count = selectedIds.size;
-    const isReady = count >= minPlayers && count <= maxPlayers;
-    const effectiveTeamCount = computeEffectiveTeamCount(teamCount, count, teamSize);
+    const effectiveTeamCount = computeEffectiveTeamCount(
+      teamCount,
+      count,
+      teamSize,
+    );
+    const keeperCount = keeperIds.size;
+    const maxKeepers =
+      gkMode === "fixed" ? 2 : gkMode === "multi" ? effectiveTeamCount : 0;
+    const tooManyKeepers = keeperCount > maxKeepers;
+    const isReady =
+      count >= minPlayers && count <= maxPlayers && !tooManyKeepers;
     const wasAutoAdjusted = isReady && effectiveTeamCount !== teamCount;
 
     container.innerHTML = `
@@ -166,6 +180,16 @@ function renderPeladaConfig(container, onNavigate) {
             `
                 : ""
             }
+            ${
+              gkMode !== "none"
+                ? `
+              <div style="font-size: 0.8rem; color: ${tooManyKeepers ? "var(--accent-red)" : "var(--text-muted)"}; font-weight: 600; margin-top: 2px;">
+                🧤 ${keeperCount} goleiro${keeperCount === 1 ? "" : "s"} de até ${maxKeepers}
+                ${gkMode === "fixed" ? "(um em cada gol)" : "(um por time)"}
+              </div>
+            `
+                : ""
+            }
           </div>
 
           <div class="attendance-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -183,12 +207,15 @@ function renderPeladaConfig(container, onNavigate) {
         <div class="player-chips-grid">
           ${players
             .map((p) => {
-              const isSelected = selectedIds.has(p.id);
+              const isKeeper = isGoalkeeper(p);
+              const isSelected = isKeeper
+                ? keeperIds.has(p.id)
+                : selectedIds.has(p.id);
               const isDiarista = diaristaIds.has(p.id);
               return `
               <div class="player-chip ${isSelected ? "selected" : ""} ${isDiarista ? "diarista" : ""}" data-player-id="${p.id}">
                 <div>
-                  <div class="name">${escapeHtml(p.name)}</div>
+                  <div class="name">${escapeHtml(p.name)}${isKeeper ? ' <span class="gk-badge" title="Goleiro">🧤</span>' : ""}</div>
                   <div class="stars">★ ${p.stars.toFixed(1)}</div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
@@ -232,7 +259,9 @@ function renderPeladaConfig(container, onNavigate) {
               ${
                 count < minPlayers
                   ? `Selecione pelo menos ${minPlayers} jogadores para poder avançar.`
-                  : `Você selecionou mais jogadores do que o máximo de ${maxPlayers} para ${teamCount} times — remova ${count - maxPlayers} ou aumente o número de times.`
+                  : count > maxPlayers
+                    ? `Você selecionou mais jogadores do que o máximo de ${maxPlayers} para ${teamCount} times — remova ${count - maxPlayers} ou aumente o número de times.`
+                    : `Há mais goleiros do que times — remova ${keeperCount - maxKeepers} goleiro(s) para avançar.`
               }
             </p>
           `
@@ -271,9 +300,14 @@ function renderPeladaConfig(container, onNavigate) {
 
     // Bind quick fill
     container.querySelector("#btn-quick-fill").addEventListener("click", () => {
+      const keeperDiaristas = [...keeperIds].filter((id) =>
+        diaristaIds.has(id),
+      );
       selectedIds.clear();
       diaristaIds.clear();
-      const pool = store.getActivePlayers().slice(0, maxPlayers);
+      keeperDiaristas.forEach((id) => diaristaIds.add(id));
+      // Outfield spots only — goalkeepers are chosen by hand.
+      const pool = store.getRankablePlayers().slice(0, maxPlayers);
       pool.forEach((p) => selectedIds.add(p.id));
       update();
     });
@@ -284,6 +318,7 @@ function renderPeladaConfig(container, onNavigate) {
       .addEventListener("click", () => {
         selectedIds.clear();
         diaristaIds.clear();
+        keeperIds.clear();
         update();
       });
 
@@ -291,6 +326,23 @@ function renderPeladaConfig(container, onNavigate) {
     container.querySelectorAll(".player-chip").forEach((chip) => {
       chip.addEventListener("click", (e) => {
         const pid = e.currentTarget.getAttribute("data-player-id");
+        if (isGoalkeeper(store.getPlayer(pid))) {
+          if (keeperIds.has(pid)) {
+            keeperIds.delete(pid);
+            diaristaIds.delete(pid);
+          } else if (keeperIds.size >= maxKeepers) {
+            showToast(
+              gkMode === "fixed"
+                ? "No modo goleiros fixos são só 2 goleiros (um em cada gol)."
+                : `Com ${effectiveTeamCount} times, dá para escolher até ${effectiveTeamCount} goleiros.`,
+            );
+            return;
+          } else {
+            keeperIds.add(pid);
+          }
+          update();
+          return;
+        }
         if (selectedIds.has(pid)) {
           selectedIds.delete(pid);
           diaristaIds.delete(pid);
@@ -329,6 +381,7 @@ function renderPeladaConfig(container, onNavigate) {
           effectiveTeamCount,
           Array.from(selectedIds),
           Array.from(diaristaIds),
+          Array.from(keeperIds),
         );
         renderSetupTeams(container, onNavigate);
       });
@@ -355,7 +408,11 @@ function renderSetupTeams(container, onNavigate) {
     pelada.teams.every((t) => t.playerIds.length === 0)
   ) {
     // If not distributed, split players randomly (user can still auto-balance later)
-    const randomized = randomizeTeams(presentPlayers, pelada.teamCount, store.teamSize);
+    const randomized = randomizeTeams(
+      presentPlayers,
+      pelada.teamCount,
+      store.teamSize,
+    );
     pelada.teams = randomized.map((b, i) => ({
       id: `team-${i + 1}`,
       name: `Time ${i + 1}`,
@@ -431,6 +488,8 @@ function renderSetupTeams(container, onNavigate) {
           : ""
       }
 
+      ${renderSetupGoalkeepersCard(pelada)}
+
       <!-- Teams Grid -->
       <div class="teams-grid" data-team-count="${pelada.teams.length}">
         ${pelada.teams
@@ -450,7 +509,8 @@ function renderSetupTeams(container, onNavigate) {
             }
 
             // Check if halfway done (e.g. 2 to teamSize-1 players) to offer smart suggestions
-            const isHalfway = teamPlayers.length >= 2 && teamPlayers.length < teamSize;
+            const isHalfway =
+              teamPlayers.length >= 2 && teamPlayers.length < teamSize;
             const suggestions = isHalfway
               ? getSmartSuggestions(teamPlayers, unassignedPlayers, teamSize)
               : [];
@@ -468,6 +528,8 @@ function renderSetupTeams(container, onNavigate) {
                   </span>
                 </div>
               </div>
+
+              ${pelada.goalkeeperMode === "multi" ? renderSetupTeamGoalkeeperSlot(pelada, team) : ""}
 
               <div class="team-players-list drop-target-list" data-team-id="${team.id}">
                 ${teamPlayers
@@ -553,7 +615,11 @@ function renderSetupTeams(container, onNavigate) {
 
     // Bind auto-balance button
     container.querySelector("#btn-rebalance").addEventListener("click", () => {
-      const balanced = autoBalanceTeams(presentPlayers, pelada.teamCount, store.teamSize);
+      const balanced = autoBalanceTeams(
+        presentPlayers,
+        pelada.teamCount,
+        store.teamSize,
+      );
       pelada.teams = balanced.map((b, i) => ({
         id: `team-${i + 1}`,
         name: pelada.teams[i]?.name || `Time ${i + 1}`,
@@ -585,7 +651,10 @@ function renderSetupTeams(container, onNavigate) {
       const teamSize = store.teamSize;
       pelada.teams = pelada.teams.map((team, teamIndex) => ({
         ...team,
-        playerIds: currentPlayerIds.slice(teamIndex * teamSize, (teamIndex + 1) * teamSize),
+        playerIds: currentPlayerIds.slice(
+          teamIndex * teamSize,
+          (teamIndex + 1) * teamSize,
+        ),
       }));
 
       store.updatePeladaTeams(pelada.teams);
@@ -601,6 +670,26 @@ function renderSetupTeams(container, onNavigate) {
         store.save();
         renderPeladaConfig(container, onNavigate);
       });
+
+    // Goalkeepers: fixed-mode side swap and multi-mode team slots
+    container
+      .querySelector("#btn-setup-gk-swap")
+      ?.addEventListener("click", () => {
+        const result = store.swapGoalkeeperSides();
+        if (result?.success === false) showToast("⚠️ " + result.error);
+        render();
+      });
+    container.querySelectorAll(".setup-gk-select").forEach((select) => {
+      select.addEventListener("change", (e) => {
+        const teamId = e.currentTarget.getAttribute("data-team-id");
+        const result = store.assignGoalkeeperToTeam(
+          teamId,
+          e.currentTarget.value || null,
+        );
+        if (result?.success === false) showToast("⚠️ " + result.error);
+        render();
+      });
+    });
 
     // ==========================================
     // Drag & Drop & Tap-to-Swap Implementation
@@ -799,13 +888,77 @@ function renderSetupTeams(container, onNavigate) {
     container
       .querySelector("#btn-start-match")
       .addEventListener("click", () => {
-        store.startLivePelada();
+        const result = store.startLivePelada();
+        if (result?.success === false) {
+          showToast("⚠️ " + result.error);
+          return;
+        }
         renderLivePelada(container, onNavigate);
         showToast("Pelada iniciada! Boa sorte a todos!");
       });
   }
 
   render();
+}
+
+/** Balancing screen: who's in which goal (fixed) or how many GKs still need a team (multi). */
+function renderSetupGoalkeepersCard(pelada) {
+  const mode = pelada.goalkeeperMode;
+  if (mode === "none" || !(pelada.goalkeeperIds || []).length) return "";
+  const nameOf = (id) =>
+    id ? escapeHtml(store.getPlayer(id)?.name || "Goleiro") : "—";
+
+  if (mode === "fixed") {
+    const { left, right } = pelada.goalkeeperSides || {};
+    return `
+      <div class="card setup-gk-card">
+        <div class="setup-gk-card-info">
+          <strong>🧤 Goleiros fixos</strong>
+          <span>Gol esquerdo: <b>${nameOf(left)}</b> · Gol direito: <b>${nameOf(right)}</b></span>
+        </div>
+        <button id="btn-setup-gk-swap" class="btn btn-secondary btn-sm">⇄ Trocar lados</button>
+      </div>
+    `;
+  }
+
+  const assigned = new Set(Object.values(pelada.goalkeepersByTeam || {}));
+  const pending = pelada.goalkeeperIds.filter((id) => !assigned.has(id));
+  return `
+    <div class="card setup-gk-card ${pending.length ? "pending" : ""}">
+      <div class="setup-gk-card-info">
+        <strong>🧤 Goleiros por time</strong>
+        <span>${
+          pending.length
+            ? `Escolha o time de: ${pending.map(nameOf).join(", ")}`
+            : "Todos os goleiros já têm time."
+        }</span>
+      </div>
+    </div>
+  `;
+}
+
+/** Multi mode: the GK picker on each team card of the balancing screen. */
+function renderSetupTeamGoalkeeperSlot(pelada, team) {
+  const byTeam = pelada.goalkeepersByTeam || {};
+  const current = byTeam[team.id] || "";
+  const takenElsewhere = new Set(
+    Object.entries(byTeam)
+      .filter(([teamId]) => teamId !== team.id)
+      .map(([, gkId]) => gkId),
+  );
+  const options = (pelada.goalkeeperIds || [])
+    .filter((id) => !takenElsewhere.has(id))
+    .map((id) => store.getPlayer(id))
+    .filter(Boolean);
+  return `
+    <div class="setup-gk-slot">
+      <span class="setup-gk-slot-label">🧤 Goleiro</span>
+      <select class="input-field setup-gk-select" data-team-id="${team.id}" ${store.isAdmin ? "" : "disabled"}>
+        <option value="">Sem goleiro</option>
+        ${options.map((p) => `<option value="${p.id}" ${p.id === current ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+      </select>
+    </div>
+  `;
 }
 
 // ----------------------------------------------------
@@ -836,7 +989,9 @@ function renderLivePelada(container, onNavigate) {
     const pStat = store.activePelada.stats[playerId] || {};
     const goalVal = isGuest ? pStat.guestGoals || 0 : pStat.goals || 0;
     const assistVal = isGuest ? pStat.guestAssists || 0 : pStat.assists || 0;
-    const goalBtnSelector = isGuest ? ".btn-increase-guest-goal" : ".btn-increase-goal";
+    const goalBtnSelector = isGuest
+      ? ".btn-increase-guest-goal"
+      : ".btn-increase-goal";
     const assistBtnSelector = isGuest
       ? ".btn-increase-guest-assist"
       : ".btn-increase-assist";
@@ -870,8 +1025,33 @@ function renderLivePelada(container, onNavigate) {
     const match = pelada.rotation?.currentMatch;
     if (!match) return;
     const scoreEl = container.querySelector(".mini-pitch-score");
-    if (scoreEl) scoreEl.innerHTML = `${match.scoreA} <span>×</span> ${match.scoreB}`;
+    if (scoreEl) {
+      const teamA = pelada.teams.find((t) => t.id === match.teamAId);
+      const teamB = pelada.teams.find((t) => t.id === match.teamBId);
+      const [leftTeam, rightTeam] = orderTeamsBySide(match, teamA, teamB);
+      scoreEl.innerHTML = renderSideScore(match, leftTeam, rightTeam);
+    }
+    patchGoalkeeperConceded();
     refreshMatchControls();
+  }
+
+  /** Saves counter of one goalkeeper card, patched in place like the goal/assist counters. */
+  function patchGoalkeeperSaves(gkId) {
+    const saves = Number(store.activePelada.stats[gkId]?.saves) || 0;
+    container
+      .querySelectorAll(`.btn-increase-save[data-id="${gkId}"]`)
+      .forEach((btn) => {
+        const span = btn.previousElementSibling;
+        if (span?.classList.contains("count")) span.textContent = saves;
+      });
+  }
+
+  /** Goals conceded change whenever the opponent scores (or a score is corrected). */
+  function patchGoalkeeperConceded() {
+    const records = store.getLiveGoalkeeperRecords();
+    container.querySelectorAll(".gk-conceded[data-id]").forEach((el) => {
+      el.textContent = records[el.getAttribute("data-id")]?.goalsConceded || 0;
+    });
   }
 
   function patchTimeline() {
@@ -957,9 +1137,11 @@ function renderLivePelada(container, onNavigate) {
           if (result.success) {
             playSound("whistleEnd");
             const teamAName =
-              pelada.teams.find((t) => t.id === result.teamAId)?.name || "Time A";
+              pelada.teams.find((t) => t.id === result.teamAId)?.name ||
+              "Time A";
             const teamBName =
-              pelada.teams.find((t) => t.id === result.teamBId)?.name || "Time B";
+              pelada.teams.find((t) => t.id === result.teamBId)?.name ||
+              "Time B";
             if (result.winnerId) {
               const winnerName =
                 pelada.teams.find((t) => t.id === result.winnerId)?.name ||
@@ -1005,13 +1187,17 @@ function renderLivePelada(container, onNavigate) {
       <!-- Match Pitch: current confrontation, score & timer -->
       ${renderMatchPanel(rotation, match, teamA, teamB, pendingMatchSelection)}
 
-      <!-- Active Teams -->
+      <!-- Active Teams (in the same left/right order as the pitch) -->
       ${
         match && teamA && teamB
           ? `
         <div class="teams-grid" data-team-count="2">
-          ${[teamA, teamB].map((team) => renderActiveTeamCard(pelada, team)).join("")}
+          ${orderTeamsBySide(match, teamA, teamB)
+            .map((team) => renderActiveTeamCard(pelada, team))
+            .join("")}
         </div>
+
+        ${renderGoalkeeperWidget(pelada, match, teamA, teamB)}
       `
           : !store.isAdmin
             ? `
@@ -1177,6 +1363,72 @@ function renderLivePelada(container, onNavigate) {
       });
     });
 
+    // Bind the goalkeeper widget (saves are a hot path — patched in place, no full render)
+    container.querySelectorAll(".btn-increase-save").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const gkId = e.currentTarget.getAttribute("data-id");
+        const result = store.recordSave(gkId);
+        if (result?.success === false) {
+          showToast("⚠️ " + result.error);
+          return;
+        }
+        patchGoalkeeperSaves(gkId);
+        patchTimeline();
+      });
+    });
+    container.querySelectorAll(".btn-decrease-save").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const gkId = e.currentTarget.getAttribute("data-id");
+        store.removeSave(gkId);
+        patchGoalkeeperSaves(gkId);
+        patchTimeline();
+      });
+    });
+    container
+      .querySelector("#btn-gk-swap-sides")
+      ?.addEventListener("click", () => {
+        const result = store.swapGoalkeeperSides();
+        if (result?.success === false) showToast("⚠️ " + result.error);
+        else showToast("⇄ Goleiros trocaram de lado.");
+        render();
+      });
+    container.querySelectorAll(".btn-gk-move").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        openGoalkeeperMoveModal({
+          gkId: e.currentTarget.getAttribute("data-id"),
+          targetTeamId: e.currentTarget.getAttribute("data-team") || null,
+          onDone: render,
+        });
+      });
+    });
+    container.querySelectorAll(".btn-gk-depart").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const gkId = e.currentTarget.getAttribute("data-id");
+        const result = store.markGoalkeeperDeparted(gkId);
+        if (result?.success === false) showToast("⚠️ " + result.error);
+        else
+          showToast(
+            `${store.getPlayer(gkId)?.name || "Goleiro"} saiu. O time fica sem goleiro.`,
+          );
+        render();
+      });
+    });
+    container.querySelectorAll(".btn-gk-return").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const gkId = e.currentTarget.getAttribute("data-id");
+        const result = store.revertGoalkeeperDeparture(gkId);
+        const name = store.getPlayer(gkId)?.name || "Goleiro";
+        if (result?.success) {
+          showToast(
+            result.backInGoal
+              ? `${name} voltou para o gol!`
+              : `${name} voltou, mas o gol do time dele já tem outro goleiro — use “Definir goleiro” para escalá-lo.`,
+          );
+        }
+        render();
+      });
+    });
+
     // Bind Finish Pelada (admin only — button isn't rendered for non-admins)
     const finishBtn = container.querySelector("#btn-finish-pelada");
     if (finishBtn) {
@@ -1210,7 +1462,9 @@ function renderLivePelada(container, onNavigate) {
         if (isDeparted) {
           const result = store.revertPlayerDeparture(pid);
           if (result?.removedGuests?.length) {
-            showToast("ℹ️ O time já estava completo — o reforço temporário saiu.");
+            showToast(
+              "ℹ️ O time já estava completo — o reforço temporário saiu.",
+            );
           }
         } else {
           store.markPlayerDeparted(pid, teamId);
@@ -1408,7 +1662,10 @@ function normalizeSearchText(text) {
 }
 
 /** Search box listing every waiting-queue player — a manual alternative to the ranked suggestions below it. */
-function renderQueueSearchHtml(candidatePlayers, placeholder = "🔍 Buscar jogador da fila de espera...") {
+function renderQueueSearchHtml(
+  candidatePlayers,
+  placeholder = "🔍 Buscar jogador da fila de espera...",
+) {
   if (!candidatePlayers.length) return "";
   return `
     <div class="queue-search">
@@ -1423,11 +1680,15 @@ function bindQueueSearch(root, candidatePlayers, onPick) {
   const results = root.querySelector(".queue-search-results");
   if (!input || !results) return;
 
-  const sorted = [...candidatePlayers].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...candidatePlayers].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   const renderResults = () => {
     const term = normalizeSearchText(input.value.trim());
-    const matches = sorted.filter((p) => normalizeSearchText(p.name).includes(term));
+    const matches = sorted.filter((p) =>
+      normalizeSearchText(p.name).includes(term),
+    );
     results.innerHTML = matches.length
       ? matches
           .map(
@@ -1572,7 +1833,11 @@ function openSubstituteModal(
   store.markPlayerDeparted(departingPlayerId, teamId);
 
   const pickSubstitute = (guestId) => {
-    const result = store.assignGuestSubstitute(departingPlayerId, guestId, teamId);
+    const result = store.assignGuestSubstitute(
+      departingPlayerId,
+      guestId,
+      teamId,
+    );
     const guest = store.getPlayer(guestId);
     close();
     if (result?.success === false) {
@@ -1644,7 +1909,11 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
     });
   });
 
-  const suggestions = getSmartSuggestions(currentTeamPlayers, candidatePlayers, store.teamSize);
+  const suggestions = getSmartSuggestions(
+    currentTeamPlayers,
+    candidatePlayers,
+    store.teamSize,
+  );
 
   const modalContainer = document.getElementById("modal-container");
   modalContainer.innerHTML = `
@@ -1763,7 +2032,9 @@ function openSwapModal(playerId, teamId, onDone) {
   }
 
   const departed = new Set(pelada.departedPlayerIds || []);
-  const guesting = new Set((pelada.guestSlots || []).map((g) => g.guestPlayerId));
+  const guesting = new Set(
+    (pelada.guestSlots || []).map((g) => g.guestPlayerId),
+  );
   const diaristaIds = new Set(pelada.diaristaPlayerIds || []);
   const match = pelada.rotation?.currentMatch;
   const onPitch = new Set(match ? [match.teamAId, match.teamBId] : []);
@@ -1779,7 +2050,9 @@ function openSwapModal(playerId, teamId, onDone) {
     }))
     .filter((g) => g.players.length > 0)
     // Opponent on the pitch first, then the waiting teams in team order.
-    .sort((a, b) => Number(onPitch.has(b.team.id)) - Number(onPitch.has(a.team.id)));
+    .sort(
+      (a, b) => Number(onPitch.has(b.team.id)) - Number(onPitch.has(a.team.id)),
+    );
 
   const candidatePlayers = groups.flatMap((g) => g.players);
 
@@ -1849,7 +2122,9 @@ function openSwapModal(playerId, teamId, onDone) {
     modalContainer.innerHTML = "";
   };
   const overlay = modalContainer.querySelector("#swap-overlay");
-  modalContainer.querySelector("#swap-modal-close").addEventListener("click", close);
+  modalContainer
+    .querySelector("#swap-modal-close")
+    .addEventListener("click", close);
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) close();
   });
@@ -2059,7 +2334,14 @@ const POSITION_PREFERENCE_SLOTS_5 = {
 // 6-a-side formation: 3 evenly-spaced columns (back/mid/front), 2 players per column —
 // avoids the single-center MID slot of the 5-a-side layout, which would otherwise sit
 // right on top of a 6th player with nowhere else clean to go.
-const FORMATION_SLOTS_6 = ["BACK1", "BACK2", "MID1", "MID2", "FRONT1", "FRONT2"];
+const FORMATION_SLOTS_6 = [
+  "BACK1",
+  "BACK2",
+  "MID1",
+  "MID2",
+  "FRONT1",
+  "FRONT2",
+];
 const FORMATION_COORDS_6 = {
   BACK1: { x: 22, y: 25 },
   BACK2: { x: 22, y: 75 },
@@ -2081,7 +2363,9 @@ function getFormationCoordsMap(teamSize) {
   return teamSize === 6 ? FORMATION_COORDS_6 : FORMATION_COORDS_5;
 }
 function getPositionPreferenceSlots(teamSize) {
-  return teamSize === 6 ? POSITION_PREFERENCE_SLOTS_6 : POSITION_PREFERENCE_SLOTS_5;
+  return teamSize === 6
+    ? POSITION_PREFERENCE_SLOTS_6
+    : POSITION_PREFERENCE_SLOTS_5;
 }
 
 /** Places teammates onto formation slots (5 or 6, per teamSize), honoring favoritePosition where possible; the rest fill in (deterministically, so the layout doesn't jitter on every re-render). */
@@ -2106,9 +2390,22 @@ function assignFormationSlots(players, teamSize) {
     if (fillers[i]) bySlot[slot] = fillers[i];
   });
 
-  return slots.map((slot) => ({ slot, player: bySlot[slot] })).filter(
-    (entry) => entry.player,
-  );
+  return slots
+    .map((slot) => ({ slot, player: bySlot[slot] }))
+    .filter((entry) => entry.player);
+}
+
+/** [leftTeam, rightTeam] for the pitch, following the match's persisted sides. */
+function orderTeamsBySide(match, teamA, teamB) {
+  const sides = store.getMatchSides(match);
+  return sides.left === teamB?.id ? [teamB, teamA] : [teamA, teamB];
+}
+
+/** Scoreboard text with the left team's score first, matching the lanes. */
+function renderSideScore(match, leftTeam, rightTeam) {
+  const scoreOf = (team) =>
+    team?.id === match.teamBId ? match.scoreB : match.scoreA;
+  return `${scoreOf(leftTeam)} <span>×</span> ${scoreOf(rightTeam)}`;
 }
 
 /** Mirrors the formation horizontally for the right-hand team, since both sides face the center. */
@@ -2161,6 +2458,8 @@ function renderMatchPanel(
   const notStarted =
     !match.timerRunning && match.timerRemainingMs === match.timerDurationMs;
   const timeUp = remainingMs <= 0;
+  // With fixed goalkeepers the winner keeps its side, so the left lane isn't always team A.
+  const [leftTeam, rightTeam] = orderTeamsBySide(match, teamA, teamB);
 
   return `
     <div class="mini-pitch-scroll">
@@ -2171,11 +2470,11 @@ function renderMatchPanel(
         <div class="mini-pitch-goal-box right"></div>
 
         <div class="mini-pitch-scoreboard">
-          <div class="mini-pitch-score">${match.scoreA} <span>×</span> ${match.scoreB}</div>
+          <div class="mini-pitch-score">${renderSideScore(match, leftTeam, rightTeam)}</div>
           <div class="mini-pitch-timer" data-timer-display>${formatDuration(remainingMs)}</div>
         </div>
 
-        ${[teamA, teamB]
+        ${[leftTeam, rightTeam]
           .map((team, teamIndex) => {
             const teamPlayers = team.playerIds
               .map((id) => store.getPlayer(id))
@@ -2184,6 +2483,9 @@ function renderMatchPanel(
               rotation.streakTeamId === team.id && rotation.streakCount > 0;
             const isLeft = teamIndex === 0;
             const positions = assignFormationSlots(teamPlayers, store.teamSize);
+            const keeper = store.getPlayer(
+              store.getGoalkeeperForTeam(team.id, match),
+            );
             return `
             <div class="mini-pitch-lane">
               <div class="mini-pitch-lane-header">
@@ -2192,7 +2494,11 @@ function renderMatchPanel(
               </div>
               ${positions
                 .map(({ slot, player }) => {
-                  const { x, y } = getFormationCoords(slot, isLeft, store.teamSize);
+                  const { x, y } = getFormationCoords(
+                    slot,
+                    isLeft,
+                    store.teamSize,
+                  );
                   return `
                   <div class="mini-pitch-position" style="left: ${x}%; top: ${y}%;">
                     <div class="mini-pitch-chip" style="border-color: ${team.color};" title="${escapeHtml(player.name)}">
@@ -2208,6 +2514,23 @@ function renderMatchPanel(
                 `;
                 })
                 .join("")}
+              ${
+                keeper
+                  ? `
+              <div class="mini-pitch-position mini-pitch-gk" style="left: ${isLeft ? 7 : 93}%; top: 50%;">
+                <div class="mini-pitch-chip gk" style="border-color: ${team.color};" title="${escapeHtml(keeper.name)} (goleiro)">
+                  ${
+                    store.avatars[keeper.id]
+                      ? `<img src="${getAvatarDataUri(store.avatars[keeper.id])}" alt="" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`
+                      : "🧤"
+                  }
+                  <span class="mini-pitch-ovr-badge" data-id="${keeper.id}">${ovrMap[keeper.id] ?? ""}</span>
+                </div>
+                <span class="mini-pitch-position-name"> ${escapeHtml(keeper.name)}</span>
+              </div>
+            `
+                  : ""
+              }
             </div>
           `;
           })
@@ -2255,6 +2578,250 @@ function renderMatchPanel(
         : ""
     }
   `;
+}
+
+/**
+ * Goalkeeper widget (under the team cards, above the queue). Fixed mode: the left/right goals,
+ * with "Trocar lados". Multi mode: the two playing teams' GKs with "Trocar" and "Saiu"/"Voltar",
+ * or "Definir goleiro" when a team has none. The admin only counts saves; goals conceded come
+ * from the score.
+ */
+function renderGoalkeeperWidget(pelada, match, teamA, teamB) {
+  const mode = pelada.goalkeeperMode;
+  if (mode === "none" || !(pelada.goalkeeperIds || []).length) return "";
+
+  const [leftTeam, rightTeam] = orderTeamsBySide(match, teamA, teamB);
+  const records = store.getLiveGoalkeeperRecords();
+  const departed = new Set(pelada.departedGoalkeeperIds || []);
+  const diaristas = new Set(pelada.diaristaPlayerIds || []);
+  const locked = store.isMatchUnderway(match);
+  const admin = store.isAdmin;
+
+  const keeperBody = (gkId, actions = "") => {
+    const player = store.getPlayer(gkId);
+    const saves = Number(pelada.stats[gkId]?.saves) || 0;
+    const conceded = records[gkId]?.goalsConceded || 0;
+    return `
+      <div class="gk-card-player">
+        <div class="gk-card-avatar">
+          ${
+            store.avatars[gkId]
+              ? `<img src="${getAvatarDataUri(store.avatars[gkId])}" alt="" />`
+              : "🧤"
+          }
+        </div>
+        <div class="gk-card-name">
+          <strong>${escapeHtml(player?.name || "Goleiro")}</strong>
+          ${diaristas.has(gkId) ? '<span class="diarista-badge">💰</span>' : ""}
+          <span class="gk-card-conceded">🥅 <span class="gk-conceded" data-id="${gkId}">${conceded}</span> sofrido(s) hoje</span>
+        </div>
+        ${actions ? `<div class="gk-card-actions gk-card-actions-inline">${actions}</div>` : ""}
+      </div>
+      ${
+        admin
+          ? `
+      <div class="live-controls gk-card-controls">
+        <div class="stat-counter" title="Defesas">
+          <button class="stat-btn btn-assist btn-decrease-save" data-id="${gkId}">-</button>
+          <span class="count">${saves}</span>
+          <button class="stat-btn btn-assist btn-increase-save" data-id="${gkId}">+🧤</button>
+        </div>
+      </div>
+    `
+          : `<div class="gk-card-readonly">🧤 ${saves} defesa(s)</div>`
+      }
+    `;
+  };
+
+  const teamTag = (team) =>
+    `<span class="gk-card-team" style="color: ${team.color};">${escapeHtml(team.name)}</span>`;
+
+  let cards = "";
+  if (mode === "fixed") {
+    const { left, right } = pelada.goalkeeperSides || {};
+    cards = [
+      { gkId: left, team: leftTeam, label: "Gol esquerdo" },
+      { gkId: right, team: rightTeam, label: "Gol direito" },
+    ]
+      .map(
+        ({ gkId, team, label }) => `
+        <div class="gk-card" style="border-top-color: ${team.color};">
+          <div class="gk-card-header"><span>${label}</span>${teamTag(team)}</div>
+          ${gkId && store.getPlayer(gkId) ? keeperBody(gkId) : '<p class="gk-card-empty">Sem goleiro neste gol.</p>'}
+        </div>
+      `,
+      )
+      .join("");
+  } else {
+    cards = [leftTeam, rightTeam]
+      .map((team) => {
+        const gkId = pelada.goalkeepersByTeam?.[team.id] || null;
+        const isGone = gkId && departed.has(gkId);
+        let body;
+        let actions = "";
+        if (gkId && !isGone && store.getPlayer(gkId)) {
+          // Trocar/Saiu sit on the name row, like an outfield player's row.
+          body = keeperBody(
+            gkId,
+            admin
+              ? `
+              <button class="btn btn-secondary btn-sm btn-gk-move" data-id="${gkId}" title="Trocar de time com outro goleiro">🔄 Trocar</button>
+              <button class="btn btn-secondary btn-sm btn-gk-depart" data-id="${gkId}" style="color: var(--accent-red);" title="Goleiro foi embora">🚪 Saiu</button>
+            `
+              : "",
+          );
+        } else {
+          body = isGone
+            ? `<p class="gk-card-empty">🚪 ${escapeHtml(store.getPlayer(gkId)?.name || "Goleiro")} saiu — time sem goleiro.</p>`
+            : '<p class="gk-card-empty">Time sem goleiro.</p>';
+          if (admin) {
+            actions = `
+              ${isGone ? `<button class="btn btn-primary btn-sm btn-gk-return" data-id="${gkId}">↩️ Voltar</button>` : ""}
+              <button class="btn btn-secondary btn-sm btn-gk-move" data-team="${team.id}">🧤 Definir goleiro</button>
+            `;
+          }
+        }
+        return `
+          <div class="gk-card" style="border-top-color: ${team.color};">
+            <div class="gk-card-header"><span>Goleiro</span>${teamTag(team)}</div>
+            ${body}
+            ${actions ? `<div class="gk-card-actions">${actions}</div>` : ""}
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  return `
+    <div class="card gk-widget">
+      <div class="gk-widget-header">
+        <h3>🧤 Goleiros</h3>
+        ${
+          admin && mode === "fixed"
+            ? `<button id="btn-gk-swap-sides" class="btn btn-secondary btn-sm" ${locked ? 'title="Só entre partidas"' : ""}>⇄ Trocar lados</button>`
+            : ""
+        }
+      </div>
+      ${
+        admin && locked
+          ? '<p class="gk-widget-note">Trocas de goleiro só entre partidas — esta já começou.</p>'
+          : ""
+      }
+      <div class="gk-widget-grid">${cards}</div>
+    </div>
+  `;
+}
+
+/**
+ * Multi-mode goalkeeper picker. From a GK card (`gkId`): choose the team they go to — swapping
+ * with that team's GK, or moving into a team with none. From "Definir goleiro" (`targetTeamId`):
+ * choose which GK goes into that team.
+ */
+function openGoalkeeperMoveModal({ gkId = null, targetTeamId = null, onDone }) {
+  const pelada = store.activePelada;
+  const departed = new Set(pelada.departedGoalkeeperIds || []);
+  const teamName = (teamId) =>
+    pelada.teams.find((t) => t.id === teamId)?.name || "Time";
+  const keeperName = (id) => store.getPlayer(id)?.name || "Goleiro";
+
+  let title;
+  let rows;
+  if (gkId) {
+    const fromTeamId = store.getGoalkeeperTeamId(gkId);
+    title = `🔄 Trocar: ${escapeHtml(keeperName(gkId))}`;
+    rows = pelada.teams
+      .filter((team) => team.id !== fromTeamId)
+      .map((team) => {
+        const current = pelada.goalkeepersByTeam?.[team.id];
+        const active = current && !departed.has(current) ? current : null;
+        return {
+          value: team.id,
+          color: team.color,
+          label: escapeHtml(team.name),
+          detail: active
+            ? `Goleiro: ${escapeHtml(keeperName(active))} (trocam de time)`
+            : "Sem goleiro (só muda de time)",
+          button: active ? "Trocar" : "Mover",
+          apply: () => store.moveGoalkeeper(gkId, team.id),
+        };
+      });
+  } else {
+    title = `🧤 Goleiro do ${escapeHtml(teamName(targetTeamId))}`;
+    rows = (pelada.goalkeeperIds || [])
+      .filter(
+        (id) =>
+          !departed.has(id) && pelada.goalkeepersByTeam?.[targetTeamId] !== id,
+      )
+      .map((id) => {
+        const from = store.getGoalkeeperTeamId(id);
+        return {
+          value: id,
+          color: from
+            ? pelada.teams.find((t) => t.id === from)?.color
+            : "var(--text-dim)",
+          label: escapeHtml(keeperName(id)),
+          detail: from
+            ? `Hoje no ${escapeHtml(teamName(from))} (que fica sem goleiro)`
+            : "Sem time",
+          button: "Escalar",
+          apply: () => store.moveGoalkeeper(id, targetTeamId),
+        };
+      });
+  }
+
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="gk-move-overlay">
+      <div class="modal-content" style="max-width: 460px;">
+        <div class="modal-header">
+          <h2 class="modal-title">${title}</h2>
+          <button class="modal-close" id="gk-move-close">&times;</button>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          ${
+            rows.length
+              ? rows
+                  .map(
+                    (row, i) => `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg-card-subtle); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <div style="min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="width: 10px; height: 10px; border-radius: 50%; background: ${row.color};"></span>
+                  <strong>${row.label}</strong>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 2px;">${row.detail}</div>
+              </div>
+              <button class="btn btn-primary btn-sm btn-gk-move-pick" data-index="${i}">${row.button}</button>
+            </div>
+          `,
+                  )
+                  .join("")
+              : '<p style="font-size: 0.85rem; color: var(--text-dim); text-align: center; padding: 8px 0;">Nenhuma opção disponível.</p>'
+          }
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#gk-move-overlay");
+  modalContainer
+    .querySelector("#gk-move-close")
+    .addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  modalContainer.querySelectorAll(".btn-gk-move-pick").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const result = rows[Number(btn.getAttribute("data-index"))].apply();
+      close();
+      if (result?.success === false) showToast("⚠️ " + result.error);
+      else if (result?.success) showToast("🧤 Goleiros atualizados.");
+      onDone();
+    });
+  });
 }
 
 /** One editable team card (goal/assist counters, departure, guest substitution) for a team currently on the pitch. */
@@ -2467,8 +3034,12 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
     match.scoreA === 0 &&
     match.scoreB === 0;
   const canSubstitute = store.isAdmin && matchNotStarted;
-  const currentMatchTeamA = match ? pelada.teams.find((t) => t.id === match.teamAId) : null;
-  const currentMatchTeamB = match ? pelada.teams.find((t) => t.id === match.teamBId) : null;
+  const currentMatchTeamA = match
+    ? pelada.teams.find((t) => t.id === match.teamAId)
+    : null;
+  const currentMatchTeamB = match
+    ? pelada.teams.find((t) => t.id === match.teamBId)
+    : null;
 
   return `
     <div class="card" style="margin-top: 20px;">
@@ -2630,9 +3201,37 @@ function renderTimelineEntries(pelada) {
           </div>
         `;
       }
+      if (
+        ev.type === "save" ||
+        ev.type === "gk-sides" ||
+        ev.type === "gk-move"
+      ) {
+        const nameOf = (id) => store.getPlayer(id)?.name || "Goleiro";
+        const teamNameOf = (id) =>
+          pelada.teams.find((t) => t.id === id)?.name || "Time";
+        let text;
+        if (ev.type === "save") {
+          text = `🧤 DEFESA de <strong>${escapeHtml(nameOf(ev.playerId))}</strong>`;
+        } else if (ev.type === "gk-sides") {
+          text = "⇄ Goleiros trocaram de lado";
+        } else {
+          text = `🧤 <strong>${escapeHtml(nameOf(ev.playerId))}</strong> → gol do ${escapeHtml(teamNameOf(ev.toTeamId))}${
+            ev.targetPlayerId && ev.fromTeamId
+              ? `, <strong>${escapeHtml(nameOf(ev.targetPlayerId))}</strong> → ${escapeHtml(teamNameOf(ev.fromTeamId))}`
+              : ""
+          }`;
+        }
+        return `
+          <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
+            <span>${text}</span>
+            <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
+          </div>
+        `;
+      }
       if (ev.type === "swap") {
         const nameOf = (id) => store.getPlayer(id)?.name || "Atleta";
-        const teamNameOf = (id) => pelada.teams.find((t) => t.id === id)?.name || "Time";
+        const teamNameOf = (id) =>
+          pelada.teams.find((t) => t.id === id)?.name || "Time";
         return `
           <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
             <span>

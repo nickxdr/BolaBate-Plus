@@ -175,6 +175,9 @@ function serialize(store) {
     winLimitEnabled: store.winLimitEnabled,
     winStreakToRest: store.winStreakToRest,
     swapEnabled: store.swapEnabled,
+    rankingTopZone: store.rankingTopZone,
+    rankingBottomZone: store.rankingBottomZone,
+    goalkeeperMode: store.goalkeeperMode,
     savedAt: new Date().toISOString(),
     savedBy: auth.currentUser ? auth.currentUser.uid : "unknown",
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -196,7 +199,8 @@ function applyRemote(data) {
       store.players = data.players;
     }
     if (data.activePelada && data.activePelada.status) {
-      store.activePelada = data.activePelada;
+      // Snapshots from older app versions lack the goalkeeper fields.
+      store.activePelada = store.normalizeActivePelada(data.activePelada);
     }
     if (Array.isArray(data.history)) {
       store.history = data.history;
@@ -224,6 +228,15 @@ function applyRemote(data) {
     }
     if (typeof data.swapEnabled === "boolean") {
       store.swapEnabled = data.swapEnabled;
+    }
+    if (store.clampRankingZone(data.rankingTopZone) !== null) {
+      store.rankingTopZone = store.clampRankingZone(data.rankingTopZone);
+    }
+    if (store.clampRankingZone(data.rankingBottomZone) !== null) {
+      store.rankingBottomZone = store.clampRankingZone(data.rankingBottomZone);
+    }
+    if (["none", "fixed", "multi"].includes(data.goalkeeperMode)) {
+      store.goalkeeperMode = data.goalkeeperMode;
     }
     // A snapshot from another device can still carry an over-filled team (older data) — trim
     // it here so every client converges on the same, correctly-sized rosters.
@@ -599,6 +612,11 @@ function createEmptyActivePelada() {
     guestSlots: [],
     events: [],
     rotation: null,
+    goalkeeperMode: "none",
+    goalkeeperIds: [],
+    goalkeeperSides: { left: null, right: null },
+    goalkeepersByTeam: {},
+    departedGoalkeeperIds: [],
   };
 }
 
@@ -637,6 +655,9 @@ export async function createPelada(peladaId, name, password) {
     winLimitEnabled: true,
     winStreakToRest: DEFAULT_WIN_STREAK_TO_REST,
     swapEnabled: false,
+    rankingTopZone: 4,
+    rankingBottomZone: 4,
+    goalkeeperMode: "none",
     savedAt: now,
     savedBy: createdBy,
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

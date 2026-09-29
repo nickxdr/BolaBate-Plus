@@ -1,4 +1,4 @@
-import { store, PELADA_ID_KEY, PELADA_NAME_KEY } from "../state/store.js";
+import { store, PELADA_ID_KEY, PELADA_NAME_KEY, MIN_RANKING_ZONE, MAX_RANKING_ZONE } from "../state/store.js";
 import { showToast } from "./rankingView.js";
 import {
   loginAdmin,
@@ -13,6 +13,7 @@ import {
   isRootAdminUid,
 } from "../services/cloudSync.js";
 import { auth } from "../services/firebase.js";
+import { goalkeeperModeLabel, stepperMarkup } from "./matchRulesView.js";
 
 const ROLE_KEY = "bolabate_role_v1";
 
@@ -129,13 +130,45 @@ export function renderSettingsView(navigateTo) {
           : ""
       }
 
+      ${
+        store.isAdmin
+          ? `
+      <!-- Ranking zones: how many leaders get the "G" badge and how many last-placed the "Z" badge -->
+      <div class="card">
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          🏆 Zonas do Ranking
+        </h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+          Quantos jogadores ficam na zona de cima (G4, G5, G6…) e na zona de baixo (Z4, Z5…) da tabela. Use 0 para desligar uma zona.
+        </p>
+
+        <div class="rule-row">
+          <div class="rule-row-info">
+            <div class="rule-row-title">🟢 Zona de cima — <span id="ranking-top-label">G${store.rankingTopZone}</span></div>
+            <div class="rule-row-desc">Os primeiros colocados ganham o selo verde.</div>
+          </div>
+          ${stepperMarkup("ranking-top", store.rankingTopZone, MIN_RANKING_ZONE, MAX_RANKING_ZONE)}
+        </div>
+
+        <div class="rule-row">
+          <div class="rule-row-info">
+            <div class="rule-row-title">🔴 Zona de baixo — <span id="ranking-bottom-label">Z${store.rankingBottomZone}</span></div>
+            <div class="rule-row-desc">Os últimos colocados ganham o selo vermelho.</div>
+          </div>
+          ${stepperMarkup("ranking-bottom", store.rankingBottomZone, MIN_RANKING_ZONE, MAX_RANKING_ZONE)}
+        </div>
+      </div>
+      `
+          : ""
+      }
+
       <!-- Match rules shortcut — the actual controls live in their own tab -->
       <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
           ⚽ Regras da Partida
         </h2>
         <p style="font-size: 0.85rem; color: var(--pitch-green); margin-bottom: 12px;">
-          ✅ Duração, gols para finalizar e rodízio dos times. Atualmente: <strong>${Math.round((store.matchDurationMs || 0) / 60000)} min</strong> por partida e <strong>${store.goalsToFinish} gol(s)</strong> para finalizar.
+          ✅ Duração, gols para finalizar e rodízio dos times. Atualmente: <strong>${Math.round((store.matchDurationMs || 0) / 60000)} min</strong> por partida, <strong>${store.goalsToFinish} gol(s)</strong> para finalizar e <strong>${goalkeeperModeLabel(store.goalkeeperMode).toLowerCase()}</strong>.
         </p>
         <div style="display: flex; flex-direction: column; gap: 12px;">
           <button id="btn-open-match-rules" class="btn btn-secondary">
@@ -258,7 +291,7 @@ export function renderSettingsView(navigateTo) {
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-          📱 BolaBate+ v5.2 (Web & Android APK)
+          📱 BolaBate+ v6.0 (Web & Android APK)
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
@@ -313,6 +346,27 @@ export function renderSettingsView(navigateTo) {
       }
       render();
     }
+    // Ranking zone steppers (admin-only card).
+    [
+      ["ranking-top", "top", "G"],
+      ["ranking-bottom", "bottom", "Z"],
+    ].forEach(([idPrefix, key, letter]) => {
+      const current = () => (key === "top" ? store.rankingTopZone : store.rankingBottomZone);
+      const change = (delta) => {
+        const next = Math.min(MAX_RANKING_ZONE, Math.max(MIN_RANKING_ZONE, current() + delta));
+        if (next === current()) return;
+        const result = store.setRankingZones({ [key]: next });
+        if (result?.success === false) {
+          showToast("❌ " + result.error);
+          return;
+        }
+        showToast(next ? `🏆 Ranking agora usa ${letter}${next}.` : `🏆 Zona ${letter} desligada.`);
+        render();
+      };
+      container.querySelector(`#${idPrefix}-minus`)?.addEventListener("click", () => change(-1));
+      container.querySelector(`#${idPrefix}-plus`)?.addEventListener("click", () => change(1));
+    });
+
     // Team-size buttons only exist in the DOM for admins (the whole card is hidden otherwise).
     container
       .querySelector("#team-size-5-btn")

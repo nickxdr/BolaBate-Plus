@@ -1,5 +1,9 @@
 // Helpers to build and aggregate period (YYYY-MM) statistics from history entries
-export const STAT_FIELDS = ['goals', 'assists', 'selecao', 'puskas', 'craque', 'bagre', 'participacao', 'wins', 'draws', 'losses'];
+export const OUTFIELD_STAT_FIELDS = ['goals', 'assists', 'selecao', 'puskas', 'craque', 'bagre', 'participacao', 'wins', 'draws', 'losses'];
+// Goalkeeper numbers live in their own fields, so a player who has played both roles never gets
+// outfield and goalkeeper results blended together (OVR, ranking and achievements read these).
+export const GK_STAT_FIELDS = ['saves', 'goalsConceded', 'cleanSheets', 'gkParticipacao', 'gkWins', 'gkDraws', 'gkLosses'];
+export const STAT_FIELDS = [...OUTFIELD_STAT_FIELDS, ...GK_STAT_FIELDS];
 
 export function pad(n) {
   return String(n).padStart(2, '0');
@@ -30,7 +34,14 @@ export function parseDateToPeriod(dateValue) {
 }
 
 export function emptyPlayerStats() {
-  return { goals: 0, assists: 0, selecao: 0, puskas: 0, craque: 0, bagre: 0, participacao: 0, wins: 0, draws: 0, losses: 0 };
+  const stats = {};
+  STAT_FIELDS.forEach(field => { stats[field] = 0; });
+  return stats;
+}
+
+/** Adds to a stat that may be missing on periods saved before that field existed. */
+function bump(target, field, amount) {
+  target[field] = (Number(target[field]) || 0) + (Number(amount) || 0);
 }
 
 export function createEmptyPeriod() {
@@ -44,17 +55,88 @@ export function statsHaveActivity(stats) {
 
 export function addPlayerStats(target, source, { includeGuest = false } = {}) {
   const dest = target || emptyPlayerStats();
-  dest.goals += (Number(source.goals) || 0) + (includeGuest ? Number(source.guestGoals) || 0 : 0);
-  dest.assists += (Number(source.assists) || 0) + (includeGuest ? Number(source.guestAssists) || 0 : 0);
-  dest.selecao += Number(source.selecao) || 0;
-  dest.puskas += Number(source.puskas) || 0;
-  dest.craque += Number(source.craque) || 0;
-  dest.bagre += Number(source.bagre) || 0;
-  dest.participacao += Number(source.participacao) || 0;
-  dest.wins += Number(source.wins) || 0;
-  dest.draws += Number(source.draws) || 0;
-  dest.losses += Number(source.losses) || 0;
+  STAT_FIELDS.forEach(field => bump(dest, field, source?.[field]));
+  if (includeGuest) {
+    bump(dest, 'goals', source?.guestGoals);
+    bump(dest, 'assists', source?.guestAssists);
+  }
   return dest;
+}
+
+/**
+ * Per-goalkeeper numbers for one pelada, credited match by match to whoever was in goal for
+ * each team (`match.goalkeepers`, snapshotted at kickoff). Saves come from the pelada's stats;
+ * a clean sheet is a match where the GK's team conceded nothing.
+ */
+export function computeGoalkeeperRecords(matches, stats, goalkeeperIds) {
+  const records = {};
+  const ensure = (id) => {
+    if (!records[id]) {
+      records[id] = { matches: 0, wins: 0, draws: 0, losses: 0, goalsConceded: 0, cleanSheets: 0, saves: 0 };
+    }
+    return records[id];
+  };
+  (goalkeeperIds || []).forEach(id => {
+    ensure(id).saves = Number(stats?.[id]?.saves) || 0;
+  });
+  (matches || []).forEach(match => {
+    const keepers = match.goalkeepers || {};
+    [match.teamAId, match.teamBId].forEach(teamId => {
+      const gkId = teamId && keepers[teamId];
+      if (!gkId) return;
+      const conceded = Number(teamId === match.teamAId ? match.scoreB : match.scoreA) || 0;
+      const record = ensure(gkId);
+      record.matches += 1;
+      record.goalsConceded += conceded;
+      if (conceded === 0) record.cleanSheets += 1;
+      const field = !match.winnerId ? 'draws' : match.winnerId === teamId ? 'wins' : 'losses';
+      record[field] += 1;
+    });
+  });
+  return records;
+}
+
+/** Minimum peladas in goal before a keeper can be "best of the month". */
+export const GOALKEEPER_MIN_PELADAS_FOR_BEST = 2;
+
+/**
+ * One number to rank goalkeepers ("melhor goleiro", Luva de Ouro): saves and clean sheets
+ * count up, wins help, goals conceded count down. Ties are broken by fewer goals conceded.
+ */
+export function goalkeeperScore(stats) {
+  return (Number(stats?.saves) || 0)
+    + (Number(stats?.cleanSheets) || 0) * 3
+    + (Number(stats?.gkWins) || 0) * 2
+    - (Number(stats?.goalsConceded) || 0);
+}
+
+export function compareGoalkeepers(a, b) {
+  return goalkeeperScore(b) - goalkeeperScore(a)
+    || (Number(a?.goalsConceded) || 0) - (Number(b?.goalsConceded) || 0)
+    || (Number(b?.saves) || 0) - (Number(a?.saves) || 0);
+}
+
+/** Goalkeeper figures for a history entry's GK, in the period-stat field names. */
+function goalkeeperPeriodStats(record) {
+  return {
+    gkParticipacao: 1,
+    saves: record?.saves || 0,
+    goalsConceded: record?.goalsConceded || 0,
+    cleanSheets: record?.cleanSheets || 0,
+    gkWins: record?.wins || 0,
+    gkDraws: record?.draws || 0,
+    gkLosses: record?.losses || 0,
+  };
+}
+
+/** Non-diarista goalkeepers of a history entry with their period figures. */
+function eachCountedGoalkeeper(entry, fn) {
+  const diaristas = new Set(entry.diaristaPlayerIds || []);
+  const records = computeGoalkeeperRecords(entry.matches, entry.stats, entry.goalkeeperIds);
+  (entry.goalkeeperIds || []).forEach(gkId => {
+    if (diaristas.has(gkId)) return;
+    fn(gkId, goalkeeperPeriodStats(records[gkId]));
+  });
 }
 
 /**
@@ -125,6 +207,11 @@ export function applyHistoryEntryToPeriod(period, entry) {
     period.players[pid].losses += Number(record.losses) || 0;
   });
 
+  eachCountedGoalkeeper(entry, (gkId, gkStats) => {
+    if (!period.players[gkId]) period.players[gkId] = emptyPlayerStats();
+    GK_STAT_FIELDS.forEach(field => bump(period.players[gkId], field, gkStats[field]));
+  });
+
   const awards = entry.awards || {};
   if (awards.craqueId) {
     if (!period.players[awards.craqueId]) period.players[awards.craqueId] = emptyPlayerStats();
@@ -174,6 +261,14 @@ export function removeHistoryEntryFromPeriod(period, entry) {
     target.wins = Math.max(0, target.wins - (Number(record.wins) || 0));
     target.draws = Math.max(0, target.draws - (Number(record.draws) || 0));
     target.losses = Math.max(0, target.losses - (Number(record.losses) || 0));
+  });
+
+  eachCountedGoalkeeper(entry, (gkId, gkStats) => {
+    const target = period.players[gkId];
+    if (!target) return;
+    GK_STAT_FIELDS.forEach(field => {
+      target[field] = Math.max(0, (Number(target[field]) || 0) - gkStats[field]);
+    });
   });
 
   const awards = entry.awards || {};

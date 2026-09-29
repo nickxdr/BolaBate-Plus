@@ -1,5 +1,5 @@
-import { store } from "../state/store.js";
-import { statsHaveActivity } from "./periodStats.js";
+import { store, isGoalkeeper } from "../state/store.js";
+import { statsHaveActivity, compareGoalkeepers } from "./periodStats.js";
 
 /**
  * BolaBot
@@ -33,6 +33,11 @@ function normalizeText(text) {
 
 function getPlayers() {
   return Array.isArray(store.players) ? store.getActivePlayers() : [];
+}
+
+/** Outfield players only — goalkeepers don't score, so they stay out of rankings and stat leaders. */
+function getRankablePlayers() {
+  return Array.isArray(store.players) ? store.getRankablePlayers() : [];
 }
 
 function getPelada() {
@@ -88,7 +93,7 @@ function getPeriodRankingScore(stats) {
 ========================================================= */
 
 function getBestPlayer() {
-  const players = getPlayers();
+  const players = getRankablePlayers();
 
   if (!players.length) return null;
 
@@ -98,7 +103,7 @@ function getBestPlayer() {
 }
 
 function answerRanking() {
-  const players = getPlayers();
+  const players = getRankablePlayers();
 
   if (!players.length) {
     return "Ainda não tenho jogadores suficientes para analisar o ranking.";
@@ -166,7 +171,7 @@ function formatMonthLabel(periodKey) {
 
 /** Jogadores com atividade num snapshot, ordenados com os mesmos critérios da Tabela da Liga (pontos, gols, craque, assistências). */
 function getRankedPlayersFromSnapshot(snapshot) {
-  return getPlayers()
+  return getRankablePlayers()
     .map((player) => {
       const stats = snapshot?.players?.[player.id];
 
@@ -388,7 +393,7 @@ function resolvePeriodScope(scope, text) {
 
 /** Jogadores com atividade num snapshot, ordenados por uma única estatística (empate vai para o melhor no geral). */
 function getPlayersByStat(snapshot, field) {
-  return getPlayers()
+  return getRankablePlayers()
     .map((player) => {
       const stats = snapshot?.players?.[player.id] || {};
 
@@ -607,7 +612,7 @@ function getPlayersEvolution(currentKey, previousKey) {
 
   if (!currentPeriod) return [];
 
-  return getPlayers().map((player) => {
+  return getRankablePlayers().map((player) => {
     const currentStats =
       currentPeriod.players?.[player.id] || {};
 
@@ -1201,14 +1206,20 @@ ${analysis}${decisiveText}
    COMPARAÇÃO ENTRE JOGADORES
 ========================================================= */
 
+/** Keeps letters/digits only, padded with spaces, so names match as whole words ("Ze" must not match "desse"). */
+function toWordString(text) {
+  return ` ${String(text).replace(/[^a-z0-9]+/g, " ").trim()} `;
+}
+
 function findPlayersInQuestion(text) {
   const players = getPlayers();
+  const words = toWordString(text);
 
   return players
     .filter((player) => {
-      const name = normalizeText(player.name);
+      const name = toWordString(normalizeText(player.name));
 
-      return name && text.includes(name);
+      return name.trim() && words.includes(name);
     })
     .sort(
       (a, b) =>
@@ -1348,7 +1359,130 @@ Posso analisar os dados da BolaBate+ e também interpretar o que está acontecen
 • Quem deu mais assistências no ano? / no mês?
 • Quem foi o pior do ano? / do mês?
 
+🧤 **Goleiros**
+• Qual o melhor goleiro? / desse mês?
+• Quem mais defendeu no mês?
+• Como está o desempenho do (nome do goleiro)?
+
 Também continuo respondendo perguntas sobre ranking, gols e assistências. 🤖`;
+}
+
+/* =========================================================
+   GOLEIROS
+========================================================= */
+
+const GOALKEEPER_WORDS = ["goleiro", "goleiros", "defendeu", "defesa", "defesas", "paredao", "luva de ouro"];
+
+function mentionsGoalkeeperTopic(text) {
+  return GOALKEEPER_WORDS.some((word) => text.includes(word));
+}
+
+/** Goleiros com jogos no período, do melhor para o pior (defesas, jogos sem sofrer gol, vitórias, gols sofridos). */
+function getRankedGoalkeepers(snapshot) {
+  return store
+    .getActiveGoalkeepers()
+    .map((player) => ({ player, stats: snapshot?.players?.[player.id] || {} }))
+    .filter((entry) => (Number(entry.stats.gkParticipacao) || 0) > 0)
+    .sort((a, b) => compareGoalkeepers(a.stats, b.stats));
+}
+
+function goalkeeperLines(stats) {
+  const wins = Number(stats.gkWins) || 0;
+  const draws = Number(stats.gkDraws) || 0;
+  const losses = Number(stats.gkLosses) || 0;
+  return `🧤 Defesas: ${stats.saves || 0}
+🥅 Gols sofridos: ${stats.goalsConceded || 0}
+🧱 Jogos sem sofrer gol: ${stats.cleanSheets || 0}
+🏆 No gol: ${wins}V ${draws}E ${losses}D
+🙋 Peladas no gol: ${stats.gkParticipacao || 0}`;
+}
+
+function answerBestGoalkeeper(text) {
+  const scope = detectPeriodScope(text);
+  const { snapshot, label } = resolvePeriodScope(scope, text);
+  const period = label ? `de **${label}**` : "de todos os tempos";
+  const ranked = getRankedGoalkeepers(snapshot);
+  const best = ranked[0];
+
+  if (!best) {
+    return `🧤 Ainda não tenho goleiros com jogos registrados ${label ? `em ${label}` : "até agora"}.`;
+  }
+
+  const tied = ranked.filter((entry) => compareGoalkeepers(entry.stats, best.stats) === 0);
+  if (tied.length === 1) {
+    return `🧤 O melhor goleiro ${period} é **${best.player.name}**.
+
+${goalkeeperLines(best.stats)}`;
+  }
+
+  return `🧤 Os melhores goleiros ${period} são ${formatTiedNames(tied)}, empatados. 🤝
+
+${tied.map((entry) => `• **${entry.player.name}** — 🧤 ${entry.stats.saves || 0} | 🥅 ${entry.stats.goalsConceded || 0} | 🧱 ${entry.stats.cleanSheets || 0}`).join("\n")}`;
+}
+
+function answerMostSaves(text) {
+  const scope = detectPeriodScope(text);
+  const { snapshot, label } = resolvePeriodScope(scope, text);
+  const ranked = getRankedGoalkeepers(snapshot)
+    .sort((a, b) => (Number(b.stats.saves) || 0) - (Number(a.stats.saves) || 0));
+  const best = ranked[0];
+  if (!best || !(Number(best.stats.saves) > 0)) {
+    return `🧤 Ainda não há defesas registradas ${label ? `em ${label}` : "até agora"}.`;
+  }
+  const top = Number(best.stats.saves);
+  const tied = ranked.filter((entry) => Number(entry.stats.saves) === top);
+  return `🧤 ${pluralize(tied.length, "Quem mais defendeu", "Quem mais defenderam")} ${label ? `em **${label}**` : "até hoje"}: ${formatTiedNames(tied)}, com **${top}** defesa${top === 1 ? "" : "s"}.`;
+}
+
+/** Desempenho de um goleiro: pelada de hoje (se estiver jogando), o mês em contexto e a carreira. */
+function answerGoalkeeperPerformance(player) {
+  const key = getContextPeriodKey();
+  const [year, month] = String(key).split("-").map(Number);
+  const monthStats = store.getPeriodSnapshot(year, month).players?.[player.id] || {};
+
+  const pelada = store.activePelada;
+  let today = "";
+  if (pelada?.status === "live" && (pelada.goalkeeperIds || []).includes(player.id)) {
+    const live = store.getLiveGoalkeeperRecords()[player.id] || {};
+    today = `\n\n**Hoje:** 🧤 ${Number(pelada.stats[player.id]?.saves) || 0} defesa(s) | 🥅 ${live.goalsConceded || 0} sofrido(s)`;
+  }
+
+  return `🧤 **${player.name}** (goleiro)${today}
+
+**${formatMonthLabel(key)}:**
+${goalkeeperLines(monthStats)}
+
+**Carreira:**
+${goalkeeperLines(player)}`;
+}
+
+function compareGoalkeepersAnswer(a, b) {
+  const order = compareGoalkeepers(a, b);
+  const winner = order < 0 ? a : order > 0 ? b : null;
+  return `🧤 **${a.name}** × **${b.name}** (carreira no gol)
+
+• **${a.name}** — 🧤 ${a.saves || 0} | 🥅 ${a.goalsConceded || 0} | 🧱 ${a.cleanSheets || 0} | 🏆 ${a.gkWins || 0}
+• **${b.name}** — 🧤 ${b.saves || 0} | 🥅 ${b.goalsConceded || 0} | 🧱 ${b.cleanSheets || 0} | 🏆 ${b.gkWins || 0}
+
+${winner ? `👉 **${winner.name}** leva vantagem.` : "🤝 Estão empatados."}`;
+}
+
+/** Returns an answer when the question is about goalkeepers (or names a goalkeeper), otherwise null. */
+function answerGoalkeeperQuestion(text, mentionedPlayers) {
+  const keepers = mentionedPlayers.filter(isGoalkeeper);
+
+  if (keepers.length >= 2 && isComparisonQuestion(text)) {
+    return compareGoalkeepersAnswer(keepers[0], keepers[1]);
+  }
+  if (keepers.length >= 1 && mentionedPlayers.length === keepers.length) {
+    return answerGoalkeeperPerformance(keepers[0]);
+  }
+  if (!mentionsGoalkeeperTopic(text) || mentionedPlayers.length) return null;
+
+  if (text.includes("mais defe") || text.includes("mais defendeu")) {
+    return answerMostSaves(text);
+  }
+  return answerBestGoalkeeper(text);
 }
 
 /* =========================================================
@@ -1452,6 +1586,11 @@ export function askBolaBot(question) {
 
   const mentionedPlayers =
     findPlayersInQuestion(text);
+
+  /* GOLEIROS — antes de tudo, pra "melhor goleiro desse mês" não cair no melhor jogador do mês */
+
+  const goalkeeperAnswer = answerGoalkeeperQuestion(text, mentionedPlayers);
+  if (goalkeeperAnswer) return goalkeeperAnswer;
 
   /* COMPARAÇÃO */
 
@@ -1763,6 +1902,7 @@ Você pode tentar:
 • "Quem fez mais gols no ano? / no mês?"
 • "Quem deu mais assistências no ano? / no mês?"
 • "Quem foi o pior do ano? / do mês?"
+• "Qual o melhor goleiro desse mês?"
 
 Também posso responder perguntas sobre ranking, gols e assistências. 🤖`;
 }

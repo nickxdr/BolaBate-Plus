@@ -54,6 +54,32 @@ function toFormStats(raw) {
   };
 }
 
+/** Goalkeeper per-match form: saves and clean sheets up, goals conceded down, plus win rate. */
+function goalkeeperFormIndex(stats) {
+  if (!stats.games) return 0;
+  const savesPerMatch = stats.saves / stats.games;
+  const concededPerMatch = stats.goalsConceded / stats.games;
+  const cleanSheetRate = stats.cleanSheets / stats.games;
+  const decisive = stats.wins + stats.losses;
+  const winRate = decisive ? stats.wins / decisive : 0.5;
+  return savesPerMatch * 1.5 + cleanSheetRate * 6 + winRate * 4 - concededPerMatch * 1.5;
+}
+
+/** `games` = matches played in goal (each pelada has several), so per-match rates are fair. */
+function toGoalkeeperFormStats(raw) {
+  const wins = Number(raw?.gkWins) || 0;
+  const draws = Number(raw?.gkDraws) || 0;
+  const losses = Number(raw?.gkLosses) || 0;
+  return {
+    games: wins + draws + losses,
+    saves: Number(raw?.saves) || 0,
+    goalsConceded: Number(raw?.goalsConceded) || 0,
+    cleanSheets: Number(raw?.cleanSheets) || 0,
+    wins,
+    losses,
+  };
+}
+
 function median(arr) {
   if (!arr.length) return 0;
   const s = arr.slice().sort((a, b) => a - b);
@@ -85,11 +111,11 @@ function quantile(arr, q) {
  * extreme relative to the pack to also read as a solid, respectable rating. Below the pivot the
  * swing stays small and linear — a quiet month shouldn't crater a player's rating.
  */
-function computeOVRs(players, statsById) {
+function computeOVRs(players, statsById, form = formIndex) {
   const forms = players
     .map(p => statsById[p.id])
     .filter(s => s && s.games > 0)
-    .map(formIndex);
+    .map(form);
 
   const pivot = quantile(forms, 0.25);
   const robustStd = median(forms.map(f => Math.abs(f - median(forms)))) * 1.4826;
@@ -102,7 +128,7 @@ function computeOVRs(players, statsById) {
       map[p.id] = Math.round(clamp(base, OVR_MIN, OVR_MAX));
       return;
     }
-    const z = (formIndex(stats) - pivot) / robustStd;
+    const z = (form(stats) - pivot) / robustStd;
     const swing = z >= 0 ? clamp(9.9 * Math.sqrt(z), 0, 28) : clamp(z * 4, -12, 0);
     map[p.id] = Math.round(clamp(base + swing, OVR_MIN, OVR_MAX));
   });
@@ -144,10 +170,20 @@ export function computeCumulativeOVRsAsOf(store, year, month, isAnnual) {
     });
   }
 
-  const players = store.getActivePlayers();
-  const statsById = {};
-  players.forEach(p => { statsById[p.id] = toFormStats(raw[p.id]); });
-  return computeOVRs(players, statsById);
+  // Outfield players and goalkeepers are graded in separate pools: goalkeepers barely score, so
+  // mixing them in would drag the league baseline down and inflate every outfield OVR.
+  const outfield = store.getRankablePlayers();
+  const outfieldStats = {};
+  outfield.forEach(p => { outfieldStats[p.id] = toFormStats(raw[p.id]); });
+
+  const keepers = store.getActiveGoalkeepers();
+  const keeperStats = {};
+  keepers.forEach(p => { keeperStats[p.id] = toGoalkeeperFormStats(raw[p.id]); });
+
+  return {
+    ...computeOVRs(outfield, outfieldStats),
+    ...computeOVRs(keepers, keeperStats, goalkeeperFormIndex),
+  };
 }
 
 /** The player's OVR right now — used in the profile modal and the live pitch view. */

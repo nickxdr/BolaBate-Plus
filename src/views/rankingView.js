@@ -39,7 +39,8 @@ export function renderRankingView() {
 
   // Calculate sorted rankings from period snapshot (fallback to zeros)
   const periodOvrMap = computeCumulativeOVRsAsOf(store, Number(selYear), Number(selMonth) || 1, isAnnual);
-  const rankedPlayers = store.getActivePlayers()
+  // Goalkeepers don't score, so they stay out of the points table (and its G4/Z4 cut-offs).
+  const rankedPlayers = store.getRankablePlayers()
     .map((p) => {
       const stats =
         (snapshot && snapshot.players && snapshot.players[p.id]) ||
@@ -109,9 +110,12 @@ export function renderRankingView() {
   applySort();
 
   const totalPlayers = rankedPlayers.length;
-  // G4 is first 4, Z4 is bottom 4 (or less if few players)
-  const g4Limit = 4;
-  const z4StartIndex = Math.max(4, totalPlayers - 4);
+  // Top ("G") and bottom ("Z") zones are set by the admin in Ajustes; the bottom zone
+  // never overlaps the top one when there are few players.
+  const topZone = store.rankingTopZone;
+  const bottomZone = store.rankingBottomZone;
+  const g4Limit = Math.min(topZone, totalPlayers);
+  const z4StartIndex = bottomZone ? Math.max(g4Limit, totalPlayers - bottomZone) : totalPlayers;
 
   container.innerHTML = `
     <div class="ranking-header">
@@ -219,8 +223,8 @@ export function renderRankingView() {
         <td class="player-name-cell">
           <span style="font-weight: 700;">${escapeHtml(player.name)}</span>
           <span class="star-badge" style="font-size: 0.72rem; padding: 1px 6px; margin-left: 6px;">${player.stars.toFixed(1)}★</span>
-          ${isG4 ? '<span style="font-size: 0.68rem; background: var(--g4-bg); color: var(--g4-text); padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 800;">G4</span>' : ""}
-          ${isZ4 ? '<span style="font-size: 0.68rem; background: var(--z4-bg); color: var(--z4-text); padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 800;">Z4</span>' : ""}
+          ${isG4 ? `<span style="font-size: 0.68rem; background: var(--g4-bg); color: var(--g4-text); padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 800;">G${topZone}</span>` : ""}
+          ${isZ4 ? `<span style="font-size: 0.68rem; background: var(--z4-bg); color: var(--z4-text); padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 800;">Z${bottomZone}</span>` : ""}
         </td>
         <td><span class="star-badge" style="font-size: 0.72rem; padding: 1px 6px;">${player.ovr}</span></td>
         <td class="points-cell" style="font-size: 1.1rem; font-weight: 900;">${player.totalPoints}</td>
@@ -314,9 +318,11 @@ function shareRankingWhatsApp(rankedPlayers, periodLabel = "") {
     rankedPlayers.forEach((p, i) => {
       const pos = i + 1;
       let badge = "";
+      const topZone = store.rankingTopZone;
+      const bottomZone = store.rankingBottomZone;
       if (pos === 1) badge = "👑";
-      else if (pos <= 4) badge = "🟢 G4";
-      else if (pos > rankedPlayers.length - 4) badge = "🔴 Z4";
+      else if (pos <= topZone) badge = `🟢 G${topZone}`;
+      else if (bottomZone && pos > Math.max(topZone, rankedPlayers.length - bottomZone)) badge = `🔴 Z${bottomZone}`;
 
       text += `${pos}º ${p.name} - ${p.totalPoints} pts (⚽ ${p.goals} | 👟 ${p.assists} | ⭐ ${p.craque} | 🐟 ${p.bagre}) ${badge}\n`;
     });

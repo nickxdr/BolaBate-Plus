@@ -808,6 +808,13 @@ body {
   flex-shrink: 0;
 }
 
+/* Goalkeeper on the pitch: dashed ring + cyan glow, standing on the goal line */
+.mini-pitch-chip.gk {
+  border-style: dashed;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.45);
+  font-size: 0.9rem;
+}
+
 .ovr-badge {
   display: flex;
   flex-direction: column;
@@ -1376,6 +1383,71 @@ body {
 
 .format-option-card.active {
   border-color: var(--pitch-green);
+}
+
+/* Regras da Partida: goalkeeper mode picker */
+.gk-mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gk-mode-option {
+  margin-bottom: 0;
+  padding: 12px 10px;
+  text-align: center;
+}
+
+.gk-mode-icon {
+  font-size: 1.4rem;
+  margin-bottom: 4px;
+}
+
+.gk-mode-option strong {
+  display: block;
+  font-size: 0.88rem;
+}
+
+.gk-mode-desc {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 600px) {
+  .gk-mode-options {
+    grid-template-columns: 1fr;
+  }
+
+  .gk-mode-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: 10px;
+    text-align: left;
+  }
+
+  .gk-mode-icon {
+    grid-row: span 2;
+    margin: 0;
+  }
+}
+
+/* Goalkeeper marker (🧤), same shape as the diarista badge */
+.gk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.55);
+  color: #22D3EE;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 .format-option-card:active {
@@ -5538,4 +5610,220 @@ body {
   color: var(--text-dim);
   font-size: 0.8rem;
   text-align: center;
+}
+/* ============================================================
+   GOLEIROS — balanceamento e pelada ao vivo
+   ============================================================ */
+
+.setup-gk-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.06);
+}
+
+.setup-gk-card.pending {
+  border-color: var(--accent-gold);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.setup-gk-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+
+.setup-gk-card-info span {
+  color: var(--text-muted);
+}
+
+.setup-gk-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.setup-gk-slot-label {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #22D3EE;
+}
+
+.setup-gk-slot .setup-gk-select {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.gk-widget {
+  margin-top: 16px;
+}
+
+.gk-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.gk-widget-header h3 {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.gk-widget-note {
+  margin: -4px 0 10px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.gk-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-top: 4px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card-subtle);
+}
+
+.gk-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gk-card-team {
+  font-size: 0.8rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.gk-card-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gk-card-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border: 2px dashed rgba(34, 211, 238, 0.7);
+  border-radius: 50%;
+  overflow: hidden;
+  font-size: 1.2rem;
+}
+
+.gk-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gk-card-name {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.gk-card-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gk-card-conceded {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+/* Saves counter: same big, full-width buttons as the live goal/assist counters. */
+.gk-card-controls {
+  display: flex;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.gk-card-controls .stat-counter {
+  flex: 1;
+  align-items: stretch;
+  gap: 6px;
+  padding: 5px;
+}
+
+.gk-card-controls .stat-btn {
+  flex: 1;
+  height: auto;
+  min-height: 40px;
+  border-radius: 10px;
+  font-size: 1.3rem;
+}
+
+.gk-card-controls .stat-counter span.count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  font-size: 1.25rem;
+}
+
+.gk-card-readonly {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.gk-card-empty {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.gk-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gk-card-actions-inline {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.gk-card-actions-inline .btn {
+  padding: 3px 6px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .gk-widget-grid {
+    grid-template-columns: 1fr;
+  }
 }

@@ -11,6 +11,16 @@ import { showToast } from "./rankingView.js";
 
 const DEFAULT_MINUTES = 10;
 
+const GK_MODE_OPTIONS = [
+  { value: "none", icon: "🚫", label: "Sem goleiros", desc: "Como hoje: só jogadores de linha." },
+  { value: "fixed", icon: "🥅", label: "Goleiros fixos", desc: "2 goleiros, um em cada gol, a pelada toda." },
+  { value: "multi", icon: "🧤", label: "Goleiros múltiplos", desc: "Cada time tem o seu goleiro, definido no balanceamento." },
+];
+
+export function goalkeeperModeLabel(mode) {
+  return GK_MODE_OPTIONS.find((opt) => opt.value === mode)?.label || "Sem goleiros";
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -25,7 +35,7 @@ function toMinutes(ms) {
 }
 
 /** Shared markup for the compact − value + controls used by the numeric rules. */
-function stepperMarkup(idPrefix, value, min, max) {
+export function stepperMarkup(idPrefix, value, min, max) {
   return `
     <div class="rule-stepper">
       <button type="button" class="rule-step-btn" id="${idPrefix}-minus" aria-label="Diminuir" ${value <= min ? "disabled" : ""}>−</button>
@@ -48,6 +58,7 @@ export function renderMatchRulesView(navigateTo) {
   function render() {
     const canEdit = store.isAdmin;
     const currentMinutes = toMinutes(store.matchDurationMs);
+    const canChangeGoalkeeperMode = store.activePelada.status === "idle";
 
     container.innerHTML = `
       <button id="btn-rules-back" class="btn btn-secondary btn-sm" style="margin-bottom: 14px;">
@@ -176,6 +187,28 @@ export function renderMatchRulesView(navigateTo) {
           </button>
         </div>
       </div>
+
+      <!-- Goalkeepers -->
+      <div class="card">
+        <h2 class="rule-section-title">🧤 Goleiros</h2>
+        <p class="rule-section-desc">
+          Escolha se a pelada usa goleiros. Goleiros são jogadores cadastrados com a posição “Goleiro”: não entram no ranking, mas têm defesas, gols sofridos e conquistas próprias.
+        </p>
+        <div class="gk-mode-options">
+          ${GK_MODE_OPTIONS.map((opt) => `
+            <div class="card format-option-card gk-mode-option ${store.goalkeeperMode === opt.value ? "active" : ""} ${canChangeGoalkeeperMode ? "" : "disabled"}" data-gk-mode="${opt.value}" role="button" tabindex="0">
+              <div class="gk-mode-icon">${opt.icon}</div>
+              <strong>${opt.label}</strong>
+              <div class="gk-mode-desc">${opt.desc}</div>
+            </div>
+          `).join("")}
+        </div>
+        ${
+          canChangeGoalkeeperMode
+            ? ""
+            : `<p class="rule-footnote" style="color: var(--accent-gold);">⚠️ Termine ou cancele a pelada atual para trocar o modo de goleiros.</p>`
+        }
+      </div>
       `
           : `
       <div class="card">
@@ -186,6 +219,7 @@ export function renderMatchRulesView(navigateTo) {
           <div class="rules-summary-row"><span>🔥 Limite de vitórias</span><strong>${store.winLimitEnabled ? `Após ${store.winStreakToRest} vitória(s)` : "Até perder"}</strong></div>
           <div class="rules-summary-row"><span>🔥 Vitórias seguidas para descansar</span><strong>${store.winStreakToRest}</strong></div>
           <div class="rules-summary-row"><span>🔄 Troca de jogadores</span><strong>${store.swapEnabled ? "Ativada" : "Desativada"}</strong></div>
+          <div class="rules-summary-row"><span>🧤 Goleiros</span><strong>${goalkeeperModeLabel(store.goalkeeperMode)}</strong></div>
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 14px; text-align: center;">
           🔒 Apenas o administrador pode alterar as regras da partida.
@@ -335,6 +369,26 @@ export function renderMatchRulesView(navigateTo) {
           ? `🔥 Limite de vitórias ativado: o vencedor descansa após ${store.winStreakToRest} vitória(s).`
           : "🔥 Time vencedor continua em campo até ser derrotado.",
       );
+    });
+
+    // --- Goalkeeper mode ----------------------------------------------------
+    container.querySelectorAll("[data-gk-mode]").forEach((card) => {
+      const choose = () => {
+        const mode = card.getAttribute("data-gk-mode");
+        if (mode === store.goalkeeperMode) return;
+        if (!canChangeGoalkeeperMode) {
+          showToast("⚠️ Termine ou cancele a pelada atual para trocar o modo de goleiros.");
+          return;
+        }
+        commit(store.setGoalkeeperMode(mode), `🧤 Goleiros: ${goalkeeperModeLabel(mode)}.`);
+      };
+      card.addEventListener("click", choose);
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          choose();
+        }
+      });
     });
 
     // --- Swap toggle --------------------------------------------------------

@@ -1,4 +1,35 @@
-import { store } from "../state/store.js";
+import { store, isGoalkeeper } from "../state/store.js";
+import {
+  compareGoalkeepers,
+  GOALKEEPER_MIN_PELADAS_FOR_BEST,
+} from "./periodStats.js";
+
+/** Most saves a goalkeeper made in a single pelada where their stats counted (not as diarista). */
+function getBestSinglePeladaSaves(playerId) {
+  let best = 0;
+  (store.history || []).forEach((entry) => {
+    if (!(entry.goalkeeperIds || []).includes(playerId)) return;
+    if ((entry.diaristaPlayerIds || []).includes(playerId)) return;
+    const saves = Number(entry.stats?.[playerId]?.saves) || 0;
+    if (saves > best) best = saves;
+  });
+  return best;
+}
+
+/** Months in which this keeper was the best goalkeeper (min. peladas in goal that month). */
+function getGoldenGloveCount(playerId) {
+  let count = 0;
+  Object.values(store.monthlyStats || {}).forEach((period) => {
+    const eligible = Object.entries(period?.players || {})
+      .filter(([, stats]) => (Number(stats.gkParticipacao) || 0) >= GOALKEEPER_MIN_PELADAS_FOR_BEST);
+    if (!eligible.length) return;
+    eligible.sort(([, a], [, b]) => compareGoalkeepers(a, b));
+    const best = eligible[0][1];
+    const winners = eligible.filter(([, stats]) => compareGoalkeepers(stats, best) === 0);
+    if (winners.some(([pid]) => pid === playerId)) count += 1;
+  });
+  return count;
+}
 
 /** Highest number of goals a player has scored in a single pelada. */
 function getBestSingleMatchGoals(playerId) {
@@ -136,6 +167,97 @@ export const ACHIEVEMENTS = [
     target: 1000,
     getProgress: (player) => player.goals,
   },
+
+  // --- Goalkeepers (scope: "gk" — shown only to players registered as "Goleiro") ---
+  {
+    id: "gk-first-save",
+    scope: "gk",
+    name: "Primeira Defesa",
+    icon: "🧤",
+    description: "Faça sua primeira defesa",
+    target: 1,
+    getProgress: (player) => player.saves,
+  },
+
+  {
+    id: "gk-paredao",
+    scope: "gk",
+    name: "Paredão",
+    icon: "🧱",
+    description: "Faça 10 defesas em uma mesma pelada",
+    target: 10,
+    getProgress: (player, playerId) => getBestSinglePeladaSaves(playerId),
+  },
+
+  {
+    id: "gk-muralha",
+    scope: "gk",
+    name: "Muralha",
+    icon: "🏰",
+    description: "Faça 100 defesas",
+    target: 100,
+    getProgress: (player) => player.saves,
+  },
+
+  {
+    id: "gk-first-clean-sheet",
+    scope: "gk",
+    name: "Fechou o Gol",
+    icon: "🔒",
+    description: "Termine uma partida sem sofrer gol",
+    target: 1,
+    getProgress: (player) => player.cleanSheets,
+  },
+
+  {
+    id: "gk-invicto",
+    scope: "gk",
+    name: "Invicto",
+    icon: "🛡️",
+    description: "Termine 10 partidas sem sofrer gol",
+    target: 10,
+    getProgress: (player) => player.cleanSheets,
+  },
+
+  {
+    id: "gk-winner",
+    scope: "gk",
+    name: "Goleiro Vencedor",
+    icon: "🏆",
+    description: "Vença 25 partidas no gol",
+    target: 25,
+    getProgress: (player) => player.gkWins,
+  },
+
+  {
+    id: "gk-experienced",
+    scope: "gk",
+    name: "Luvas Experientes",
+    icon: "🥅",
+    description: "Jogue 10 peladas no gol",
+    target: 10,
+    getProgress: (player) => player.gkParticipacao,
+  },
+
+  {
+    id: "gk-legend",
+    scope: "gk",
+    name: "Lenda do Gol",
+    icon: "👑",
+    description: "Jogue 50 peladas no gol",
+    target: 50,
+    getProgress: (player) => player.gkParticipacao,
+  },
+
+  {
+    id: "gk-golden-glove",
+    scope: "gk",
+    name: "Luva de Ouro",
+    icon: "🥇",
+    description: `Seja o melhor goleiro de um mês (mínimo de ${GOALKEEPER_MIN_PELADAS_FOR_BEST} peladas no gol)`,
+    target: 1,
+    getProgress: (player, playerId) => getGoldenGloveCount(playerId),
+  },
 ];
 
 export function getPlayerAchievements(playerId) {
@@ -143,7 +265,10 @@ export function getPlayerAchievements(playerId) {
 
   if (!player) return [];
 
-  return ACHIEVEMENTS.map((achievement) => {
+  // Goalkeepers see only goalkeeper achievements; everyone else only the outfield ones.
+  const scope = isGoalkeeper(player) ? "gk" : "outfield";
+
+  return ACHIEVEMENTS.filter((achievement) => (achievement.scope || "outfield") === scope).map((achievement) => {
     const progress = Number(achievement.getProgress(player, playerId)) || 0;
 
     return {

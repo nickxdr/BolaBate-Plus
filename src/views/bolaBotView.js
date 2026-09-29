@@ -260,6 +260,13 @@ export function renderBolaBotView() {
 
         <button
           class="bolabot-suggestion"
+          data-question="Qual o melhor goleiro do mês?"
+        >
+          🧤 Goleiro do mês
+        </button>
+
+        <button
+          class="bolabot-suggestion"
           data-question="Quem fez mais gols no ano?"
         >
           ⚽ Gols do ano

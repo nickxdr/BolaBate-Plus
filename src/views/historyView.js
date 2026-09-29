@@ -1,5 +1,6 @@
 import { store } from '../state/store.js';
 import { showToast } from './rankingView.js';
+import { computeGoalkeeperRecords } from '../services/periodStats.js';
 
 export function renderHistoryView() {
   const container = document.createElement('div');
@@ -77,7 +78,7 @@ export function renderHistoryView() {
       <div class="history-card-body"${isExpanded ? '' : ' hidden'}>
         ${store.isAdmin ? `
         <div class="history-stats-edit-bar">
-          <button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ Editar gols e assistências</button>
+          <button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ ${(entry.goalkeeperIds || []).length ? 'Editar estatísticas' : 'Editar gols e assistências'}</button>
         </div>
         ` : ''}
         <div class="history-teams-grid">
@@ -355,13 +356,40 @@ function openEditHistoryStatsModal(entry) {
     `;
   }).join('');
 
+  // Goalkeepers: only saves are editable — goals conceded come from the match scores.
+  const keeperRecords = computeGoalkeeperRecords(entry.matches, entry.stats, entry.goalkeeperIds);
+  const keeperRows = (entry.goalkeeperIds || []).map(pid => {
+    const player = store.getPlayer(pid);
+    if (!player) return '';
+    const saves = Number(entry.stats?.[pid]?.saves) || 0;
+    draft[pid] = { saves };
+    return `
+      <div class="history-stats-edit-row">
+        <span class="history-stats-edit-name">
+          🧤 ${escapeHtml(player.name)}
+          ${diaristas.has(pid) ? '<span class="diarista-badge" title="Diarista — não conta nas estatísticas">💰</span>' : ''}
+        </span>
+        <span class="history-stats-edit-field" title="Gols sofridos (calculado pelos placares)">🥅 ${keeperRecords[pid]?.goalsConceded || 0}</span>
+        <span class="history-stats-edit-field"><span class="history-stats-edit-icon">🧤</span>${stepper(pid, 'saves', saves)}</span>
+      </div>
+    `;
+  }).join('');
+  const keepersHtml = keeperRows
+    ? `
+      <section class="history-stats-edit-team" style="--team-color: #22D3EE">
+        <h4><span class="history-team-dot"></span>Goleiros — defesas</h4>
+        ${keeperRows}
+      </section>
+    `
+    : '';
+
   const original = JSON.parse(JSON.stringify(draft));
 
   modalContainer.innerHTML = `
     <div class="modal-overlay" id="edit-history-stats-overlay">
       <div class="modal-content" style="max-width: 560px;">
         <div class="modal-header">
-          <h2 class="modal-title">✏️ Gols e assistências — ${escapeHtml(entry.date || '')}</h2>
+          <h2 class="modal-title">✏️ ${keeperRows ? 'Estatísticas' : 'Gols e assistências'} — ${escapeHtml(entry.date || '')}</h2>
           <button class="modal-close" id="edit-history-stats-close" title="Fechar">✕</button>
         </div>
 
@@ -370,7 +398,7 @@ function openEditHistoryStatsModal(entry) {
           Diaristas (💰) ficam registrados na pelada, mas não contam no ranking.
         </p>
 
-        <div class="history-stats-edit-list">${teamsHtml}</div>
+        <div class="history-stats-edit-list">${teamsHtml}${keepersHtml}</div>
 
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
           <button id="edit-history-stats-cancel" class="btn btn-secondary">Cancelar</button>
@@ -390,7 +418,7 @@ function openEditHistoryStatsModal(entry) {
   });
 
   const changedPlayers = () => Object.keys(draft).filter(pid =>
-    draft[pid].goals !== original[pid].goals || draft[pid].assists !== original[pid].assists
+    Object.keys(draft[pid]).some(field => draft[pid][field] !== original[pid][field])
   );
 
   modalContainer.querySelector('.history-stats-edit-list').addEventListener('click', (e) => {
@@ -412,7 +440,7 @@ function openEditHistoryStatsModal(entry) {
     const result = store.updateHistoryPlayerStats(entry.id, updates);
     close();
     if (result?.success) {
-      showToast('Gols e assistências atualizados! Ranking recalculado.');
+      showToast('Estatísticas atualizadas! Ranking recalculado.');
     } else if (result?.error) {
       showToast(result.error);
     }
@@ -541,7 +569,42 @@ function renderTeamsSection(entry) {
         </div>
       </section>
     `;
+  }).join('') + renderGoalkeepersSection(entry);
+}
+
+/** The pelada's goalkeepers with their saves, goals conceded and results (from the match log). */
+function renderGoalkeepersSection(entry) {
+  const keeperIds = entry.goalkeeperIds || [];
+  if (!keeperIds.length) return '';
+  const diaristas = new Set(entry.diaristaPlayerIds || []);
+  const records = computeGoalkeeperRecords(entry.matches, entry.stats, keeperIds);
+
+  const rows = keeperIds.map(pid => {
+    const player = store.getPlayer(pid);
+    if (!player) return '';
+    const r = records[pid] || {};
+    const isDiarista = diaristas.has(pid);
+    return `
+      <div class="history-player-row${r.saves ? ' active' : ''}${isDiarista ? ' diarista' : ''}">
+        <span class="history-player-name">🧤 ${escapeHtml(player.name)}${isDiarista ? ' <span class="diarista-badge">💰 <span class="diarista-badge-label">Diarista</span></span>' : ''}</span>
+        <span class="history-player-stats">
+          <span class="history-player-stat goals" title="Defesas">🧤 ${r.saves || 0}</span>
+          <span class="history-player-stat assists" title="Gols sofridos">🥅 ${r.goalsConceded || 0}</span>
+          <span class="history-player-stat" title="Vitórias / empates / derrotas no gol">${r.wins || 0}V ${r.draws || 0}E ${r.losses || 0}D</span>
+        </span>
+      </div>
+    `;
   }).join('');
+
+  return `
+    <section class="history-team-card" style="--team-color: #22D3EE">
+      <header class="history-team-header">
+        <span class="history-team-dot"></span>
+        <h4>Goleiros</h4>
+      </header>
+      <div class="history-team-players">${rows}</div>
+    </section>
+  `;
 }
 
 function getMatchTotals(entry) {

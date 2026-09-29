@@ -9,7 +9,9 @@ import {
   emptyPlayerStats,
   createEmptyPeriod,
   computePlayerRecordsFromMatches,
+  computeGoalkeeperRecords,
   STAT_FIELDS,
+  GK_STAT_FIELDS,
 } from '../services/periodStats.js';
 
 import { initCloudSync, scheduleCloudPush, pushAvatarConfig, initAvatarSync } from '../services/cloudSync.js';
@@ -45,7 +47,9 @@ const ADMIN_ONLY_METHODS = [
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion',
   'setTeamSize', 'setMatchDuration', 'setGoalsToFinish', 'setGoalLimitEnabled', 'setWinLimitEnabled', 'setWinStreakToRest',
-  'setSwapEnabled', 'swapPlayers',
+  'setSwapEnabled', 'swapPlayers', 'setRankingZones',
+  'setGoalkeeperMode', 'assignGoalkeeperToTeam', 'swapGoalkeeperSides', 'moveGoalkeeper',
+  'markGoalkeeperDeparted', 'revertGoalkeeperDeparture', 'recordSave', 'removeSave',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
   'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
@@ -65,11 +69,62 @@ const DEFAULT_GOAL_LIMIT_ENABLED = true; // goal target can end a match before t
 const DEFAULT_WIN_LIMIT_ENABLED = true;  // winner steps aside after the configured win streak
 const DEFAULT_WIN_STREAK_TO_REST = 3;    // consecutive wins before the winner steps aside
 const DEFAULT_SWAP_ENABLED = false;      // "Trocar": swap two players between teams mid-pelada
+const DEFAULT_RANKING_TOP_ZONE = 4;      // ranking "G4": how many leaders get the green badge
+const DEFAULT_RANKING_BOTTOM_ZONE = 4;   // ranking "Z4": how many last-placed get the red badge
+export const MIN_RANKING_ZONE = 0;       // 0 turns that zone off
+export const MAX_RANKING_ZONE = 10;
 
 export const MIN_GOALS_TO_FINISH = 1;
 export const MAX_GOALS_TO_FINISH = 10;
 export const MIN_WIN_STREAK_TO_REST = 1;
 export const MAX_WIN_STREAK_TO_REST = 10;
+
+// --- Goalkeepers ---
+// 'none': no goalkeepers (outfield only). 'fixed': two GKs stay on the left/right goal for the
+// whole pelada, whichever teams are playing. 'multi': each team has its own GK.
+export const GOALKEEPER_POSITION = 'Goleiro';
+export const GOALKEEPER_MODES = ['none', 'fixed', 'multi'];
+const DEFAULT_GOALKEEPER_MODE = 'none';
+
+export function isGoalkeeper(player) {
+  return player?.favoritePosition === GOALKEEPER_POSITION;
+}
+
+function emptyActivePelada() {
+  return {
+    status: 'idle', // 'idle' | 'setup' | 'live'
+    teamCount: 4,
+    presentPlayerIds: [],
+    diaristaPlayerIds: [], // day-rate "Diarista" players (outfield or GK) — stats don't count
+    teams: [], // [ { id: 'team-1', name: 'Time 1', playerIds: [], color: '#...' } ] — outfield only
+    stats: {}, // playerId -> { goals, assists, guestGoals, guestAssists, saves? }
+    departedPlayerIds: [],
+    guestSlots: [], // [ { teamId, departedPlayerId, guestPlayerId } ]
+    events: [],
+    rotation: null, // "winner stays" carousel state — see buildInitialRotation()
+    // Goalkeepers never go in team.playerIds, so every outfield count stays untouched.
+    goalkeeperMode: DEFAULT_GOALKEEPER_MODE, // snapshot of the rule when the pelada was set up
+    goalkeeperIds: [],
+    goalkeeperSides: { left: null, right: null }, // 'fixed' mode
+    goalkeepersByTeam: {}, // 'multi' mode: teamId -> gkId
+    departedGoalkeeperIds: [],
+  };
+}
+
+/** Fills goalkeeper fields missing on peladas saved before goalkeepers existed (never undefined — Firestore). */
+function normalizeActivePelada(pelada) {
+  if (!pelada || typeof pelada !== 'object') return emptyActivePelada();
+  if (!GOALKEEPER_MODES.includes(pelada.goalkeeperMode)) pelada.goalkeeperMode = DEFAULT_GOALKEEPER_MODE;
+  if (!Array.isArray(pelada.goalkeeperIds)) pelada.goalkeeperIds = [];
+  if (!pelada.goalkeeperSides || typeof pelada.goalkeeperSides !== 'object') {
+    pelada.goalkeeperSides = { left: null, right: null };
+  }
+  pelada.goalkeeperSides.left = pelada.goalkeeperSides.left || null;
+  pelada.goalkeeperSides.right = pelada.goalkeeperSides.right || null;
+  if (!pelada.goalkeepersByTeam || typeof pelada.goalkeepersByTeam !== 'object') pelada.goalkeepersByTeam = {};
+  if (!Array.isArray(pelada.departedGoalkeeperIds)) pelada.departedGoalkeeperIds = [];
+  return pelada;
+}
 
 class Store {
   constructor() {
@@ -91,6 +146,9 @@ class Store {
     this.winLimitEnabled = this.loadWinLimitEnabled();
     this.winStreakToRest = this.loadWinStreakToRest();
     this.swapEnabled = this.loadSwapEnabled();
+    this.rankingTopZone = this.loadRankingZone('_ranking_top_zone', DEFAULT_RANKING_TOP_ZONE);
+    this.rankingBottomZone = this.loadRankingZone('_ranking_bottom_zone', DEFAULT_RANKING_BOTTOM_ZONE);
+    this.goalkeeperMode = this.loadGoalkeeperMode();
     this.avatars = this.loadAvatars(); // playerId -> avatar config; anyone can edit anyone's, synced independently
     this.activePelada = this.loadPelada();
     // Self-heal a team over-filled by an older build (e.g. a completion guest left behind
@@ -350,6 +408,75 @@ class Store {
     return { success: true };
   }
 
+  /** Clamps a ranking zone size (G/Z badge count) to the allowed range; null when not a number. */
+  clampRankingZone(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(MAX_RANKING_ZONE, Math.max(MIN_RANKING_ZONE, Math.round(n)));
+  }
+
+  loadRankingZone(suffix, fallback) {
+    try {
+      const raw = localStorage.getItem(this.scopedKey(suffix));
+      const value = raw === null ? null : this.clampRankingZone(raw);
+      if (value !== null) return value;
+    } catch (e) {
+      console.error('Error loading ranking zone:', e);
+    }
+    return fallback;
+  }
+
+  /** Ranking zones: how many players get the "G" (top) and "Z" (bottom) badges, e.g. G6/Z3. */
+  setRankingZones({ top = this.rankingTopZone, bottom = this.rankingBottomZone } = {}) {
+    const nextTop = this.clampRankingZone(top);
+    const nextBottom = this.clampRankingZone(bottom);
+    if (nextTop === null || nextBottom === null) {
+      return { success: false, error: 'Valor inválido para as zonas do ranking.' };
+    }
+    if (nextTop === this.rankingTopZone && nextBottom === this.rankingBottomZone) return { success: true };
+    this.rankingTopZone = nextTop;
+    this.rankingBottomZone = nextBottom;
+    this.save();
+    return { success: true };
+  }
+
+  /** Goalkeeper rule — see GOALKEEPER_MODES. */
+  loadGoalkeeperMode() {
+    try {
+      const raw = localStorage.getItem(this.scopedKey('_goalkeeper_mode'));
+      if (GOALKEEPER_MODES.includes(raw)) return raw;
+    } catch (e) {
+      console.error('Error loading goalkeeper rule:', e);
+    }
+    return DEFAULT_GOALKEEPER_MODE;
+  }
+
+  /** Changes how teams are built, so — like the 5x5/6x6 format — it can't change mid-pelada. */
+  setGoalkeeperMode(mode) {
+    if (!GOALKEEPER_MODES.includes(mode)) return { success: false, error: 'Modo de goleiros inválido.' };
+    if (mode === this.goalkeeperMode) return { success: true };
+    if (this.activePelada.status !== 'idle') {
+      return { success: false, error: 'Termine ou cancele a pelada atual antes de trocar o modo de goleiros.' };
+    }
+    this.goalkeeperMode = mode;
+    this.save();
+    return { success: true };
+  }
+
+  normalizeActivePelada(pelada) {
+    return normalizeActivePelada(pelada);
+  }
+
+  /** Active players minus goalkeepers — everything that ranks by goals/assists (ranking, OVR, BolaBot). */
+  getRankablePlayers() {
+    return this.getActivePlayers().filter(p => !isGoalkeeper(p));
+  }
+
+  getActiveGoalkeepers() {
+    return this.getActivePlayers().filter(isGoalkeeper);
+  }
+
   /**
    * Single source of truth for "can this match be ended now?" — mirrored by the store's
    * own endCurrentMatch() guard and by peladaView's button/label state. A match always
@@ -411,25 +538,12 @@ class Store {
         if (parsed.rotation === undefined) {
           parsed.rotation = null;
         }
-        return parsed;
+        return normalizeActivePelada(parsed);
       }
     } catch (e) {
       console.error('Error loading pelada:', e);
     }
-    return {
-      status: 'idle', // 'idle' | 'setup' | 'live'
-      teamCount: 4,
-      presentPlayerIds: [],
-      diaristaPlayerIds: [], // IDs of players playing as day-rate "Diarista" — stats don't count toward the ranking
-      teams: [], // [ { id: 'team-1', name: 'Time 1', playerIds: [], color: '#...' } ]
-      stats: {
-        // playerId -> { goals: number, assists: number, guestGoals: number, guestAssists: number }
-      },
-      departedPlayerIds: [], // IDs of players who went home early
-      guestSlots: [], // [ { teamId, originalPlayerId, guestPlayerId } ]
-      events: [], // chronological list of goals/actions
-      rotation: null, // "winner stays" carousel state — see buildInitialRotation()
-    };
+    return emptyActivePelada();
   }
 
   loadHistory() {
@@ -478,6 +592,9 @@ class Store {
       localStorage.setItem(this.scopedKey('_win_limit_enabled'), String(this.winLimitEnabled));
       localStorage.setItem(this.scopedKey('_win_streak_to_rest'), String(this.winStreakToRest));
       localStorage.setItem(this.scopedKey('_swap_enabled'), String(this.swapEnabled));
+      localStorage.setItem(this.scopedKey('_ranking_top_zone'), String(this.rankingTopZone));
+      localStorage.setItem(this.scopedKey('_ranking_bottom_zone'), String(this.rankingBottomZone));
+      localStorage.setItem(this.scopedKey('_goalkeeper_mode'), this.goalkeeperMode);
       localStorage.setItem(THEME_KEY, this.theme);
     } catch (e) {
       console.error('Error saving state:', e);
@@ -556,7 +673,7 @@ class Store {
    * their name via getPlayer(); they're just excluded from every player list.
    */
   isHiddenDiarista(player) {
-    if (Number(player.participacao) > 0) return false;
+    if (Number(player.participacao) > 0 || Number(player.gkParticipacao) > 0) return false;
     return this.history.some(entry => (entry.diaristaPlayerIds || []).includes(player.id));
   }
 
@@ -592,44 +709,83 @@ class Store {
 
     if (updates.name !== undefined) player.name = updates.name.trim();
     if (updates.stars !== undefined) player.stars = Math.max(0.5, Math.min(5.0, Number(updates.stars)));
-    if (updates.favoritePosition !== undefined) player.favoritePosition = String(updates.favoritePosition || '');
+    if (updates.favoritePosition !== undefined) {
+      const nextPosition = String(updates.favoritePosition || '');
+      const becomesGoalkeeper = nextPosition === GOALKEEPER_POSITION;
+      // Turning a player into (or out of) a goalkeeper while they're in the current pelada
+      // would move them between the outfield rosters and the goalkeeper slots mid-game.
+      if (becomesGoalkeeper !== isGoalkeeper(player) && this.isInCurrentPelada(id)) {
+        return { success: false, error: 'Não é possível trocar a posição de goleiro com o jogador na pelada atual.' };
+      }
+      player.favoritePosition = nextPosition;
+    }
 
     this.save();
     return true;
   }
 
+  isInCurrentPelada(playerId) {
+    const pelada = this.activePelada;
+    if (pelada.status === 'idle') return false;
+    return (pelada.presentPlayerIds || []).includes(playerId) || (pelada.goalkeeperIds || []).includes(playerId);
+  }
+
   deletePlayer(id) {
     this.players = this.players.filter(p => p.id !== id);
     // Also remove from active pelada if present
-    if (this.activePelada.presentPlayerIds) {
-      this.activePelada.presentPlayerIds = this.activePelada.presentPlayerIds.filter(pid => pid !== id);
+    const pelada = this.activePelada;
+    if (pelada.presentPlayerIds) {
+      pelada.presentPlayerIds = pelada.presentPlayerIds.filter(pid => pid !== id);
     }
-    if (this.activePelada.teams) {
-      this.activePelada.teams.forEach(t => {
+    if (pelada.teams) {
+      pelada.teams.forEach(t => {
         t.playerIds = t.playerIds.filter(pid => pid !== id);
       });
     }
+    pelada.goalkeeperIds = (pelada.goalkeeperIds || []).filter(pid => pid !== id);
+    pelada.departedGoalkeeperIds = (pelada.departedGoalkeeperIds || []).filter(pid => pid !== id);
+    pelada.diaristaPlayerIds = (pelada.diaristaPlayerIds || []).filter(pid => pid !== id);
+    if (pelada.goalkeeperSides) {
+      if (pelada.goalkeeperSides.left === id) pelada.goalkeeperSides.left = null;
+      if (pelada.goalkeeperSides.right === id) pelada.goalkeeperSides.right = null;
+    }
+    Object.keys(pelada.goalkeepersByTeam || {}).forEach(teamId => {
+      if (pelada.goalkeepersByTeam[teamId] === id) delete pelada.goalkeepersByTeam[teamId];
+    });
     this.save();
   }
 
   // --- Pelada Workflow ---
-  startPeladaSetup(teamCount = 4, selectedPlayerIds = [], diaristaPlayerIds = []) {
+  /**
+   * `goalkeeperIds` are chosen separately from the outfield players and never enter
+   * presentPlayerIds/team rosters. The goalkeeper rule is snapshotted here, so the live view
+   * keeps working the same way even if the rule changes afterwards.
+   */
+  startPeladaSetup(teamCount = 4, selectedPlayerIds = [], diaristaPlayerIds = [], goalkeeperIds = []) {
+    const count = Math.max(3, Math.min(6, teamCount));
+    const mode = this.goalkeeperMode;
+    const maxKeepers = mode === 'fixed' ? 2 : mode === 'multi' ? count : 0;
+    const keepers = (goalkeeperIds || [])
+      .filter(id => !selectedPlayerIds.includes(id))
+      .slice(0, maxKeepers);
+
     this.activePelada = {
+      ...emptyActivePelada(),
       status: 'setup',
-      teamCount: Math.max(3, Math.min(6, teamCount)),
+      teamCount: count,
       presentPlayerIds: selectedPlayerIds,
-      diaristaPlayerIds: diaristaPlayerIds.filter(id => selectedPlayerIds.includes(id)),
-      teams: Array.from({ length: teamCount }, (_, i) => ({
+      diaristaPlayerIds: diaristaPlayerIds.filter(id => selectedPlayerIds.includes(id) || keepers.includes(id)),
+      teams: Array.from({ length: count }, (_, i) => ({
         id: `team-${i + 1}`,
         name: `Time ${i + 1}`,
         color: this.getTeamColor(i),
         playerIds: []
       })),
-      stats: {},
-      departedPlayerIds: [],
-      guestSlots: [],
-      events: [],
-      rotation: null,
+      goalkeeperMode: mode,
+      goalkeeperIds: keepers,
+      goalkeeperSides: mode === 'fixed'
+        ? { left: keepers[0] || null, right: keepers[1] || null }
+        : { left: null, right: null },
       startedAt: new Date().toISOString()
     };
     this.save();
@@ -653,21 +809,250 @@ class Store {
   }
 
   startLivePelada() {
+    const pelada = normalizeActivePelada(this.activePelada);
+    const teamIds = new Set(pelada.teams.map(t => t.id));
+
+    if (pelada.goalkeeperMode === 'multi') {
+      // Drop assignments pointing at teams that no longer exist, then every chosen GK needs a team.
+      Object.keys(pelada.goalkeepersByTeam).forEach(teamId => {
+        if (!teamIds.has(teamId)) delete pelada.goalkeepersByTeam[teamId];
+      });
+      const assigned = new Set(Object.values(pelada.goalkeepersByTeam));
+      if (pelada.goalkeeperIds.some(id => !assigned.has(id))) {
+        return { success: false, error: 'Escolha o time de cada goleiro antes de começar a pelada.' };
+      }
+    }
+
     // Initialize stats tracking for all participating players
     const stats = {};
-    this.activePelada.teams.forEach(team => {
+    pelada.teams.forEach(team => {
       team.playerIds.forEach(pid => {
         stats[pid] = { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
       });
     });
+    pelada.goalkeeperIds.forEach(gkId => {
+      stats[gkId] = { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0, saves: 0 };
+    });
 
-    this.activePelada.status = 'live';
-    this.activePelada.stats = stats;
-    this.activePelada.departedPlayerIds = [];
-    this.activePelada.guestSlots = [];
-    this.activePelada.events = [];
-    this.activePelada.rotation = this.buildInitialRotation();
+    pelada.status = 'live';
+    pelada.stats = stats;
+    pelada.departedPlayerIds = [];
+    pelada.departedGoalkeeperIds = [];
+    pelada.guestSlots = [];
+    pelada.events = [];
+    pelada.rotation = this.buildInitialRotation();
     this.save();
+    return { success: true };
+  }
+
+  // --- Goalkeepers (live pelada) ---
+
+  /** True once a match has actually started — goalkeeper changes are only allowed before that. */
+  isMatchUnderway(match) {
+    if (!match) return false;
+    return !!(
+      match.timerRunning ||
+      match.timerRemainingMs !== match.timerDurationMs ||
+      match.scoreA !== 0 ||
+      match.scoreB !== 0
+    );
+  }
+
+  /** Which team plays on the left/right of the pitch. Fixed-GK peladas keep the winner on its own side. */
+  getMatchSides(match) {
+    if (!match) return { left: null, right: null };
+    return { left: match.leftTeamId || match.teamAId, right: match.rightTeamId || match.teamBId };
+  }
+
+  /** The goalkeeper currently defending `teamId` in `match` (null if none, departed, or not playing). */
+  getGoalkeeperForTeam(teamId, match = this.activePelada.rotation?.currentMatch) {
+    const pelada = this.activePelada;
+    if (!teamId) return null;
+    let gkId = null;
+    if (pelada.goalkeeperMode === 'multi') {
+      gkId = pelada.goalkeepersByTeam?.[teamId] || null;
+    } else if (pelada.goalkeeperMode === 'fixed' && match) {
+      const sides = this.getMatchSides(match);
+      if (teamId === sides.left) gkId = pelada.goalkeeperSides?.left || null;
+      else if (teamId === sides.right) gkId = pelada.goalkeeperSides?.right || null;
+    }
+    if (gkId && (pelada.departedGoalkeeperIds || []).includes(gkId)) return null;
+    return gkId;
+  }
+
+  currentGoalkeeperMap(match) {
+    if (!match || this.activePelada.goalkeeperMode === 'none') return null;
+    return {
+      [match.teamAId]: this.getGoalkeeperForTeam(match.teamAId, match),
+      [match.teamBId]: this.getGoalkeeperForTeam(match.teamBId, match),
+    };
+  }
+
+  /**
+   * Keeps the current match's goalkeeper snapshot in sync with changes made before kickoff.
+   * Once the match starts it's frozen, so a GK who leaves mid-match keeps that match's result.
+   */
+  refreshMatchGoalkeepers() {
+    const match = this.activePelada.rotation?.currentMatch;
+    if (!match || match.goalkeepersFrozen) return;
+    if (this.isMatchUnderway(match)) {
+      match.goalkeepersFrozen = true;
+      return;
+    }
+    match.goalkeepers = this.currentGoalkeeperMap(match);
+  }
+
+  /** The team whose goal this GK guards in the current match, or null. */
+  getDefendedTeamId(gkId) {
+    const match = this.activePelada.rotation?.currentMatch;
+    if (!match || !gkId) return null;
+    return [match.teamAId, match.teamBId].find(teamId => this.getGoalkeeperForTeam(teamId, match) === gkId) || null;
+  }
+
+  /** Multi mode: the team a goalkeeper is assigned to (even while departed), or null. */
+  getGoalkeeperTeamId(gkId) {
+    const byTeam = this.activePelada.goalkeepersByTeam || {};
+    return Object.keys(byTeam).find(teamId => byTeam[teamId] === gkId) || null;
+  }
+
+  /** Balancing screen (multi mode): set or clear a team's goalkeeper. */
+  assignGoalkeeperToTeam(teamId, gkId) {
+    const pelada = this.activePelada;
+    if (pelada.goalkeeperMode !== 'multi') return { success: false, error: 'Esta pelada não usa goleiros por time.' };
+    if (!pelada.teams.some(t => t.id === teamId)) return { success: false, error: 'Time inválido.' };
+    if (gkId && !(pelada.goalkeeperIds || []).includes(gkId)) return { success: false, error: 'Goleiro não está nesta pelada.' };
+
+    Object.keys(pelada.goalkeepersByTeam).forEach(id => {
+      if (pelada.goalkeepersByTeam[id] === gkId) delete pelada.goalkeepersByTeam[id];
+    });
+    if (gkId) pelada.goalkeepersByTeam[teamId] = gkId;
+    else delete pelada.goalkeepersByTeam[teamId];
+    this.save();
+    return { success: true };
+  }
+
+  /** Fixed mode: the two goalkeepers change goals. Only between matches. */
+  swapGoalkeeperSides() {
+    const pelada = this.activePelada;
+    if (pelada.goalkeeperMode !== 'fixed') return { success: false, error: 'Esta pelada não usa goleiros fixos.' };
+    if (this.isMatchUnderway(pelada.rotation?.currentMatch)) {
+      return { success: false, error: 'Troque os goleiros de lado antes de a partida começar.' };
+    }
+    const { left, right } = pelada.goalkeeperSides;
+    pelada.goalkeeperSides = { left: right || null, right: left || null };
+    this.logGoalkeeperEvent({ type: 'gk-sides' });
+    this.refreshMatchGoalkeepers();
+    this.save();
+    return { success: true };
+  }
+
+  /**
+   * Multi mode "Trocar": puts `gkId` in goal for `targetTeamId`. If that team already has an
+   * active GK they swap teams; otherwise the GK simply moves and their old team is left without
+   * one. Not allowed for the two teams of a match that's already underway.
+   */
+  moveGoalkeeper(gkId, targetTeamId) {
+    const pelada = this.activePelada;
+    if (pelada.goalkeeperMode !== 'multi') return { success: false, error: 'Esta pelada não usa goleiros por time.' };
+    if (!(pelada.goalkeeperIds || []).includes(gkId)) return { success: false, error: 'Goleiro não está nesta pelada.' };
+    if (!pelada.teams.some(t => t.id === targetTeamId)) return { success: false, error: 'Time inválido.' };
+    const departed = new Set(pelada.departedGoalkeeperIds || []);
+    if (departed.has(gkId)) return { success: false, error: 'Este goleiro já saiu.' };
+
+    const fromTeamId = this.getGoalkeeperTeamId(gkId);
+    if (fromTeamId === targetTeamId) return { success: false, error: 'O goleiro já está neste time.' };
+    const match = pelada.rotation?.currentMatch;
+    if (this.isMatchUnderway(match) && [fromTeamId, targetTeamId].some(id => id && (id === match.teamAId || id === match.teamBId))) {
+      return { success: false, error: 'Troque os goleiros antes de a partida começar.' };
+    }
+
+    const targetGkId = pelada.goalkeepersByTeam[targetTeamId] || null;
+    const swappedWith = targetGkId && !departed.has(targetGkId) ? targetGkId : null;
+    pelada.goalkeepersByTeam[targetTeamId] = gkId;
+    if (fromTeamId) {
+      if (swappedWith) pelada.goalkeepersByTeam[fromTeamId] = swappedWith;
+      else delete pelada.goalkeepersByTeam[fromTeamId];
+    }
+
+    this.logGoalkeeperEvent({
+      type: 'gk-move',
+      playerId: gkId,
+      targetPlayerId: fromTeamId ? swappedWith : null,
+      fromTeamId,
+      toTeamId: targetTeamId,
+    });
+    this.refreshMatchGoalkeepers();
+    this.save();
+    return { success: true, swappedWith };
+  }
+
+  markGoalkeeperDeparted(gkId) {
+    const pelada = this.activePelada;
+    if (!(pelada.goalkeeperIds || []).includes(gkId)) return { success: false, error: 'Goleiro não está nesta pelada.' };
+    if (!pelada.departedGoalkeeperIds.includes(gkId)) pelada.departedGoalkeeperIds.push(gkId);
+    this.refreshMatchGoalkeepers();
+    this.save();
+    return { success: true };
+  }
+
+  /** The GK comes back to their team — unless another GK took that goal meanwhile (then they're a reserve). */
+  revertGoalkeeperDeparture(gkId) {
+    const pelada = this.activePelada;
+    pelada.departedGoalkeeperIds = (pelada.departedGoalkeeperIds || []).filter(id => id !== gkId);
+    this.refreshMatchGoalkeepers();
+    this.save();
+    const backInGoal = pelada.goalkeeperMode !== 'multi' || !!this.getGoalkeeperTeamId(gkId);
+    return { success: true, backInGoal };
+  }
+
+  recordSave(gkId) {
+    const pelada = this.activePelada;
+    if (!this.getDefendedTeamId(gkId)) {
+      return { success: false, error: 'Só o goleiro de um dos times em campo pode registrar defesas.' };
+    }
+    if (!pelada.stats[gkId]) pelada.stats[gkId] = { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0, saves: 0 };
+    pelada.stats[gkId].saves = (Number(pelada.stats[gkId].saves) || 0) + 1;
+    pelada.events.unshift({
+      id: 'ev_' + Date.now(),
+      type: 'save',
+      playerId: gkId,
+      teamId: this.getDefendedTeamId(gkId),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+    this.saveQuiet();
+    return { success: true };
+  }
+
+  removeSave(gkId) {
+    const stats = this.activePelada.stats[gkId];
+    if (!stats || !(Number(stats.saves) > 0)) return { success: false };
+    stats.saves -= 1;
+    this.removeMostRecentEvent('save', gkId, false);
+    this.saveQuiet();
+    return { success: true };
+  }
+
+  logGoalkeeperEvent(fields) {
+    this.activePelada.events.unshift({
+      id: 'ev_' + Date.now(),
+      ...fields,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+  }
+
+  /**
+   * Goalkeeper numbers so far: finished matches, plus (for the live widget's goals-conceded
+   * counter) the match being played. Ranking figures use finished matches only, like outfield.
+   */
+  getLiveGoalkeeperRecords({ includeCurrent = true } = {}) {
+    const pelada = this.activePelada;
+    const log = [...(pelada.rotation?.log || [])];
+    const match = pelada.rotation?.currentMatch;
+    if (includeCurrent && match && this.isMatchUnderway(match)) {
+      const winnerId = match.scoreA > match.scoreB ? match.teamAId : match.scoreB > match.scoreA ? match.teamBId : null;
+      log.push({ ...match, winnerId, goalkeepers: match.goalkeepers || this.currentGoalkeeperMap(match) });
+    }
+    return computeGoalkeeperRecords(log, pelada.stats, pelada.goalkeeperIds);
   }
 
   // --- "Winner stays" Rotation (Carrossel de Times) ---
@@ -778,10 +1163,13 @@ class Store {
     });
   }
 
-  createMatch(teamAId, teamBId) {
-    return {
+  /** `sides` ({left, right} team ids) keeps each team on a goal; defaults to A on the left. */
+  createMatch(teamAId, teamBId, sides = null) {
+    const match = {
       teamAId,
       teamBId,
+      leftTeamId: sides?.left || teamAId,
+      rightTeamId: sides?.right || teamBId,
       scoreA: 0,
       scoreB: 0,
       timerDurationMs: this.matchDurationMs || MATCH_TIMER_DURATION_MS,
@@ -794,10 +1182,14 @@ class Store {
       // computeMatchStatsDelta), instead of attributing a player's whole day to every
       // opponent they happened to face — used for head-to-head history.
       statsSnapshot: JSON.parse(JSON.stringify(this.activePelada.stats || {})),
+      goalkeepers: null,
+      goalkeepersFrozen: false,
     };
+    match.goalkeepers = this.currentGoalkeeperMap(match);
+    return match;
   }
 
-  /** Per-player {goals, assists} scored between a match's kickoff snapshot and now (or its end). */
+  /** Per-player {goals, assists, saves} made between a match's kickoff snapshot and now (or its end). */
   computeMatchStatsDelta(statsBefore, statsAfter) {
     const delta = {};
     const ids = new Set([...Object.keys(statsBefore || {}), ...Object.keys(statsAfter || {})]);
@@ -806,7 +1198,9 @@ class Store {
       const after = statsAfter?.[pid] || {};
       const goals = (Number(after.goals) || 0) - (Number(before.goals) || 0);
       const assists = (Number(after.assists) || 0) - (Number(before.assists) || 0);
-      if (goals || assists) delta[pid] = { goals, assists };
+      const saves = (Number(after.saves) || 0) - (Number(before.saves) || 0);
+      if (saves) delta[pid] = { goals, assists, saves };
+      else if (goals || assists) delta[pid] = { goals, assists };
     });
     return delta;
   }
@@ -877,7 +1271,12 @@ class Store {
 
     const newTeamAId = match.teamAId === replaceTeamId ? queuedTeamId : match.teamAId;
     const newTeamBId = match.teamBId === replaceTeamId ? queuedTeamId : match.teamBId;
-    rotation.currentMatch = this.createMatch(newTeamAId, newTeamBId);
+    // The incoming team takes the replaced team's side of the pitch.
+    const prevSides = this.getMatchSides(match);
+    rotation.currentMatch = this.createMatch(newTeamAId, newTeamBId, {
+      left: prevSides.left === replaceTeamId ? queuedTeamId : prevSides.left,
+      right: prevSides.right === replaceTeamId ? queuedTeamId : prevSides.right,
+    });
 
     const reclaimedGuests = this.reclaimGuestsForTeams([queuedTeamId]);
     this.save();
@@ -931,6 +1330,11 @@ class Store {
   startMatchTimer() {
     const match = this.activePelada.rotation?.currentMatch;
     if (!match || match.timerRunning) return;
+    // Kickoff: whoever is in goal now gets this match's result and goals conceded.
+    if (!match.goalkeepersFrozen) {
+      match.goalkeepers = this.currentGoalkeeperMap(match);
+      match.goalkeepersFrozen = true;
+    }
     match.timerRunning = true;
     match.timerEndsAt = Date.now() + match.timerRemainingMs;
     this.saveQuiet();
@@ -981,8 +1385,10 @@ class Store {
       teamAId, teamBId, scoreA, scoreB, winnerId,
       statsDelta: this.computeMatchStatsDelta(match.statsSnapshot, this.activePelada.stats),
       rosters: this.snapshotMatchRosters(teamAId, teamBId),
+      goalkeepers: match.goalkeepers || this.currentGoalkeeperMap(match),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
+    const prevSides = this.getMatchSides(match);
 
     const outgoingIds = [];
     let stayingId = null;
@@ -1025,8 +1431,17 @@ class Store {
     const nextTeamAId = stayingId || incomingIds[0] || null;
     const nextTeamBId = stayingId ? (incomingIds[0] || null) : (incomingIds[1] || null);
 
+    // With fixed goalkeepers the team that stays keeps its goal, so the same GK keeps defending
+    // it and the incoming team takes the free side. Otherwise the stayer is drawn on the left.
+    let nextSides = null;
+    if (this.activePelada.goalkeeperMode === 'fixed' && stayingId && nextTeamBId) {
+      nextSides = prevSides.right === stayingId
+        ? { left: nextTeamBId, right: stayingId }
+        : { left: stayingId, right: nextTeamBId };
+    }
+
     rotation.currentMatch = (nextTeamAId && nextTeamBId)
-      ? this.createMatch(nextTeamAId, nextTeamBId)
+      ? this.createMatch(nextTeamAId, nextTeamBId, nextSides)
       : null;
 
     // Only the newly-entering team(s) can possibly have a guest to reclaim — the team
@@ -1351,6 +1766,7 @@ class Store {
           winnerId,
           statsDelta: this.computeMatchStatsDelta(currentMatch.statsSnapshot, this.activePelada.stats),
           rosters: this.snapshotMatchRosters(currentMatch.teamAId, currentMatch.teamBId),
+          goalkeepers: currentMatch.goalkeepers || this.currentGoalkeeperMap(currentMatch),
         });
       }
     }
@@ -1372,6 +1788,8 @@ class Store {
       stats: JSON.parse(JSON.stringify(this.activePelada.stats)),
       matches: rotationLog,
       playerRecords,
+      goalkeeperMode: this.activePelada.goalkeeperMode || 'none',
+      goalkeeperIds: [...(this.activePelada.goalkeeperIds || [])],
       diaristaPlayerIds: Array.from(diaristaIds),
       awards: {
         craqueId: null,
@@ -1410,20 +1828,11 @@ class Store {
     }
 
     this.history.unshift(historyEntry);
+    // Goalkeeper figures (and W/D/L) are rebuilt from history, which now includes this pelada.
+    this.syncWinLossStatsFromHistory();
     this.syncCareerStatsFromMonthly({ silent: true });
 
-    this.activePelada = {
-      status: 'idle',
-      teamCount: 4,
-      presentPlayerIds: [],
-      diaristaPlayerIds: [],
-      teams: [],
-      stats: {},
-      departedPlayerIds: [],
-      guestSlots: [],
-      events: [],
-      rotation: null
-    };
+    this.activePelada = emptyActivePelada();
 
     this.save();
   }
@@ -1475,6 +1884,11 @@ class Store {
         target.wins = Number(stats.wins) || 0;
         target.draws = Number(stats.draws) || 0;
         target.losses = Number(stats.losses) || 0;
+        // Goalkeeper numbers are fully derived from history (matches + saves), so they're
+        // rebuilt here too — this keeps saves edits and deletions in step everywhere.
+        GK_STAT_FIELDS.forEach(field => {
+          target[field] = Number(stats[field]) || 0;
+        });
         targetPeriod.players[playerId] = target;
       });
     });
@@ -1636,6 +2050,21 @@ class Store {
       entry.losses = Number(record?.losses) || 0;
       overlay[pid] = entry;
     });
+
+    const gkRecords = this.getLiveGoalkeeperRecords({ includeCurrent: false });
+    (this.activePelada.goalkeeperIds || []).forEach(gkId => {
+      if (diaristaIds.has(gkId)) return;
+      const record = gkRecords[gkId] || {};
+      const entry = overlay[gkId] || emptyPlayerStats();
+      entry.gkParticipacao = 1;
+      entry.saves = Number(this.activePelada.stats[gkId]?.saves) || 0;
+      entry.goalsConceded = record.goalsConceded || 0;
+      entry.cleanSheets = record.cleanSheets || 0;
+      entry.gkWins = record.wins || 0;
+      entry.gkDraws = record.draws || 0;
+      entry.gkLosses = record.losses || 0;
+      overlay[gkId] = entry;
+    });
     return overlay;
   }
 
@@ -1742,6 +2171,10 @@ class Store {
       // finished before it existed — those fall back to each player's team record. Must be
       // null, not undefined: Firestore rejects undefined field values.
       playerRecords: entry.playerRecords && typeof entry.playerRecords === 'object' ? entry.playerRecords : null,
+      // Goalkeepers of this pelada — GK status in history comes from here, never from the
+      // player's current position, so re-labelling someone later doesn't rewrite the past.
+      goalkeeperMode: GOALKEEPER_MODES.includes(entry.goalkeeperMode) ? entry.goalkeeperMode : 'none',
+      goalkeeperIds: Array.isArray(entry.goalkeeperIds) ? [...entry.goalkeeperIds] : [],
       diaristaPlayerIds: Array.isArray(entry.diaristaPlayerIds) ? [...entry.diaristaPlayerIds] : [],
       awards: {
         craqueId: awards.craqueId || null,
@@ -1773,6 +2206,12 @@ class Store {
     const nextPuskasId = puskasId || null;
     const nextBagreId = bagreId || null;
     const nextSelecaoIds = Array.isArray(selecaoIds) ? selecaoIds.slice(0, 5) : [];
+
+    // Goalkeepers can't receive any award.
+    const keepers = new Set(entry.goalkeeperIds || []);
+    if ([nextCraqueId, nextPuskasId, nextBagreId, ...nextSelecaoIds].some(id => id && keepers.has(id))) {
+      return { success: false, error: 'Goleiros não podem receber votações.' };
+    }
 
     const oldCraqueId = entry.awardsSynced.craque ? entry.awards.craqueId : null;
     const oldPuskasId = entry.awardsSynced.puskas ? entry.awards.puskasId : null;
@@ -1838,22 +2277,28 @@ class Store {
     if (!entry) return { success: false, error: 'Pelada não encontrada no histórico.' };
 
     const rostered = new Set((entry.teams || []).flatMap(t => t.playerIds || []));
+    const keepers = new Set(entry.goalkeeperIds || []);
     const diaristas = new Set(entry.diaristaPlayerIds || []);
     const key = parseDateToPeriod(entry.dateISO || entry.date) || this.currentPeriodKey();
     if (!entry.stats || typeof entry.stats !== 'object') entry.stats = {};
 
     let changed = 0;
+    let savesChanged = false;
     Object.entries(statsByPlayer).forEach(([pid, next]) => {
-      if (!rostered.has(pid)) return;
+      const isKeeper = keepers.has(pid);
+      if (!rostered.has(pid) && !isKeeper) return;
       const current = entry.stats[pid] || { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
-      ['goals', 'assists'].forEach(field => {
+      // Goalkeepers only have saves; outfield players only goals/assists.
+      (isKeeper ? ['saves'] : ['goals', 'assists']).forEach(field => {
         if (next?.[field] === undefined) return;
         const value = Math.max(0, Math.round(Number(next[field]) || 0));
         const delta = value - (Number(current[field]) || 0);
         if (!delta) return;
         current[field] = value;
         changed += 1;
-        if (!diaristas.has(pid)) {
+        if (field === 'saves') {
+          savesChanged = true;
+        } else if (!diaristas.has(pid)) {
           const periodStats = this.getOrCreatePeriodPlayer(key, pid);
           periodStats[field] = Math.max(0, (Number(periodStats[field]) || 0) + delta);
         }
@@ -1862,6 +2307,8 @@ class Store {
     });
 
     if (!changed) return { success: true, changed: 0 };
+    // Goalkeeper figures are rebuilt from history rather than patched.
+    if (savesChanged) this.syncWinLossStatsFromHistory();
     this.syncCareerStatsFromMonthly({ silent: true });
     this.save();
     return { success: true, changed };
@@ -1884,18 +2331,7 @@ class Store {
   }
 
   cancelPelada() {
-    this.activePelada = {
-      status: 'idle',
-      teamCount: 4,
-      presentPlayerIds: [],
-      diaristaPlayerIds: [],
-      teams: [],
-      stats: {},
-      departedPlayerIds: [],
-      guestSlots: [],
-      events: [],
-      rotation: null
-    };
+    this.activePelada = emptyActivePelada();
     this.save();
   }
 
@@ -1912,6 +2348,9 @@ class Store {
       winLimitEnabled: this.winLimitEnabled,
       winStreakToRest: this.winStreakToRest,
       swapEnabled: this.swapEnabled,
+      rankingTopZone: this.rankingTopZone,
+      rankingBottomZone: this.rankingBottomZone,
+      goalkeeperMode: this.goalkeeperMode,
       players: this.players,
       history: this.history.map(entry => this.normalizeHistoryEntry(entry)).filter(Boolean),
       monthlyStats: this.monthlyStats,
@@ -1930,6 +2369,8 @@ class Store {
         id: p.id || 'p_' + Math.random().toString(36).substr(2, 6),
         name: p.name || 'Jogador',
         stars: Number(p.stars) || 3.0,
+        // Without this, importing a backup would turn every goalkeeper back into an outfield player.
+        favoritePosition: String(p.favoritePosition || ''),
         goals: Number(p.goals) || 0,
         assists: Number(p.assists) || 0,
         selecao: Number(p.selecao) || 0,
@@ -1992,6 +2433,15 @@ class Store {
       if (typeof data.swapEnabled === 'boolean') {
         this.swapEnabled = data.swapEnabled;
       }
+      if (this.clampRankingZone(data.rankingTopZone) !== null) {
+        this.rankingTopZone = this.clampRankingZone(data.rankingTopZone);
+      }
+      if (this.clampRankingZone(data.rankingBottomZone) !== null) {
+        this.rankingBottomZone = this.clampRankingZone(data.rankingBottomZone);
+      }
+      if (GOALKEEPER_MODES.includes(data.goalkeeperMode) && this.activePelada.status === 'idle') {
+        this.goalkeeperMode = data.goalkeeperMode;
+      }
 
       this.save();
       return {
@@ -2016,19 +2466,11 @@ class Store {
     this.winLimitEnabled = DEFAULT_WIN_LIMIT_ENABLED;
     this.winStreakToRest = DEFAULT_WIN_STREAK_TO_REST;
     this.swapEnabled = DEFAULT_SWAP_ENABLED;
+    this.rankingTopZone = DEFAULT_RANKING_TOP_ZONE;
+    this.rankingBottomZone = DEFAULT_RANKING_BOTTOM_ZONE;
+    this.goalkeeperMode = DEFAULT_GOALKEEPER_MODE;
     this.syncCareerStatsFromMonthly({ silent: true });
-    this.activePelada = {
-      status: 'idle',
-      teamCount: 4,
-      presentPlayerIds: [],
-      diaristaPlayerIds: [],
-      teams: [],
-      stats: {},
-      departedPlayerIds: [],
-      guestSlots: [],
-      events: [],
-      rotation: null
-    };
+    this.activePelada = emptyActivePelada();
     this.save();
   }
 }
