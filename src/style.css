@@ -2594,24 +2594,187 @@ body {
   font-size: 0.76rem;
 }
 
-.history-selecao-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 6px;
-  max-height: 160px;
-  overflow-y: auto;
-  background: var(--bg-app);
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
+/* Seleção da Pelada picker */
+.selecao-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.history-selecao-option {
+.selecao-picker-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.selecao-picker-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.selecao-picker-count {
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-app);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.selecao-picker-count strong {
+  color: var(--accent-gold);
+}
+
+.selecao-picker-selected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  font-size: 0.8rem;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-card-subtle);
+}
+
+.selecao-picker-placeholder {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.selecao-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--accent-gold);
+  border-radius: 999px;
+  color: var(--accent-gold);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.selecao-chip-remove {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
   cursor: pointer;
+}
+
+.selecao-chip-remove:hover {
+  background: rgba(245, 158, 11, 0.18);
+}
+
+.selecao-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.history-award-field .selecao-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-app);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.history-award-field .selecao-option[hidden] {
+  display: none;
+}
+
+.selecao-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.selecao-option:hover {
+  border-color: var(--border-highlight);
+}
+
+.selecao-option-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.selecao-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.selecao-option-meta {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.selecao-option-check {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: transparent;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.history-award-field .selecao-option.is-selected {
+  border-color: var(--accent-gold);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.selecao-option.is-selected .selecao-option-check {
+  border-color: var(--accent-gold);
+  background: var(--accent-gold);
+  color: #0B1220;
+}
+
+.selecao-option:focus-within {
+  outline: 2px solid var(--pitch-green);
+  outline-offset: 1px;
+}
+
+.history-award-field .selecao-option.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selecao-picker-empty {
+  padding: 10px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  text-align: center;
 }
 
 .history-save-btn {

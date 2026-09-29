@@ -123,22 +123,7 @@ export function renderHistoryView() {
               </select>
             </div>
 
-            <div class="history-award-field">
-              <label>🏆 Seleção da Pelada <span class="history-field-hint">(até 5 atletas)</span></label>
-              <div class="history-selecao-grid">
-                ${players.map(p => `
-                  <label class="history-selecao-option">
-                    <input
-                      type="checkbox"
-                      name="selecaoIds"
-                      value="${p.id}"
-                      ${Array.isArray(awards.selecaoIds) && awards.selecaoIds.includes(p.id) ? 'checked' : ''}
-                    />
-                    <span>${escapeHtml(p.name)}</span>
-                  </label>
-                `).join('')}
-              </div>
-            </div>
+            ${renderSelecaoPicker(entry, players, awards)}
 
             <button type="submit" class="btn btn-primary history-save-btn">
               Salvar Votações
@@ -170,6 +155,9 @@ export function renderHistoryView() {
       chevron.textContent = expanded ? '▾' : '▸';
     });
 
+    const selecaoPicker = card.querySelector('.selecao-picker');
+    if (selecaoPicker) bindSelecaoPicker(selecaoPicker);
+
     card.querySelector('.history-awards-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
       const form = e.currentTarget;
@@ -199,6 +187,118 @@ export function renderHistoryView() {
   });
 
   return container;
+}
+
+const SELECAO_MAX = 5;
+
+function normalizeSearchText(text) {
+  return String(text || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+
+/**
+ * "Seleção da Pelada" picker: counter, removable chips for the chosen players, a search box
+ * and a grid of player chips (with their goals/assists in this pelada to help the vote).
+ * Each chip wraps a real checkbox named selecaoIds, so the form's submit handler reads
+ * the selection exactly as before.
+ */
+function renderSelecaoPicker(entry, players, awards) {
+  const selected = new Set(Array.isArray(awards.selecaoIds) ? awards.selecaoIds : []);
+  const sorted = [...players].sort((a, b) => a.name.localeCompare(b.name));
+
+  return `
+    <div class="history-award-field selecao-picker">
+      <div class="selecao-picker-head">
+        <span class="selecao-picker-title">🏆 Seleção da Pelada</span>
+        <span class="selecao-picker-count"><strong>${selected.size}</strong>/${SELECAO_MAX}</span>
+      </div>
+
+      <div class="selecao-picker-selected"></div>
+
+      <input type="text" class="input-field selecao-picker-search" placeholder="🔍 Buscar atleta..." autocomplete="off" />
+
+      <div class="selecao-picker-grid">
+        ${sorted.map(p => {
+          const s = (entry.stats && entry.stats[p.id]) || {};
+          const goals = Number(s.goals) || 0;
+          const assists = Number(s.assists) || 0;
+          const statLine = [`${Number(p.stars) || 0}★`, goals ? `⚽ ${goals}` : '', assists ? `👟 ${assists}` : ''].filter(Boolean).join(' · ');
+          return `
+          <label class="selecao-option${selected.has(p.id) ? ' is-selected' : ''}" data-name="${escapeHtml(normalizeSearchText(p.name))}">
+            <input type="checkbox" name="selecaoIds" value="${p.id}" ${selected.has(p.id) ? 'checked' : ''} />
+            <span class="selecao-option-info">
+              <span class="selecao-option-name">${escapeHtml(p.name)}</span>
+              <span class="selecao-option-meta">${statLine}</span>
+            </span>
+            <span class="selecao-option-check" aria-hidden="true">✓</span>
+          </label>
+        `;
+        }).join('')}
+      </div>
+      <div class="selecao-picker-empty" hidden>Nenhum atleta encontrado.</div>
+    </div>
+  `;
+}
+
+function bindSelecaoPicker(picker) {
+  const options = Array.from(picker.querySelectorAll('.selecao-option'));
+  const search = picker.querySelector('.selecao-picker-search');
+  const selectedBox = picker.querySelector('.selecao-picker-selected');
+  const count = picker.querySelector('.selecao-picker-count strong');
+  const empty = picker.querySelector('.selecao-picker-empty');
+
+  const sync = () => {
+    const chosen = options.filter(o => o.querySelector('input').checked);
+    const full = chosen.length >= SELECAO_MAX;
+    count.textContent = String(chosen.length);
+
+    options.forEach(o => {
+      const input = o.querySelector('input');
+      o.classList.toggle('is-selected', input.checked);
+      // Enforce the 5-athlete limit live instead of only complaining on save.
+      o.classList.toggle('is-disabled', full && !input.checked);
+      input.disabled = full && !input.checked;
+    });
+
+    selectedBox.innerHTML = chosen.length
+      ? chosen.map(o => `
+          <span class="selecao-chip">
+            ${o.querySelector('.selecao-option-name').innerHTML}
+            <button type="button" class="selecao-chip-remove" data-id="${o.querySelector('input').value}" aria-label="Remover">×</button>
+          </span>
+        `).join('')
+      : '<span class="selecao-picker-placeholder">Nenhum atleta selecionado ainda.</span>';
+  };
+
+  const filter = () => {
+    const term = normalizeSearchText(search.value.trim());
+    let visible = 0;
+    options.forEach(o => {
+      const match = !term || o.dataset.name.includes(term);
+      o.hidden = !match;
+      if (match) visible += 1;
+    });
+    empty.hidden = visible > 0;
+  };
+
+  picker.addEventListener('change', (e) => {
+    if (e.target.matches('input[name="selecaoIds"]')) sync();
+  });
+  selectedBox.addEventListener('click', (e) => {
+    const btn = e.target.closest('.selecao-chip-remove');
+    if (!btn) return;
+    const input = picker.querySelector(`input[name="selecaoIds"][value="${btn.dataset.id}"]`);
+    if (input) {
+      input.checked = false;
+      sync();
+    }
+  });
+  search.addEventListener('input', filter);
+  // Enter in the search box would otherwise submit the whole votes form.
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') e.preventDefault();
+  });
+
+  sync();
 }
 
 /** Confirmation modal for deleting a pelada from history (admin only). */
