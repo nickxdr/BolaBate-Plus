@@ -9,6 +9,7 @@ import {
   createPelada,
   listAllPeladas,
   setPeladaBlocked,
+  deletePelada,
   getOrCreatePeladaInviteToken,
   isRootAdminUid,
 } from "../services/cloudSync.js";
@@ -503,9 +504,16 @@ export function renderSettingsView(navigateTo) {
                 <div style="font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">${displayName} ${blocked ? "🔒" : ""}</div>
                 <div style="font-size: 0.72rem; color: var(--text-muted);">ID: ${escapeHtml(p.id)}${blocked ? " — bloqueada" : ""}</div>
               </div>
-              <button class="btn ${blocked ? "btn-primary" : "btn-danger"} btn-sm btn-toggle-pelada-block" data-id="${escapeHtml(p.id)}" data-name="${displayName}" data-blocked="${blocked ? "1" : "0"}">
-                ${blocked ? "🔓 Desbloquear" : "🔒 Bloquear"}
-              </button>
+              <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                <button class="btn ${blocked ? "btn-primary" : "btn-danger"} btn-sm btn-toggle-pelada-block" data-id="${escapeHtml(p.id)}" data-name="${displayName}" data-blocked="${blocked ? "1" : "0"}">
+                  ${blocked ? "🔓 Desbloquear" : "🔒 Bloquear"}
+                </button>
+                ${
+                  p.id === store.peladaId
+                    ? ""
+                    : `<button class="btn btn-secondary btn-sm btn-delete-pelada" data-id="${escapeHtml(p.id)}" data-name="${displayName}" style="color: var(--accent-red);" title="Excluir a pelada e todos os dados dela">🗑️ Excluir</button>`
+                }
+              </div>
             </div>
           `;
           })
@@ -525,6 +533,15 @@ export function renderSettingsView(navigateTo) {
               );
             });
           });
+        allPeladasList.querySelectorAll(".btn-delete-pelada").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            openDeletePeladaModal(
+              btn.getAttribute("data-id"),
+              btn.getAttribute("data-name"),
+              refreshAllPeladasList,
+            );
+          });
+        });
       } catch (err) {
         allPeladasList.innerHTML = `<span style="font-size: 0.8rem; color: var(--accent-red);">Não foi possível carregar a lista de peladas.</span>`;
       }
@@ -684,6 +701,72 @@ async function copyInviteLinkToClipboard(url) {
 }
 
 /** Root-admin-only confirmation modal for blocking/unblocking one pelada's access. */
+/** Root-admin-only: permanent deletion, confirmed by typing the pelada's id. */
+function openDeletePeladaModal(peladaId, name, onDone) {
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="pelada-delete-overlay">
+      <div class="modal-content" style="max-width: 440px;">
+        <div class="modal-header">
+          <h2 class="modal-title" style="color: var(--accent-red);">🗑️ Excluir "${escapeHtml(name)}"?</h2>
+          <button class="modal-close" id="pelada-delete-close" title="Fechar">✕</button>
+        </div>
+
+        <div style="font-size: 0.9rem; color: var(--text-main); line-height: 1.6;">
+          <p>
+            Isso apaga <strong>para sempre</strong> a pelada, os jogadores, o histórico, o ranking, os avatares
+            e os admins dela. Quem estiver logado nela perde o acesso. Não dá para desfazer.
+          </p>
+          <label for="pelada-delete-input" style="display: block; margin-top: 12px; font-size: 0.82rem; color: var(--text-muted);">
+            Digite <strong>${escapeHtml(peladaId)}</strong> para confirmar:
+          </label>
+          <input id="pelada-delete-input" class="input-field" type="text" autocomplete="off" style="margin-top: 6px; width: 100%;" />
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+          <button id="pelada-delete-cancel" class="btn btn-secondary">Cancelar</button>
+          <button id="pelada-delete-confirm" class="btn btn-danger" disabled>Excluir para sempre</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#pelada-delete-overlay");
+  const input = modalContainer.querySelector("#pelada-delete-input");
+  const confirmBtn = modalContainer.querySelector("#pelada-delete-confirm");
+  modalContainer.querySelector("#pelada-delete-close").addEventListener("click", close);
+  modalContainer.querySelector("#pelada-delete-cancel").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  input.addEventListener("input", () => {
+    confirmBtn.disabled = input.value.trim() !== peladaId;
+  });
+  input.focus();
+
+  confirmBtn.addEventListener("click", async () => {
+    if (input.value.trim() !== peladaId) return;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "Excluindo...";
+    try {
+      const result = await deletePelada(peladaId);
+      if (result?.success) showToast(`🗑️ "${name}" excluída.`);
+      else showToast("❌ " + (result?.error || "Não foi possível excluir."));
+    } catch (err) {
+      showToast(
+        err?.code === "permission-denied"
+          ? "❌ Sem permissão — publique as regras novas do Firestore (firestore.rules)."
+          : "❌ " + err.message,
+      );
+    }
+    close();
+    if (onDone) onDone();
+  });
+}
+
 function openTogglePeladaBlockModal(peladaId, name, currentlyBlocked, onDone) {
   const modalContainer = document.getElementById("modal-container");
   const action = currentlyBlocked ? "Desbloquear" : "Bloquear";

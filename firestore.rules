@@ -65,7 +65,9 @@ service cloud.firestore {
       // a blocked pelada's own admin could just unblock themselves.
       allow update: if isBootstrapAdmin() ||
         (isPeladaAdmin(peladaId) && request.resource.data.blocked == resource.data.blocked);
-      allow delete: if false;
+      // Root admins can permanently delete a pelada from the app (Gerenciar Peladas).
+      // The app deletes cloud/{id}, cloud-dev/{id} and admins/ first, this doc last.
+      allow delete: if isBootstrapAdmin();
 
       match /admins/{uid} {
         allow read: if request.auth != null;

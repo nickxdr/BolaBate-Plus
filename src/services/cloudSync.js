@@ -598,6 +598,32 @@ export async function setPeladaBlocked(peladaId, blocked) {
   await setDoc(peladaDocRef(peladaId), { blocked }, { merge: true });
 }
 
+/**
+ * Root-admin-only: permanently deletes a pelada — its prod and dev league data, their
+ * avatar subcollections, its admins list and finally the peladas/{id} doc itself.
+ * The pelada doc goes last: the cloud rules read it (isPeladaBlocked), so it must
+ * still exist — and be unblocked — while the rest is deleted.
+ */
+export async function deletePelada(peladaId) {
+  await waitForAuthUser();
+  const peladaRef = peladaDocRef(peladaId);
+  const snap = await getDoc(peladaRef);
+  if (!snap.exists()) return { success: false, error: "Pelada não encontrada." };
+  if (snap.data().blocked) await setDoc(peladaRef, { blocked: false }, { merge: true });
+
+  const deleteAll = async (colRef) => {
+    const docs = await getDocs(colRef);
+    await Promise.all(docs.docs.map((d) => deleteDoc(d.ref)));
+  };
+  for (const stateCollection of ["cloud", "cloud-dev"]) {
+    await deleteAll(collection(db, stateCollection, peladaId, "avatars"));
+    await deleteDoc(doc(db, stateCollection, peladaId));
+  }
+  await deleteAll(collection(db, "peladas", peladaId, "admins"));
+  await deleteDoc(peladaRef);
+  return { success: true };
+}
+
 // Mirrors the default `activePelada` shape store.js's loadPelada() falls back to —
 // keep the two in sync if that shape ever changes.
 function createEmptyActivePelada() {
