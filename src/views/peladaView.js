@@ -193,7 +193,7 @@ function renderPeladaConfig(container, onNavigate) {
           </div>
 
           <div class="attendance-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button id="btn-quick-fill" class="btn btn-secondary btn-sm" title="Seleciona os primeiros ${maxPlayers} jogadores">
+            <button id="btn-quick-fill" class="btn btn-secondary btn-sm" title="Completa a seleção até ${maxPlayers} jogadores, mantendo os já escolhidos">
               Completar ${maxPlayers}
             </button>
             <button id="btn-clear-selection" class="btn btn-secondary btn-sm">
@@ -298,17 +298,22 @@ function renderPeladaConfig(container, onNavigate) {
       }
     });
 
-    // Bind quick fill
+    // Bind quick fill — tops the selection up to the ceiling instead of resetting
+    // it, so manually picked players (and their diarista marks) are never lost.
+    // Outfield spots only — goalkeepers are chosen by hand and live in keeperIds.
     container.querySelector("#btn-quick-fill").addEventListener("click", () => {
-      const keeperDiaristas = [...keeperIds].filter((id) =>
-        diaristaIds.has(id),
-      );
-      selectedIds.clear();
-      diaristaIds.clear();
-      keeperDiaristas.forEach((id) => diaristaIds.add(id));
-      // Outfield spots only — goalkeepers are chosen by hand.
-      const pool = store.getRankablePlayers().slice(0, maxPlayers);
-      pool.forEach((p) => selectedIds.add(p.id));
+      if (selectedIds.size >= maxPlayers) {
+        showToast(
+          `Você já tem ${maxPlayers} jogadores selecionados (o limite).`,
+        );
+        return;
+      }
+      const pool = store.getRankablePlayers();
+      for (const p of pool) {
+        if (selectedIds.size >= maxPlayers) break;
+        if (selectedIds.has(p.id)) continue;
+        selectedIds.add(p.id);
+      }
       update();
     });
 
