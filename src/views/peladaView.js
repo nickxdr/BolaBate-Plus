@@ -9,7 +9,7 @@ import { showToast } from "./rankingView.js";
 import { getAvatarDataUri } from "../services/avatar.js";
 import { computeCurrentOVRs } from "../services/ovr.js";
 import confetti from "canvas-confetti";
-import { playSound } from "../services/soundManager.js";
+import { playSound, vibrate } from "../services/soundManager.js";
 
 export function renderPeladaView(onNavigate) {
   const container = document.createElement("div");
@@ -3149,6 +3149,10 @@ function formatDuration(ms) {
 // forcing a full re-render every second (renderLivePelada is recreated on
 // every store mutation, so a per-render interval would leak).
 let matchTimerIntervalStarted = false;
+// timerEndsAt of the last expired countdown that already fired the end-of-match alert —
+// keeps that alert one-shot (pauseMatchTimer is admin-only, so a non-admin viewer's
+// clock stays "expired" on every tick and would otherwise re-fire every second).
+let lastTimeUpAlertFiredFor = null;
 function ensureMatchTimerTicking() {
   if (matchTimerIntervalStarted) return;
   matchTimerIntervalStarted = true;
@@ -3172,6 +3176,13 @@ function ensureMatchTimerTicking() {
     }
 
     if (match.timerRunning && remainingMs <= 0) {
+      // End of match time: notify once per countdown, each alert gated by its own
+      // device-level pref from the Ajustes tab (sound & vibration are independent).
+      if (lastTimeUpAlertFiredFor !== match.timerEndsAt) {
+        lastTimeUpAlertFiredFor = match.timerEndsAt;
+        if (store.matchSoundEnabled) playSound("whistleEnd");
+        if (store.vibrationEnabled) vibrate([250, 100, 250, 100, 500]);
+      }
       store.pauseMatchTimer();
     }
   }, 1000);
