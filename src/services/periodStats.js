@@ -39,6 +39,28 @@ export function emptyPlayerStats() {
   return stats;
 }
 
+function previousPeriodKey(periodKeyStr) {
+  const [year, month] = String(periodKeyStr || "").split("-").map(Number);
+  if (!year || !month) return null;
+  if (month === 1) return `${year - 1}-12`;
+  return `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
+export function getPlayerStarsForPeriod(monthlyStats, playerId, periodKeyStr, fallbackStars = 3.0) {
+  const fallback = Number(fallbackStars);
+  const seen = new Set();
+
+  let key = periodKeyStr;
+  while (key && !seen.has(key)) {
+    seen.add(key);
+    const stars = Number(monthlyStats?.[key]?.players?.[playerId]?.stars);
+    if (Number.isFinite(stars)) return stars;
+    key = previousPeriodKey(key);
+  }
+
+  return Number.isFinite(fallback) ? fallback : 3.0;
+}
+
 /** Adds to a stat that may be missing on periods saved before that field existed. */
 function bump(target, field, amount) {
   target[field] = (Number(target[field]) || 0) + (Number(amount) || 0);

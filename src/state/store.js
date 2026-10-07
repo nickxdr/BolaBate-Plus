@@ -1923,6 +1923,18 @@ class Store {
     return merged.players?.[playerId] || emptyPlayerStats();
   }
 
+  setPlayerStarsForPeriod(playerId, stars, key = this.selectedPeriodKey || this.currentPeriodKey()) {
+    const player = this.getPlayer(playerId);
+    if (!player || !key) return false;
+
+    const value = Math.max(0.5, Math.min(5.0, Number(stars) || 3.0));
+    const period = this.ensurePeriodByKey(key);
+    if (!period.players[playerId]) period.players[playerId] = emptyPlayerStats();
+    period.players[playerId].stars = value;
+    this.save();
+    return true;
+  }
+
   isAnnualSelected() {
     return !!this.selectedPeriodKey && String(this.selectedPeriodKey).split('-')[1] === 'anual';
   }

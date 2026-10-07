@@ -2,6 +2,7 @@ import { store } from "../state/store.js";
 import { calculatePointsFromStats } from "../data/seedData.js";
 import {
   emptyPlayerStats,
+  getPlayerStarsForPeriod,
   statsHaveActivity,
 } from "../services/periodStats.js";
 import { computeCumulativeOVRsAsOf } from "../services/ovr.js";
@@ -45,8 +46,10 @@ export function renderRankingView() {
       const stats =
         (snapshot && snapshot.players && snapshot.players[p.id]) ||
         emptyPlayerStats();
+      const stars = getPlayerStarsForPeriod(store.monthlyStats, p.id, selKey, p.stars);
       return {
         ...p,
+        stars,
         goals: stats.goals || 0,
         assists: stats.assists || 0,
         selecao: stats.selecao || 0,

@@ -1361,13 +1361,10 @@ export function renderPlayersView() {
       e.preventDefault();
 
       const newName = form.name.value.trim();
-
       const newStars = parseFloat(starRange.value);
 
-      store.updatePlayer(id, {
-        name: newName,
-        stars: newStars,
-      });
+      store.updatePlayer(id, { name: newName });
+      store.setPlayerStarsForPeriod(id, newStars, store.selectedPeriodKey || store.currentPeriodKey());
 
       close();
 
