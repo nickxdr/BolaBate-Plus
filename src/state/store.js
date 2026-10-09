@@ -18,6 +18,8 @@ import { initCloudSync, scheduleCloudPush, pushAvatarConfig, initAvatarSync } fr
 
 const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1'; // device-level UX pref — intentionally NOT scoped per pelada
+const VIBRATION_KEY = 'bolabate_vibration_v1'; // end-of-match vibration pref — device-level like the theme
+const MATCH_SOUND_KEY = 'bolabate_match_sound_v1'; // end-of-match notification sound pref — device-level like the theme
 const AVATARS_KEY = 'bolabate_avatars_v1';
 
 // Which pelada (tenant) this device is currently signed into. Read once at
@@ -130,6 +132,9 @@ class Store {
   constructor() {
     this.listeners = new Set();
     this.theme = localStorage.getItem(THEME_KEY) || 'bolabate-dark';
+    // End-of-match alerts (Ajustes tab) — device-level prefs, default ON, editable by every user.
+    this.vibrationEnabled = this.loadDeviceBoolPref(VIBRATION_KEY, true);
+    this.matchSoundEnabled = this.loadDeviceBoolPref(MATCH_SOUND_KEY, true);
     this.isAdmin = false;         // true only for the admin Firebase UID
     this.cloudUserType = null;    // 'admin' | 'anon' | null
     this.cloudStatus = 'connecting';
@@ -182,6 +187,21 @@ class Store {
 
   avatarsKey() {
     return `${AVATARS_KEY}__${this.peladaId || 'none'}`;
+  }
+
+  /**
+   * Device-level boolean UX pref (like the theme): stored unscoped per pelada in
+   * localStorage, falling back to `fallback` the first time this device opens the app.
+   */
+  loadDeviceBoolPref(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === 'true') return true;
+      if (raw === 'false') return false;
+    } catch (e) {
+      console.error('Error loading device preference:', e);
+    }
+    return fallback;
   }
 
   loadPlayers() {
@@ -596,6 +616,8 @@ class Store {
       localStorage.setItem(this.scopedKey('_ranking_bottom_zone'), String(this.rankingBottomZone));
       localStorage.setItem(this.scopedKey('_goalkeeper_mode'), this.goalkeeperMode);
       localStorage.setItem(THEME_KEY, this.theme);
+      localStorage.setItem(VIBRATION_KEY, String(this.vibrationEnabled));
+      localStorage.setItem(MATCH_SOUND_KEY, String(this.matchSoundEnabled));
     } catch (e) {
       console.error('Error saving state:', e);
     }
@@ -653,6 +675,18 @@ class Store {
     const valid = ['dark', 'light', 'bolabate-dark', 'bolabate-light'];
     this.theme = valid.includes(theme) ? theme : 'bolabate-dark';
     this.applyTheme(this.theme);
+    this.save();
+  }
+
+  /** End-of-match vibration (Ajustes tab) — device-level pref, editable by every user. */
+  setVibrationEnabled(enabled) {
+    this.vibrationEnabled = !!enabled;
+    this.save();
+  }
+
+  /** End-of-match notification sound (Ajustes tab) — device-level pref, editable by every user. */
+  setMatchSoundEnabled(enabled) {
+    this.matchSoundEnabled = !!enabled;
     this.save();
   }
 

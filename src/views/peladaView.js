@@ -9,7 +9,7 @@ import { showToast } from "./rankingView.js";
 import { getAvatarDataUri } from "../services/avatar.js";
 import { computeCurrentOVRs } from "../services/ovr.js";
 import confetti from "canvas-confetti";
-import { playSound } from "../services/soundManager.js";
+import { playSound, vibrate } from "../services/soundManager.js";
 
 export function renderPeladaView(onNavigate) {
   const container = document.createElement("div");
@@ -193,7 +193,7 @@ function renderPeladaConfig(container, onNavigate) {
           </div>
 
           <div class="attendance-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button id="btn-quick-fill" class="btn btn-secondary btn-sm" title="Seleciona os primeiros ${maxPlayers} jogadores">
+            <button id="btn-quick-fill" class="btn btn-secondary btn-sm" title="Completa a seleção até ${maxPlayers} jogadores, mantendo os já escolhidos">
               Completar ${maxPlayers}
             </button>
             <button id="btn-clear-selection" class="btn btn-secondary btn-sm">
@@ -298,17 +298,22 @@ function renderPeladaConfig(container, onNavigate) {
       }
     });
 
-    // Bind quick fill
+    // Bind quick fill — tops the selection up to the ceiling instead of resetting
+    // it, so manually picked players (and their diarista marks) are never lost.
+    // Outfield spots only — goalkeepers are chosen by hand and live in keeperIds.
     container.querySelector("#btn-quick-fill").addEventListener("click", () => {
-      const keeperDiaristas = [...keeperIds].filter((id) =>
-        diaristaIds.has(id),
-      );
-      selectedIds.clear();
-      diaristaIds.clear();
-      keeperDiaristas.forEach((id) => diaristaIds.add(id));
-      // Outfield spots only — goalkeepers are chosen by hand.
-      const pool = store.getRankablePlayers().slice(0, maxPlayers);
-      pool.forEach((p) => selectedIds.add(p.id));
+      if (selectedIds.size >= maxPlayers) {
+        showToast(
+          `Você já tem ${maxPlayers} jogadores selecionados (o limite).`,
+        );
+        return;
+      }
+      const pool = store.getRankablePlayers();
+      for (const p of pool) {
+        if (selectedIds.size >= maxPlayers) break;
+        if (selectedIds.has(p.id)) continue;
+        selectedIds.add(p.id);
+      }
       update();
     });
 
@@ -3144,6 +3149,10 @@ function formatDuration(ms) {
 // forcing a full re-render every second (renderLivePelada is recreated on
 // every store mutation, so a per-render interval would leak).
 let matchTimerIntervalStarted = false;
+// timerEndsAt of the last expired countdown that already fired the end-of-match alert —
+// keeps that alert one-shot (pauseMatchTimer is admin-only, so a non-admin viewer's
+// clock stays "expired" on every tick and would otherwise re-fire every second).
+let lastTimeUpAlertFiredFor = null;
 function ensureMatchTimerTicking() {
   if (matchTimerIntervalStarted) return;
   matchTimerIntervalStarted = true;
@@ -3167,6 +3176,13 @@ function ensureMatchTimerTicking() {
     }
 
     if (match.timerRunning && remainingMs <= 0) {
+      // End of match time: notify once per countdown, each alert gated by its own
+      // device-level pref from the Ajustes tab (sound & vibration are independent).
+      if (lastTimeUpAlertFiredFor !== match.timerEndsAt) {
+        lastTimeUpAlertFiredFor = match.timerEndsAt;
+        if (store.matchSoundEnabled) playSound("whistleEnd");
+        if (store.vibrationEnabled) vibrate([250, 100, 250, 100, 500]);
+      }
       store.pauseMatchTimer();
     }
   }, 1000);

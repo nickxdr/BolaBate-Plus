@@ -15,6 +15,7 @@ import {
 } from "../services/cloudSync.js";
 import { auth } from "../services/firebase.js";
 import { goalkeeperModeLabel, stepperMarkup } from "./matchRulesView.js";
+import { playSound, vibrate } from "../services/soundManager.js";
 
 const ROLE_KEY = "bolabate_role_v1";
 
@@ -94,6 +95,61 @@ export function renderSettingsView(navigateTo) {
             <div style="font-size: 0.75rem; color: #64748B; margin-top: 2px;">(Clássico Alto Contraste)</div>
           </div>
         </div>
+      </div>
+
+      <!-- End-of-match alerts: device-level sound & vibration preferences -->
+      <div class="card">
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          🔔 Alertas de Fim de Partida
+        </h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">
+          Escolha como o app avisa quando o tempo da partida zera. As opções valem apenas para este aparelho.
+        </p>
+
+        <div class="rule-row">
+          <div class="rule-row-info">
+            <div class="rule-row-title">📳 Vibração</div>
+            <div class="rule-row-desc">Vibra o celular quando o cronômetro da partida chega a zero.</div>
+          </div>
+          <button
+            type="button"
+            class="rule-toggle ${store.vibrationEnabled ? "on" : ""}"
+            id="toggle-vibration"
+            role="switch"
+            aria-checked="${store.vibrationEnabled ? "true" : "false"}"
+            aria-label="Vibração no fim do tempo da partida"
+          >
+            <span class="rule-toggle-knob"></span>
+          </button>
+        </div>
+
+        <div class="rule-row">
+          <div class="rule-row-info">
+            <div class="rule-row-title">🔔 Som de notificação</div>
+            <div class="rule-row-desc">Toca o apito de fim de jogo quando o tempo da partida acabar.</div>
+          </div>
+          <button
+            type="button"
+            class="rule-toggle ${store.matchSoundEnabled ? "on" : ""}"
+            id="toggle-match-sound"
+            role="switch"
+            aria-checked="${store.matchSoundEnabled ? "true" : "false"}"
+            aria-label="Som de notificação no fim do tempo da partida"
+          >
+            <span class="rule-toggle-knob"></span>
+          </button>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-top: 14px;">
+          <button id="btn-test-vibration" class="btn btn-secondary btn-sm">📳 Testar vibração</button>
+          <button id="btn-test-sound" class="btn btn-secondary btn-sm">🔔 Testar som</button>
+        </div>
+
+        ${
+          typeof navigator.vibrate === "function"
+            ? ""
+            : `<p style="font-size: 0.78rem; color: var(--accent-gold); margin-top: 10px;">⚠️ Este navegador não suporta vibração (ex.: iPhone/Safari) — o som de notificação continua funcionando.</p>`
+        }
       </div>
 
       <!-- Match Format Card (admin-only — regular players have no reason to see this control) -->
@@ -326,6 +382,31 @@ export function renderSettingsView(navigateTo) {
         store.setTheme("light");
         render();
       });
+
+    // Bind end-of-match alerts (device-level prefs, like the theme)
+    container
+      .querySelector("#toggle-vibration")
+      .addEventListener("click", () => {
+        store.setVibrationEnabled(!store.vibrationEnabled);
+        render();
+      });
+
+    container
+      .querySelector("#toggle-match-sound")
+      .addEventListener("click", () => {
+        store.setMatchSoundEnabled(!store.matchSoundEnabled);
+        render();
+      });
+
+    container.querySelector("#btn-test-vibration").addEventListener("click", () => {
+      if (!vibrate([250, 100, 250, 100, 500])) {
+        showToast("⚠️ Este dispositivo/navegador não suporta vibração.");
+      }
+    });
+
+    container.querySelector("#btn-test-sound").addEventListener("click", () => {
+      playSound("whistleEnd");
+    });
 
     // Bind Match Format (5x5 / 6x6)
     function handleTeamSizeClick(size) {
