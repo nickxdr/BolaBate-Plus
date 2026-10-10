@@ -1969,6 +1969,26 @@ class Store {
     return true;
   }
 
+  /**
+   * Registra que o admin AGIU sobre uma sugestão de nota (salvou uma nota diferente
+   * com a sugestão na tela). Enquanto a carreira dele não passar desse snapshot,
+   * suggestPlayerRating() fica quieto — a próxima sugestão exige pelo menos uma nova
+   * pelada jogada por ESSE jogador. Apenas visualizar a sugestão NÃO arma o cooldown.
+   */
+  markRatingSuggestionApplied(playerId) {
+    const player = this.getPlayer(playerId);
+    if (!player) return false;
+
+    const games = (Number(player.participacao) || 0) + (Number(player.gkParticipacao) || 0);
+
+    // Já registrado para a mesma contagem — evita um save()/push de nuvem repetido.
+    if (Number(player.lastRatingSuggestionGames) === games) return false;
+
+    player.lastRatingSuggestionGames = games;
+    this.save();
+    return true;
+  }
+
   isAnnualSelected() {
     return !!this.selectedPeriodKey && String(this.selectedPeriodKey).split('-')[1] === 'anual';
   }

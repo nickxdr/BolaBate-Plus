@@ -1214,12 +1214,18 @@ export function renderPlayersView() {
 
     const modalContainer = document.getElementById("modal-container");
 
+    // Nota atual antes de qualquer edição — usada para saber se o admin REALMENTE
+    // mexeu na nota ao salvar (o cooldown da sugestão só arma nesse caso: apenas
+    // abrir e fechar o modal não pausa nada).
+    const originalStars = Number(player.stars);
+
     // The rating suggestion is based on goals/assists, which goalkeepers don't have.
-    const suggestionHtml = isGoalkeeper(player)
-      ? ""
-      : buildRatingSuggestionHtml(
-          suggestPlayerRating(store.monthlyStats, player, store.currentPeriodKey()),
-        );
+    // It must live in its own variable: the "Aplicar sugestão" button reads it on click.
+    const suggestion = isGoalkeeper(player)
+      ? null
+      : suggestPlayerRating(store.monthlyStats, player, store.currentPeriodKey());
+
+    const suggestionHtml = suggestion ? buildRatingSuggestionHtml(suggestion) : "";
 
     modalContainer.innerHTML = `
       <div
@@ -1346,7 +1352,7 @@ export function renderPlayersView() {
 
     const applyBtn = modalContainer.querySelector("#apply-rating-suggestion");
 
-    if (applyBtn) {
+    if (applyBtn && suggestion) {
       applyBtn.addEventListener("click", () => {
         starRange.value = String(suggestion.suggestedStars);
 
@@ -1363,8 +1369,17 @@ export function renderPlayersView() {
       const newName = form.name.value.trim();
       const newStars = parseFloat(starRange.value);
 
-      store.updatePlayer(id, { name: newName });
+      // Jogadores (badge, busca/filtro e o slider do modal) lê player.stars, enquanto o
+      // Ranking lê a nota do período — gravamos nas duas para a mudança ser visível.
+      store.updatePlayer(id, { name: newName, stars: newStars });
       store.setPlayerStarsForPeriod(id, newStars, store.selectedPeriodKey || store.currentPeriodKey());
+
+      // Uma sugestão por pelada jogada: o cooldown só arma quando o admin muda a nota
+      // com uma sugestão real na tela. Salvar sem mexer na nota (ou só abrir/fechar o
+      // modal) deixa a sugestão intacta para a próxima abertura.
+      if (suggestion && suggestion.direction !== "keep" && Number(newStars) !== originalStars) {
+        store.markRatingSuggestionApplied(id);
+      }
 
       close();
 
@@ -1378,8 +1393,14 @@ export function renderPlayersView() {
    * Painel de sugestão de nota dentro do modal de edição.
    */
   function buildRatingSuggestionHtml(suggestion) {
-    const tone =
-      suggestion.direction === "up"
+    const tone = suggestion.cooldown
+      ? {
+          border: "var(--border-color)",
+          bg: "var(--bg-card-subtle)",
+          icon: "⏸️",
+          title: "Sugestão pausada — aguardando nova pelada",
+        }
+      : suggestion.direction === "up"
         ? {
             border: "rgba(16,185,129,.45)",
             bg: "rgba(16,185,129,.10)",
