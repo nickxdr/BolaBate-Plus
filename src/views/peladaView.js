@@ -19,8 +19,21 @@ export function renderPeladaView(onNavigate) {
 
   if (status === "live") {
     renderLivePelada(container, onNavigate);
-  } else if (!store.isAdmin) {
+  } else if (!store.canControlPelada()) {
     renderWaitingForAdmin(container);
+    if (store.isAdmin && status === "setup") {
+      container.innerHTML = `
+        ${renderControlBanner()}
+        <div class="control-setup-note">
+          <div style="font-size: 2.4rem;">🧩</div>
+          <h1 style="font-size: 1.2rem; font-weight: 800;">Times sendo montados em outro aparelho</h1>
+          <p style="color: var(--text-muted); font-size: 0.88rem; max-width: 360px;">
+            Assuma o controle para ver e editar os times e começar a pelada daqui.
+          </p>
+        </div>
+      `;
+      bindControlBanner(container);
+    }
   } else if (status === "setup") {
     renderSetupTeams(container, onNavigate);
   } else {
@@ -33,6 +46,71 @@ export function renderPeladaView(onNavigate) {
 // ----------------------------------------------------
 // 0. Waiting Screen — shown to non-admins while there's no live pelada
 // ----------------------------------------------------
+/**
+ * "Controle da pelada" banner: only one device can change a pelada in setup/live. Shown to
+ * admins on every other device (read-only), with a button to move the control here.
+ */
+function renderControlBanner() {
+  const pelada = store.activePelada;
+  if (!store.isAdmin || pelada.status === "idle") return "";
+  const control = pelada.control;
+  if (!control || store.hasPeladaControl()) return "";
+  const since = control.at
+    ? new Date(control.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : "";
+  return `
+    <div class="control-banner">
+      <div class="control-banner-text">
+        <strong>🔒 Controle da pelada: ${escapeHtml(control.name || "Admin")} (${escapeHtml(control.device || "aparelho")})</strong>
+        <span>${since ? `Desde ${since}. ` : ""}Neste aparelho você só acompanha.</span>
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" id="btn-take-control">📱 Assumir controle</button>
+    </div>
+  `;
+}
+
+function bindControlBanner(container) {
+  container.querySelector("#btn-take-control")?.addEventListener("click", openTakeControlModal);
+}
+
+function openTakeControlModal() {
+  const control = store.activePelada.control;
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="take-control-overlay">
+      <div class="modal-content" style="max-width: 440px;">
+        <div class="modal-header">
+          <h2 class="modal-title">📱 Assumir o controle?</h2>
+          <button class="modal-close" id="take-control-close" title="Fechar">✕</button>
+        </div>
+        <p style="font-size: 0.9rem; line-height: 1.6;">
+          Este aparelho passa a gerenciar a pelada (gols, cronômetro, partidas).
+          ${control ? `O aparelho de <strong>${escapeHtml(control.name || "Admin")}</strong> (${escapeHtml(control.device || "aparelho")}) passa a só acompanhar — ações que ele ainda não tiver salvado não serão aplicadas.` : ""}
+        </p>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+          <button id="take-control-cancel" class="btn btn-secondary">Cancelar</button>
+          <button id="take-control-confirm" class="btn btn-primary">Assumir controle</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#take-control-overlay");
+  modalContainer.querySelector("#take-control-close").addEventListener("click", close);
+  modalContainer.querySelector("#take-control-cancel").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  modalContainer.querySelector("#take-control-confirm").addEventListener("click", () => {
+    const result = store.takePeladaControl();
+    close();
+    if (result?.success) showToast("📱 Você está no controle da pelada.");
+    else if (result?.error) showToast("⚠️ " + result.error);
+  });
+}
+
 function renderWaitingForAdmin(container) {
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; min-height: calc(100vh - var(--header-height) - var(--nav-height) - 32px);">
@@ -249,8 +327,8 @@ function renderPeladaConfig(container, onNavigate) {
         }
 
         <div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
-          <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady || !store.isAdmin ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ""}>
-            ${store.isAdmin ? `Avançar para Montagem dos Times (${count} jogadores → ${effectiveTeamCount} times)` : "🔒 Apenas o admin pode iniciar a pelada"}
+          <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady || !store.canControlPelada() ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ""}>
+            ${store.canControlPelada() ? `Avançar para Montagem dos Times (${count} jogadores → ${effectiveTeamCount} times)` : "🔒 Apenas o admin pode iniciar a pelada"}
           </button>
           ${
             !isReady
@@ -380,7 +458,7 @@ function renderPeladaConfig(container, onNavigate) {
 
     // Bind advance
     const advanceBtn = container.querySelector("#btn-advance-setup");
-    if (isReady && store.isAdmin && advanceBtn) {
+    if (isReady && store.canControlPelada() && advanceBtn) {
       advanceBtn.addEventListener("click", () => {
         store.startPeladaSetup(
           effectiveTeamCount,
@@ -671,8 +749,8 @@ function renderSetupTeams(container, onNavigate) {
     container
       .querySelector("#btn-cancel-setup")
       .addEventListener("click", () => {
-        store.activePelada.status = "idle";
-        store.save();
+        const result = store.backToPeladaConfig();
+        if (result?.success === false) return;
         renderPeladaConfig(container, onNavigate);
       });
 
@@ -958,7 +1036,7 @@ function renderSetupTeamGoalkeeperSlot(pelada, team) {
   return `
     <div class="setup-gk-slot">
       <span class="setup-gk-slot-label">🧤 Goleiro</span>
-      <select class="input-field setup-gk-select" data-team-id="${team.id}" ${store.isAdmin ? "" : "disabled"}>
+      <select class="input-field setup-gk-select" data-team-id="${team.id}" ${store.canControlPelada() ? "" : "disabled"}>
         <option value="">Sem goleiro</option>
         ${options.map((p) => `<option value="${p.id}" ${p.id === current ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
       </select>
@@ -973,7 +1051,7 @@ function renderLivePelada(container, onNavigate) {
   const pelada = store.activePelada;
 
   // Self-heal: peladas started before the rotation feature existed won't have it yet
-  if (store.isAdmin && !pelada.rotation) {
+  if (store.canControlPelada() && !store.cloudSyncing && !pelada.rotation) {
     store.ensureRotation();
   }
 
@@ -1071,6 +1149,7 @@ function renderLivePelada(container, onNavigate) {
   }
 
   /** Regenerates just the timer/finish button row + its status labels, and rebinds them. */
+  refreshMountedMatchControls = () => refreshMatchControls();
   function refreshMatchControls() {
     const match = pelada.rotation?.currentMatch;
     if (!match) return;
@@ -1095,10 +1174,10 @@ function renderLivePelada(container, onNavigate) {
 
     barEl.innerHTML = `
       ${
-        match.timerRunning
-          ? `<button id="btn-pause-timer" class="btn btn-secondary">⏸️ Pausar</button>`
-          : timeUp
-            ? ""
+        timeUp
+          ? ""
+          : match.timerRunning
+            ? `<button id="btn-pause-timer" class="btn btn-secondary">⏸️ Pausar</button>`
             : `<button id="btn-start-timer" class="btn btn-secondary">${notStarted ? "▶️ Iniciar" : "▶️ Retomar"}</button>`
       }
       <button id="btn-finish-match" class="btn btn-gold" ${canFinish ? "" : "disabled"}>
@@ -1183,6 +1262,7 @@ function renderLivePelada(container, onNavigate) {
     }
 
     container.innerHTML = `
+      ${renderControlBanner()}
       <div style="margin-bottom: 16px;">
         <h1 style="font-size: 1.6rem; font-weight: 800;">
           Controle de Gols & Assistências
@@ -1204,7 +1284,7 @@ function renderLivePelada(container, onNavigate) {
 
         ${renderGoalkeeperWidget(pelada, match, teamA, teamB)}
       `
-          : !store.isAdmin
+          : !store.canControlPelada()
             ? `
         <div class="card" style="text-align: center; padding: 32px 16px;">
           <p style="font-size: 0.95rem; color: var(--text-muted);">Aguardando o admin escolher o primeiro confronto...</p>
@@ -1233,7 +1313,7 @@ function renderLivePelada(container, onNavigate) {
       }
 
       ${
-        store.isAdmin
+        store.canControlPelada()
           ? `
         <button id="btn-finish-pelada" class="btn btn-red btn-lg" style="margin-top: 24px;">
           🏁 Terminar Pelada
@@ -1242,6 +1322,7 @@ function renderLivePelada(container, onNavigate) {
           : ""
       }
     `;
+    bindControlBanner(container);
 
     // Bind Goal / Assist clicks — patched in place (see patchPlayerCounters/patchScoreboard
     // above) instead of a full render(), since these fire constantly during a live match.
@@ -2427,7 +2508,7 @@ function renderMatchPanel(
   pendingMatchSelection = [],
 ) {
   if (!rotation || !match || !teamA || !teamB) {
-    if (rotation && store.isAdmin) {
+    if (rotation && store.canControlPelada()) {
       const selectedCount = pendingMatchSelection.length;
       return `
         <div class="card" style="text-align: center; padding: 24px 16px;">
@@ -2544,7 +2625,7 @@ function renderMatchPanel(
     </div>
 
     ${
-      store.isAdmin
+      store.canControlPelada()
         ? `
       <div class="match-controls">
         <div class="match-controls-info">
@@ -2553,10 +2634,10 @@ function renderMatchPanel(
         </div>
         <div class="match-controls-buttons">
           ${
-            match.timerRunning
-              ? `<button id="btn-pause-timer" class="btn btn-secondary">⏸️ Pausar</button>`
-              : timeUp
-                ? ""
+            timeUp
+              ? ""
+              : match.timerRunning
+                ? `<button id="btn-pause-timer" class="btn btn-secondary">⏸️ Pausar</button>`
                 : `<button id="btn-start-timer" class="btn btn-secondary">${notStarted ? "▶️ Iniciar" : "▶️ Retomar"}</button>`
           }
           <button id="btn-finish-match" class="btn btn-gold" ${canFinish ? "" : "disabled"}>
@@ -2600,7 +2681,7 @@ function renderGoalkeeperWidget(pelada, match, teamA, teamB) {
   const departed = new Set(pelada.departedGoalkeeperIds || []);
   const diaristas = new Set(pelada.diaristaPlayerIds || []);
   const locked = store.isMatchUnderway(match);
-  const admin = store.isAdmin;
+  const admin = store.canControlPelada();
 
   const keeperBody = (gkId, actions = "") => {
     const player = store.getPlayer(gkId);
@@ -2879,7 +2960,7 @@ function renderActiveTeamCard(pelada, team) {
                       Saiu (${pStat.goals}G / ${pStat.assists}A)
                     </span>
                     ${
-                      store.isAdmin
+                      store.canControlPelada()
                         ? `
                       <button class="btn btn-primary btn-sm btn-revert-departure" data-id="${p.id}" data-team="${team.id}" title="Reverter saída e voltar ao jogo" style="padding: 3px 8px; font-size: 0.72rem; white-space: nowrap;">
                         ↩️ Voltar
@@ -2889,7 +2970,7 @@ function renderActiveTeamCard(pelada, team) {
                     }
                   </div>
                 `
-                    : store.isAdmin
+                    : store.canControlPelada()
                       ? `
                   <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
                     ${
@@ -2915,7 +2996,7 @@ function renderActiveTeamCard(pelada, team) {
               </div>
 
               ${
-                !isDeparted && store.isAdmin
+                !isDeparted && store.canControlPelada()
                   ? `
                 <div class="live-controls">
                   <!-- Goal Counter -->
@@ -2966,7 +3047,7 @@ function renderActiveTeamCard(pelada, team) {
 
               <div class="live-controls">
                 ${
-                  store.isAdmin
+                  store.canControlPelada()
                     ? `
                   <!-- Guest Goal Counter (Does not count in ranking) -->
                   <div class="stat-counter" title="Gols do Convidado (não contam para ranking)">
@@ -2997,7 +3078,7 @@ function renderActiveTeamCard(pelada, team) {
         <!-- Team needs completion: fewer than 5 active players (started under-strength or a completer got reclaimed) -->
         ${
           shortfall > 0
-            ? store.isAdmin
+            ? store.canControlPelada()
               ? `
           <button class="btn-complete-team" data-team="${team.id}">
             ➕ Time incompleto (${completeness}/${store.teamSize}) — sugerir jogador para completar
@@ -3028,7 +3109,7 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
 
   const queue = rotation.waitingTeamIds;
   const departed = new Set(pelada.departedPlayerIds || []);
-  const pickingFirstMatch = store.isAdmin && !rotation.currentMatch;
+  const pickingFirstMatch = store.canControlPelada() && !rotation.currentMatch;
 
   // Lets the admin swap out an automatically-assigned team before the match actually starts.
   const match = rotation.currentMatch;
@@ -3038,7 +3119,7 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
     match.timerRemainingMs === match.timerDurationMs &&
     match.scoreA === 0 &&
     match.scoreB === 0;
-  const canSubstitute = store.isAdmin && matchNotStarted;
+  const canSubstitute = store.canControlPelada() && matchNotStarted;
   const currentMatchTeamA = match
     ? pelada.teams.find((t) => t.id === match.teamAId)
     : null;
@@ -3049,7 +3130,7 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
   return `
     <div class="card" style="margin-top: 20px;">
       <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
-        ⏳ Fila de Espera ${store.isAdmin ? '<span style="font-weight: 400; font-size: 0.78rem;">(arraste ou use ▲▼ para reordenar)</span>' : ""}
+        ⏳ Fila de Espera ${store.canControlPelada() ? '<span style="font-weight: 400; font-size: 0.78rem;">(arraste ou use ▲▼ para reordenar)</span>' : ""}
       </h3>
       <div class="waiting-queue-list">
         ${queue
@@ -3063,14 +3144,14 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
             const isSelected = pendingMatchSelection.includes(teamId);
 
             return `
-            <div class="waiting-team-card ${isSelected ? "selected-for-match" : ""}" data-team-id="${team.id}" style="border-left: 4px solid ${team.color};" ${store.isAdmin ? 'draggable="true"' : ""}>
+            <div class="waiting-team-card ${isSelected ? "selected-for-match" : ""}" data-team-id="${team.id}" style="border-left: 4px solid ${team.color};" ${store.canControlPelada() ? 'draggable="true"' : ""}>
               <div class="waiting-team-header">
-                ${store.isAdmin ? '<span class="waiting-team-drag-handle" title="Arraste para reordenar">⠿</span>' : ""}
+                ${store.canControlPelada() ? '<span class="waiting-team-drag-handle" title="Arraste para reordenar">⠿</span>' : ""}
                 <span class="waiting-team-position">${idx + 1}º</span>
                 <span style="font-weight: 800;">${escapeHtml(team.name)}</span>
                 <span class="waiting-team-completeness ${completeness < store.teamSize ? "incomplete" : ""}">${completeness}/${store.teamSize} disponíveis</span>
                 ${
-                  store.isAdmin
+                  store.canControlPelada()
                     ? `
                   <div class="waiting-team-reorder-btns">
                     <button class="btn-queue-up" data-team="${team.id}" title="Subir na fila" ${idx === 0 ? "disabled" : ""}>▲</button>
@@ -3088,7 +3169,7 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
                     <span class="waiting-player-chip ${isDeparted ? "departed" : ""}">
                       ${escapeHtml(p.name)}
                       ${
-                        store.isAdmin
+                        store.canControlPelada()
                           ? `
                         <button class="waiting-player-toggle" data-id="${p.id}" data-team="${team.id}" data-departed="${isDeparted}" title="${isDeparted ? "Marcar como disponível" : "Marcar como ausente"}">
                           ${isDeparted ? "↩️" : "🚪"}
@@ -3149,6 +3230,8 @@ function formatDuration(ms) {
 // forcing a full re-render every second (renderLivePelada is recreated on
 // every store mutation, so a per-render interval would leak).
 let matchTimerIntervalStarted = false;
+// Set by the mounted live view — lets the timer tick refresh its buttons when time runs out.
+let refreshMountedMatchControls = null;
 // timerEndsAt of the last expired countdown that already fired the end-of-match alert —
 // keeps that alert one-shot (pauseMatchTimer is admin-only, so a non-admin viewer's
 // clock stays "expired" on every tick and would otherwise re-fire every second).
@@ -3178,12 +3261,15 @@ function ensureMatchTimerTicking() {
     if (match.timerRunning && remainingMs <= 0) {
       // End of match time: notify once per countdown, each alert gated by its own
       // device-level pref from the Ajustes tab (sound & vibration are independent).
+      // Nothing is saved here: "time up" is derived from timerEndsAt on every device.
+      // (This used to pause the timer — a cloud write from EVERY admin device at the same
+      // moment, which let a device with a stale copy overwrite the latest goals.)
       if (lastTimeUpAlertFiredFor !== match.timerEndsAt) {
         lastTimeUpAlertFiredFor = match.timerEndsAt;
         if (store.matchSoundEnabled) playSound("whistleEnd");
         if (store.vibrationEnabled) vibrate([250, 100, 250, 100, 500]);
+        if (refreshMountedMatchControls) refreshMountedMatchControls();
       }
-      store.pauseMatchTimer();
     }
   }, 1000);
 }

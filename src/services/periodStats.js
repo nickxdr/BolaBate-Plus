@@ -216,6 +216,9 @@ export function applyHistoryEntryToPeriod(period, entry) {
   const participating = new Set(
     Object.keys(teamByPlayer).filter(pid => !diaristas.has(pid))
   );
+  // Players whose "+1 participação" an admin removed in Histórico (goals, assists and
+  // W/D/L still count).
+  const noParticipation = new Set(entry.noParticipationIds || []);
 
   participating.forEach(pid => {
     if (!period.players[pid]) period.players[pid] = emptyPlayerStats();
@@ -223,7 +226,7 @@ export function applyHistoryEntryToPeriod(period, entry) {
     const record = historyRecordFor(entry, pid, teamByPlayer[pid]);
     period.players[pid].goals += Number(stats.goals) || 0;
     period.players[pid].assists += Number(stats.assists) || 0;
-    period.players[pid].participacao += 1;
+    if (!noParticipation.has(pid)) period.players[pid].participacao += 1;
     period.players[pid].wins += Number(record.wins) || 0;
     period.players[pid].draws += Number(record.draws) || 0;
     period.players[pid].losses += Number(record.losses) || 0;
@@ -271,6 +274,9 @@ export function removeHistoryEntryFromPeriod(period, entry) {
   const participating = new Set(
     Object.keys(teamByPlayer).filter(pid => !diaristas.has(pid))
   );
+  // Players whose "+1 participação" an admin removed in Histórico (goals, assists and
+  // W/D/L still count).
+  const noParticipation = new Set(entry.noParticipationIds || []);
 
   participating.forEach(pid => {
     const target = period.players[pid];
@@ -279,7 +285,7 @@ export function removeHistoryEntryFromPeriod(period, entry) {
     const record = historyRecordFor(entry, pid, teamByPlayer[pid]);
     target.goals = Math.max(0, target.goals - (Number(stats.goals) || 0));
     target.assists = Math.max(0, target.assists - (Number(stats.assists) || 0));
-    target.participacao = Math.max(0, target.participacao - 1);
+    if (!noParticipation.has(pid)) target.participacao = Math.max(0, target.participacao - 1);
     target.wins = Math.max(0, target.wins - (Number(record.wins) || 0));
     target.draws = Math.max(0, target.draws - (Number(record.draws) || 0));
     target.losses = Math.max(0, target.losses - (Number(record.losses) || 0));

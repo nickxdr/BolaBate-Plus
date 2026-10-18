@@ -83,14 +83,24 @@ service cloud.firestore {
     // below. Doc id is the real peladaId (e.g. "bolabate"), not a fixed name.
     match /cloud/{peladaId} {
       allow read: if request.auth != null && !isPeladaBlocked(peladaId);
-      allow write: if isPeladaAdmin(peladaId) && !isPeladaBlocked(peladaId);
+      allow create, delete: if isPeladaAdmin(peladaId) && !isPeladaBlocked(peladaId);
+      // Every save must bump `revision` by exactly one (see cloudSync.js's flush): a device
+      // holding an outdated copy can't overwrite newer data — its write is rejected and it
+      // rebuilds on top of the latest version. Also stops old app versions from writing.
+      allow update: if isPeladaAdmin(peladaId) && !isPeladaBlocked(peladaId) &&
+        request.resource.data.revision == resource.data.get('revision', 0) + 1;
       match /avatars/{playerId} {
         allow read, write: if request.auth != null && !isPeladaBlocked(peladaId);
       }
     }
     match /cloud-dev/{peladaId} {
       allow read: if request.auth != null && !isPeladaBlocked(peladaId);
-      allow write: if isPeladaAdmin(peladaId) && !isPeladaBlocked(peladaId);
+      allow create, delete: if isPeladaAdmin(peladaId) && !isPeladaBlocked(peladaId);
+      // Every save must bump `revision` by exactly one (see cloudSync.js's flush): a device
+      // holding an outdated copy can't overwrite newer data — its write is rejected and it
+      // rebuilds on top of the latest version. Also stops old app versions from writing.
+      allow update: if isPeladaAdmin(peladaId) && !isPeladaBlocked(peladaId) &&
+        request.resource.data.revision == resource.data.get('revision', 0) + 1;
       match /avatars/{playerId} {
         allow read, write: if request.auth != null && !isPeladaBlocked(peladaId);
       }

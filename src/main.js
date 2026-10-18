@@ -23,6 +23,7 @@ async function initApp() {
   store.onBlocked = () => {
     showToast("🔒 Apenas o administrador pode editar os dados da liga.");
   };
+  store.onNotice = (message) => showToast(message);
   store.onCloudStatus = (status) => {
     const badge = document.getElementById("cloud-status-badge");
     if (badge) {
@@ -32,6 +33,9 @@ async function initApp() {
         connecting: ["🟡", "Conectando..."],
         empty: ["🟡", "Nuvem vazia"],
         error: ["🔴", "Offline"],
+        syncing: ["🟡", "Sincronizando..."],
+        saving: ["🟡", "Salvando..."],
+        pending: ["🟠", "Offline — alterações pendentes"],
       };
       const [dot, label] = map[status] || ["⚪", status];
       badge.textContent = `${dot} ${label}`;

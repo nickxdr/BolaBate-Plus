@@ -78,7 +78,7 @@ export function renderHistoryView() {
       <div class="history-card-body"${isExpanded ? '' : ' hidden'}>
         ${store.isAdmin ? `
         <div class="history-stats-edit-bar">
-          <button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ ${(entry.goalkeeperIds || []).length ? 'Editar estatísticas' : 'Editar gols e assistências'}</button>
+          <button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ Editar estatísticas</button>
         </div>
         ` : ''}
         <div class="history-teams-grid">
@@ -318,7 +318,15 @@ function bindSelecaoPicker(picker) {
 function openEditHistoryStatsModal(entry) {
   const modalContainer = document.getElementById('modal-container');
   const diaristas = new Set(entry.diaristaPlayerIds || []);
+  const noParticipation = new Set(entry.noParticipationIds || []);
   const draft = {};
+
+  const participationChip = (pid, counts) => `
+    <button type="button" class="history-part-toggle${counts ? '' : ' off'}" data-pid="${pid}"
+      title="${counts ? 'Participação conta no ranking — toque para tirar' : 'Participação fora do ranking — toque para devolver'}">
+      ${counts ? '✅ Part.' : '🚫 Part.'}
+    </button>
+  `;
 
   const stepper = (pid, field, value) => `
     <div class="history-stat-stepper" data-pid="${pid}" data-field="${field}">
@@ -335,12 +343,17 @@ function openEditHistoryStatsModal(entry) {
       const stats = entry.stats?.[pid] || {};
       const goals = Number(stats.goals) || 0;
       const assists = Number(stats.assists) || 0;
-      draft[pid] = { goals, assists };
+      const isDiarista = diaristas.has(pid);
+      const countsParticipation = !noParticipation.has(pid);
+      draft[pid] = isDiarista ? { goals, assists } : { goals, assists, countsParticipation };
       return `
         <div class="history-stats-edit-row">
           <span class="history-stats-edit-name">
-            ${escapeHtml(player.name)}
-            ${diaristas.has(pid) ? '<span class="diarista-badge" title="Diarista — não conta no ranking">💰</span>' : ''}
+            <span class="history-stats-edit-name-text">
+              ${escapeHtml(player.name)}
+              ${isDiarista ? '<span class="diarista-badge" title="Diarista — não conta no ranking">💰</span>' : ''}
+            </span>
+            ${isDiarista ? '' : participationChip(pid, countsParticipation)}
           </span>
           <span class="history-stats-edit-field"><span class="history-stats-edit-icon">⚽</span>${stepper(pid, 'goals', goals)}</span>
           <span class="history-stats-edit-field"><span class="history-stats-edit-icon">👟</span>${stepper(pid, 'assists', assists)}</span>
@@ -389,12 +402,12 @@ function openEditHistoryStatsModal(entry) {
     <div class="modal-overlay" id="edit-history-stats-overlay">
       <div class="modal-content" style="max-width: 560px;">
         <div class="modal-header">
-          <h2 class="modal-title">✏️ ${keeperRows ? 'Estatísticas' : 'Gols e assistências'} — ${escapeHtml(entry.date || '')}</h2>
+          <h2 class="modal-title">✏️ Estatísticas — ${escapeHtml(entry.date || '')}</h2>
           <button class="modal-close" id="edit-history-stats-close" title="Fechar">✕</button>
         </div>
 
         <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">
-          Corrija os números desta pelada. Ao salvar, o ranking do mês é atualizado automaticamente.
+          Corrija os números desta pelada. Toque em <strong>✅ Part.</strong> para tirar a participação de um jogador do ranking (gols e assistências continuam contando). Ao salvar, o ranking do mês é atualizado automaticamente.
           Diaristas (💰) ficam registrados na pelada, mas não contam no ranking.
         </p>
 
@@ -422,6 +435,18 @@ function openEditHistoryStatsModal(entry) {
   );
 
   modalContainer.querySelector('.history-stats-edit-list').addEventListener('click', (e) => {
+    const toggle = e.target.closest('.history-part-toggle');
+    if (toggle) {
+      const { pid } = toggle.dataset;
+      const counts = !draft[pid].countsParticipation;
+      draft[pid].countsParticipation = counts;
+      toggle.outerHTML = participationChip(pid, counts);
+      modalContainer
+        .querySelector(`.history-part-toggle[data-pid="${pid}"]`)
+        .classList.toggle('changed', counts !== original[pid].countsParticipation);
+      saveBtn.disabled = changedPlayers().length === 0;
+      return;
+    }
     const btn = e.target.closest('.history-stat-step');
     if (!btn) return;
     const box = btn.closest('.history-stat-stepper');
@@ -530,6 +555,7 @@ function renderAwardsSummary(entry) {
 
 function renderTeamsSection(entry) {
   const diaristas = new Set(entry.diaristaPlayerIds || []);
+  const noParticipation = new Set(entry.noParticipationIds || []);
 
   return (entry.teams || []).map(team => {
     const rows = (team.playerIds || []).map(pid => {
@@ -541,10 +567,11 @@ function renderTeamsSection(entry) {
       const assists = Number(stats.assists) || 0;
       const hasActivity = goals > 0 || assists > 0;
       const isDiarista = diaristas.has(pid);
+      const noPart = !isDiarista && noParticipation.has(pid);
 
       return `
         <div class="history-player-row${hasActivity ? ' active' : ''}${isDiarista ? ' diarista' : ''}">
-          <span class="history-player-name">${escapeHtml(player.name)}${isDiarista ? ' <span class="diarista-badge">💰 <span class="diarista-badge-label">Diarista</span></span>' : ''}</span>
+          <span class="history-player-name">${escapeHtml(player.name)}${isDiarista ? ' <span class="diarista-badge">💰 <span class="diarista-badge-label">Diarista</span></span>' : ''}${noPart ? ' <span class="history-no-part-badge" title="Participação fora do ranking">🚫 Sem part.</span>' : ''}</span>
           <span class="history-player-stats">
             <span class="history-player-stat goals">⚽ ${goals}</span>
             <span class="history-player-stat assists">👟 ${assists}</span>

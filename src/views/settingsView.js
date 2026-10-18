@@ -1,4 +1,10 @@
-import { store, PELADA_ID_KEY, PELADA_NAME_KEY, MIN_RANKING_ZONE, MAX_RANKING_ZONE } from "../state/store.js";
+import {
+  store,
+  PELADA_ID_KEY,
+  PELADA_NAME_KEY,
+  MIN_RANKING_ZONE,
+  MAX_RANKING_ZONE,
+} from "../state/store.js";
 import { showToast } from "./rankingView.js";
 import {
   loginAdmin,
@@ -348,7 +354,7 @@ export function renderSettingsView(navigateTo) {
       <!-- App Info Card -->
       <div class="card" style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
         <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">
-          📱 BolaBate+ v6.0 (Web & Android APK)
+          📱 BolaBate+ v6.2 (Web & Android APK)
         </h3>
         <p>• Suporta instalação como <strong>PWA</strong> direto pelo navegador (Chrome/Edge).</p>
         <p>• Compatível com empacotamento nativo <strong>Android APK</strong> via Capacitor.</p>
@@ -398,11 +404,13 @@ export function renderSettingsView(navigateTo) {
         render();
       });
 
-    container.querySelector("#btn-test-vibration").addEventListener("click", () => {
-      if (!vibrate([250, 100, 250, 100, 500])) {
-        showToast("⚠️ Este dispositivo/navegador não suporta vibração.");
-      }
-    });
+    container
+      .querySelector("#btn-test-vibration")
+      .addEventListener("click", () => {
+        if (!vibrate([250, 100, 250, 100, 500])) {
+          showToast("⚠️ Este dispositivo/navegador não suporta vibração.");
+        }
+      });
 
     container.querySelector("#btn-test-sound").addEventListener("click", () => {
       playSound("whistleEnd");
@@ -433,20 +441,32 @@ export function renderSettingsView(navigateTo) {
       ["ranking-top", "top", "G"],
       ["ranking-bottom", "bottom", "Z"],
     ].forEach(([idPrefix, key, letter]) => {
-      const current = () => (key === "top" ? store.rankingTopZone : store.rankingBottomZone);
+      const current = () =>
+        key === "top" ? store.rankingTopZone : store.rankingBottomZone;
       const change = (delta) => {
-        const next = Math.min(MAX_RANKING_ZONE, Math.max(MIN_RANKING_ZONE, current() + delta));
+        const next = Math.min(
+          MAX_RANKING_ZONE,
+          Math.max(MIN_RANKING_ZONE, current() + delta),
+        );
         if (next === current()) return;
         const result = store.setRankingZones({ [key]: next });
         if (result?.success === false) {
           showToast("❌ " + result.error);
           return;
         }
-        showToast(next ? `🏆 Ranking agora usa ${letter}${next}.` : `🏆 Zona ${letter} desligada.`);
+        showToast(
+          next
+            ? `🏆 Ranking agora usa ${letter}${next}.`
+            : `🏆 Zona ${letter} desligada.`,
+        );
         render();
       };
-      container.querySelector(`#${idPrefix}-minus`)?.addEventListener("click", () => change(-1));
-      container.querySelector(`#${idPrefix}-plus`)?.addEventListener("click", () => change(1));
+      container
+        .querySelector(`#${idPrefix}-minus`)
+        ?.addEventListener("click", () => change(-1));
+      container
+        .querySelector(`#${idPrefix}-plus`)
+        ?.addEventListener("click", () => change(1));
     });
 
     // Team-size buttons only exist in the DOM for admins (the whole card is hidden otherwise).
@@ -818,8 +838,12 @@ function openDeletePeladaModal(peladaId, name, onDone) {
   const overlay = modalContainer.querySelector("#pelada-delete-overlay");
   const input = modalContainer.querySelector("#pelada-delete-input");
   const confirmBtn = modalContainer.querySelector("#pelada-delete-confirm");
-  modalContainer.querySelector("#pelada-delete-close").addEventListener("click", close);
-  modalContainer.querySelector("#pelada-delete-cancel").addEventListener("click", close);
+  modalContainer
+    .querySelector("#pelada-delete-close")
+    .addEventListener("click", close);
+  modalContainer
+    .querySelector("#pelada-delete-cancel")
+    .addEventListener("click", close);
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
