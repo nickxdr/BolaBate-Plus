@@ -8,8 +8,10 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
+  runTransaction,
   setDoc,
 } from "firebase/firestore";
 import { initializeApp, getApps } from "firebase/app";
@@ -154,13 +156,89 @@ export async function removeAdminAccount(uid, peladaId) {
   return { success: true };
 }
 
-const PUSH_DEBOUNCE_MS = 600;
+// --- Cloud write model ---------------------------------------------------------
+// The whole league is ONE document, so a plain overwrite from a device holding an
+// outdated copy (a phone back from the background, a second admin with the app open)
+// silently erases newer changes — goals, a finished pelada, etc. Instead:
+//  - Admin actions (store methods in ADMIN_ONLY_METHODS) are recorded as operations
+//    (recordCloudOp) and persisted, so they survive the app being killed.
+//  - A flush writes inside a transaction guarded by a `revision` counter (firestore.rules
+//    also requires every update to bump it by exactly one). If the server is still at the
+//    revision this device's copy was built on, the local state is written as-is.
+//  - If another device saved first, this device loads the server version, re-applies its
+//    pending operations on top of it (replay) and writes THAT — never a blind overwrite.
+//    Operations that no longer apply (e.g. another device took the pelada's control)
+//    are dropped and the admin is told.
+const FLUSH_DEBOUNCE_MS = 400;
+const RETRY_DELAY_MS = 5000;
+// After opening the app or returning from the background, admin actions wait this long at
+// most for the server's current version (then the revision check is the safety net).
+const SYNC_GRACE_MS = 6000;
 
 let storeRef = null;
-let lastWriteId = null; // echoes of our own writes are ignored
-let pushTimer = null;
-let pushInFlight = null;
 let started = false;
+
+// writes: this device's recent saves ({ writeId, seq } = which actions each one carried).
+// A save can land on the server while its confirmation is lost (signal drops right then);
+// recognising it later keeps its actions from being applied twice.
+let sync = { baseRevision: null, ops: [], seq: 0, writes: [] };
+let flushTimer = null;
+let retryTimer = null;
+let flushing = false;
+let flushAgain = false;
+let deferredRemote = null; // server data that arrived while we still had pending operations
+let syncGraceTimer = null;
+
+function syncKey() {
+  return storeRef.scopedKey("_sync");
+}
+
+function loadSyncState() {
+  try {
+    const raw = localStorage.getItem(syncKey());
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    sync = {
+      baseRevision: Number.isFinite(parsed.baseRevision) ? parsed.baseRevision : null,
+      ops: Array.isArray(parsed.ops) ? parsed.ops : [],
+      seq: Number(parsed.seq) || 0,
+      writes: Array.isArray(parsed.writes) ? parsed.writes : [],
+    };
+  } catch (err) {
+    console.error("[cloud] Could not load pending sync state:", err);
+  }
+}
+
+function persistSyncState() {
+  try {
+    localStorage.setItem(syncKey(), JSON.stringify(sync));
+  } catch (err) {
+    console.error("[cloud] Could not persist pending sync state:", err);
+  }
+}
+
+function revisionOf(data) {
+  return Number(data?.revision) || 0;
+}
+
+function isOwnWrite(data) {
+  return !!data?.writeId && sync.writes.some((w) => w.writeId === data.writeId);
+}
+
+/** Server data carrying one of our saves: those actions are confirmed, the rest stay pending. */
+function confirmOwnWrite(data) {
+  const write = sync.writes.find((w) => w.writeId === data?.writeId);
+  if (!write) return false;
+  const revision = revisionOf(data);
+  if (sync.baseRevision === null || revision >= sync.baseRevision) sync.baseRevision = revision;
+  sync.ops = sync.ops.filter((op) => op.seq > write.seq);
+  persistSyncState();
+  return true;
+}
+
+function isOffline() {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
 
 function serialize(store) {
   return {
@@ -184,12 +262,9 @@ function serialize(store) {
   };
 }
 
-function applyRemote(data) {
+function applyRemoteData(data, { notify = true } = {}) {
   const store = storeRef;
   if (!store) return;
-
-  // Ignore the echo of our own push
-  if (data.writeId && data.writeId === lastWriteId) return;
 
   try {
     // A brand-new pelada's roster is legitimately empty — must still be applied,
@@ -244,32 +319,205 @@ function applyRemote(data) {
     store.hydrateMonthlyStats();
     store.syncCareerStatsFromMonthly({ silent: true });
     store.persistLocal(); // cache for offline; does NOT re-push to cloud
-    store.notify();
+    if (notify) store.notify();
   } catch (err) {
     console.error("[cloud] Error applying remote state:", err);
   }
 }
 
-async function doPush(store) {
-  if (!store.isAdmin || !store.peladaId) return; // Security Rules also block non-admin writes
-  const payload = serialize(store);
-  lastWriteId = payload.writeId;
+/** Records one admin action (called by the store's ADMIN_ONLY_METHODS wrapper) and schedules a save. */
+export function recordCloudOp(name, args) {
+  if (!storeRef) return;
+  let clonedArgs = [];
   try {
-    pushInFlight = setDoc(cloudDocRef(store.peladaId), payload, { merge: false });
-    await pushInFlight;
-    pushInFlight = null;
-    setStatus("online");
+    clonedArgs = JSON.parse(JSON.stringify(args ?? []));
   } catch (err) {
-    pushInFlight = null;
-    console.error("[cloud] Push failed:", err);
-    setStatus("error", err.message);
+    console.error("[cloud] Could not record action arguments:", err);
+  }
+  sync.seq += 1;
+  sync.ops.push({ seq: sync.seq, name, args: clonedArgs, at: Date.now() });
+  persistSyncState();
+  setStatus(isOffline() ? "pending" : "saving");
+  scheduleFlush();
+}
+
+function scheduleFlush(delay = FLUSH_DEBOUNCE_MS) {
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flush, delay);
+}
+
+/** Re-runs the pending operations on freshly loaded server state; returns the ones that no longer apply. */
+function replayOps(store) {
+  const dropped = [];
+  store._replaying = true;
+  store._suppressNotify = true;
+  try {
+    sync.ops.forEach((op) => {
+      try {
+        const fn = store[op.name];
+        const result = typeof fn === "function" ? fn(...(op.args || [])) : { success: false };
+        if (result?.success === false) dropped.push(op);
+      } catch (err) {
+        console.error(`[cloud] Replay of ${op.name} failed:`, err);
+        dropped.push(op);
+      }
+    });
+  } finally {
+    store._replaying = false;
+    store._suppressNotify = false;
+  }
+  return dropped;
+}
+
+async function flush() {
+  const store = storeRef;
+  if (!store || !store.isAdmin || !store.peladaId || !sync.ops.length) return;
+  if (flushing) {
+    flushAgain = true;
+    return;
+  }
+  // No connection: a transaction would just hang. The "online" event retries.
+  if (isOffline()) {
+    setStatus("pending");
+    return;
+  }
+  flushing = true;
+  flushAgain = false;
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  setStatus("saving");
+
+  let rebased = false;
+  let dropped = [];
+  let written = null;
+  let discardedUpTo = 0;
+  try {
+    const ref = cloudDocRef(store.peladaId);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : null;
+      const serverRevision = data ? revisionOf(data) : 0;
+      rebased = false;
+      dropped = [];
+      written = null;
+      discardedUpTo = 0;
+      // Our previous save did land (its confirmation got lost): the local state already
+      // is that version plus the actions still pending — no replay, or they'd double.
+      confirmOwnWrite(data);
+      if (!sync.ops.length) return; // nothing left to save
+      if (data && serverRevision !== sync.baseRevision) {
+        // Someone else saved since this device's copy — rebuild on top of their version.
+        applyRemoteData(data, { notify: false });
+        sync.baseRevision = serverRevision;
+        dropped = replayOps(store);
+        rebased = true;
+        // None of our actions apply anymore — the server version is already the result.
+        if (dropped.length === sync.ops.length) {
+          discardedUpTo = sync.seq;
+          return;
+        }
+      }
+      const payload = serialize(store);
+      payload.revision = serverRevision + 1;
+      written = { writeId: payload.writeId, seq: sync.seq, revision: payload.revision };
+      sync.writes = [...sync.writes.slice(-19), { writeId: written.writeId, seq: written.seq }];
+      persistSyncState();
+      tx.set(ref, payload);
+    });
+
+    if (written) {
+      confirmOwnWrite({ writeId: written.writeId, revision: written.revision });
+    } else if (discardedUpTo) {
+      sync.ops = sync.ops.filter((op) => op.seq > discardedUpTo);
+      persistSyncState();
+    }
+    store.persistLocal();
+    if (rebased) {
+      store.notify();
+      if (dropped.length && store.onNotice) {
+        store.onNotice(
+          `⚠️ Outro admin alterou a pelada antes — ${dropped.length} ação(ões) sua(s) não puderam ser aplicadas.`,
+        );
+      }
+    }
+    // A newer version from another device that arrived while we were saving.
+    if (!sync.ops.length && deferredRemote && revisionOf(deferredRemote) > sync.baseRevision) {
+      applyRemoteData(deferredRemote);
+      sync.baseRevision = revisionOf(deferredRemote);
+      persistSyncState();
+    }
+    deferredRemote = null;
+    setStatus(sync.ops.length ? "saving" : "admin");
+    if (sync.ops.length) flushAgain = true;
+  } catch (err) {
+    console.error("[cloud] Save failed:", err);
+    const offline =
+      err?.code === "unavailable" ||
+      err?.code === "deadline-exceeded" ||
+      (typeof navigator !== "undefined" && navigator.onLine === false);
+    setStatus(offline ? "pending" : "error", err?.message);
+    // New actions recorded meanwhile ride along with this retry (no immediate retry loop).
+    flushAgain = false;
+    retryTimer = setTimeout(flush, RETRY_DELAY_MS);
+  } finally {
+    flushing = false;
+    if (flushAgain) scheduleFlush(0);
   }
 }
 
-function schedulePush(store) {
-  if (!store.isAdmin || !store.peladaId) return;
-  clearTimeout(pushTimer);
-  pushTimer = setTimeout(() => doPush(store), PUSH_DEBOUNCE_MS);
+/** A version of the document confirmed by the server (not the local cache). */
+function handleServerSnapshot(data) {
+  markServerSynced();
+  if (isOwnWrite(data)) {
+    // Echo of our own save (possibly one whose confirmation was lost).
+    confirmOwnWrite(data);
+    if (sync.ops.length) scheduleFlush(0);
+    return;
+  }
+  if (sync.ops.length) {
+    // Never drop local actions: the next flush rebuilds them on top of this version.
+    deferredRemote = data;
+    scheduleFlush(0);
+    return;
+  }
+  applyRemoteData(data);
+  sync.baseRevision = revisionOf(data);
+  persistSyncState();
+}
+
+/** Opening the app / back from the background: admin actions wait for the server's version. */
+function beginServerSync() {
+  const store = storeRef;
+  if (!store) return;
+  store.cloudSyncing = true;
+  if (store.isAdmin) setStatus("syncing");
+  clearTimeout(syncGraceTimer);
+  syncGraceTimer = setTimeout(() => {
+    if (!store.cloudSyncing) return;
+    store.cloudSyncing = false;
+    if (store.isAdmin) setStatus(sync.ops.length ? "pending" : "error", "Sem conexão com a nuvem");
+  }, SYNC_GRACE_MS);
+}
+
+function markServerSynced() {
+  const store = storeRef;
+  clearTimeout(syncGraceTimer);
+  if (store.cloudSyncing) {
+    store.cloudSyncing = false;
+  }
+  setStatus(store.isAdmin ? (sync.ops.length ? "saving" : "admin") : "online");
+}
+
+/** Asks the server directly for the current version (used when coming back to the app). */
+function refreshFromServer() {
+  const store = storeRef;
+  if (!store?.peladaId) return;
+  getDocFromServer(cloudDocRef(store.peladaId))
+    .then((snap) => {
+      if (snap.exists()) handleServerSnapshot(snap.data());
+      else markServerSynced();
+    })
+    .catch((err) => console.warn("[cloud] Refresh from server failed:", err?.message));
 }
 
 function setStatus(status, detail) {
@@ -277,15 +525,30 @@ function setStatus(status, detail) {
     storeRef._setCloudStatus(status, detail);
 }
 
-/** Debounced push hook — called from store.save() on every mutation. */
-export function scheduleCloudPush(store) {
-  schedulePush(store);
-}
-
 export function initCloudSync(store) {
   if (started) return;
   started = true;
   storeRef = store;
+  if (store.peladaId) loadSyncState();
+  beginServerSync();
+
+  // Back from the background (phone locked, app switched — iOS freezes installed web apps):
+  // this device's copy may be stale, so re-check the server before allowing admin actions,
+  // and send any actions still waiting.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !store.peladaId) return;
+    beginServerSync();
+    refreshFromServer();
+    if (sync.ops.length) scheduleFlush(0);
+  });
+  window.addEventListener("online", () => {
+    if (!store.peladaId) return;
+    refreshFromServer();
+    if (sync.ops.length) scheduleFlush(0);
+  });
+  window.addEventListener("offline", () => {
+    if (store.isAdmin && sync.ops.length) setStatus("pending");
+  });
 
   // The Listen subscription must not start until we actually HAVE an auth
   // token (anonymous or admin) — Firestore rejects an unauthenticated Listen
@@ -302,16 +565,19 @@ export function initCloudSync(store) {
     if (!store.peladaId) return;
     snapshotSubscribed = true;
 
-    // Live subscription — every signed-in device receives updates instantly
+    // Live subscription — every signed-in device receives updates instantly. Only versions
+    // confirmed by the server are used: the local Firestore cache can be hours old.
     onSnapshot(
       cloudDocRef(store.peladaId),
+      { includeMetadataChanges: true },
       (snap) => {
+        if (snap.metadata.fromCache || snap.metadata.hasPendingWrites) return;
         if (!snap.exists()) {
+          markServerSynced();
           setStatus(store.isAdmin ? "admin" : "empty");
           return;
         }
-        setStatus(store.isAdmin ? "admin" : "online");
-        applyRemote(snap.data());
+        handleServerSnapshot(snap.data());
       },
       (err) => {
         console.error("[cloud] Subscription error:", err);
@@ -359,7 +625,17 @@ export function initCloudSync(store) {
 
     store.isAdmin = newIsAdmin;
     store.cloudUserType = newUserType;
-    setStatus(newIsAdmin ? "admin" : user ? "online" : "connecting");
+    store.adminIdentity = newIsAdmin && user ? { uid: user.uid, email: user.email || "" } : null;
+    setStatus(
+      store.cloudSyncing && newIsAdmin
+        ? "syncing"
+        : newIsAdmin
+          ? (sync.ops.length ? "saving" : "admin")
+          : user
+            ? "online"
+            : "connecting",
+    );
+    if (newIsAdmin && sync.ops.length) scheduleFlush();
 
     // Only re-render the views when the role actually changed (login/logout).
     // Re-rendering on every auth tick caused a visible screen flash.
@@ -428,15 +704,6 @@ export async function pushAvatarConfig(playerId, config, peladaId) {
     config,
     updatedAt: new Date().toISOString(),
   });
-}
-
-/** Push the current local state to the cloud immediately (admin only). */
-export async function pushStateNow(store) {
-  if (!store.isAdmin) {
-    throw new Error("Apenas administradores podem enviar dados para a nuvem.");
-  }
-  clearTimeout(pushTimer);
-  await doPush(store);
 }
 
 /** Admin email/password login (still global to a Firebase Auth account — admin *status* is what's scoped per pelada). */
@@ -684,6 +951,7 @@ export async function createPelada(peladaId, name, password) {
     rankingTopZone: 4,
     rankingBottomZone: 4,
     goalkeeperMode: "none",
+    revision: 0,
     savedAt: now,
     savedBy: createdBy,
     writeId: `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

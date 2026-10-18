@@ -14,13 +14,16 @@ import {
   GK_STAT_FIELDS,
 } from '../services/periodStats.js';
 
-import { initCloudSync, scheduleCloudPush, pushAvatarConfig, initAvatarSync } from '../services/cloudSync.js';
+import { initCloudSync, recordCloudOp, pushAvatarConfig, initAvatarSync } from '../services/cloudSync.js';
 
 const STORAGE_KEY = 'bolabate_store_v2';
 const THEME_KEY = 'bolabate_theme_v1'; // device-level UX pref — intentionally NOT scoped per pelada
 const VIBRATION_KEY = 'bolabate_vibration_v1'; // end-of-match vibration pref — device-level like the theme
 const MATCH_SOUND_KEY = 'bolabate_match_sound_v1'; // end-of-match notification sound pref — device-level like the theme
 const AVATARS_KEY = 'bolabate_avatars_v1';
+// Random id of this browser/app install — tells two devices of the same admin apart for the
+// "controle da pelada" lock. Device-level, never scoped per pelada.
+const DEVICE_ID_KEY = 'bolabate_device_id_v1';
 
 // Which pelada (tenant) this device is currently signed into. Read once at
 // construction; entering/leaving a pelada always reloads the page (see
@@ -56,8 +59,32 @@ const ADMIN_ONLY_METHODS = [
   'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
   'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
   'finishPelada', 'updateHistoryAwards', 'updateHistoryPlayerStats', 'cancelPelada', 'deleteHistoryEntry',
-  'importFromJson', 'resetToDefaults',
+  'importFromJson', 'resetToDefaults', 'setPlayerStarsForPeriod', 'backToPeladaConfig', 'takePeladaControl',
 ];
+
+// Methods that change the active pelada — only the device holding the "controle da pelada"
+// lock may run them while a pelada is in setup or live (see peladaControlBlock).
+const PELADA_CONTROL_METHODS = new Set([
+  'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada', 'backToPeladaConfig',
+  'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion', 'swapPlayers',
+  'assignGoalkeeperToTeam', 'swapGoalkeeperSides', 'moveGoalkeeper',
+  'markGoalkeeperDeparted', 'revertGoalkeeperDeparture', 'recordSave', 'removeSave',
+  'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
+  'startMatchTimer', 'pauseMatchTimer', 'endCurrentMatch', 'ensureRotation',
+  'startMatchBetween', 'reorderWaitingQueue', 'adjustMatchScore', 'substituteQueuedTeam',
+  'finishPelada', 'cancelPelada',
+]);
+
+/** Short device label shown in the control banner ("iPhone", "Android", "PC"...). */
+function deviceLabel() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Macintosh/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'PC';
+  return 'aparelho';
+}
 
 const MATCH_TIMER_DURATION_MS = 10 * 60 * 1000; // default match length: 10 minutes
 
@@ -110,6 +137,9 @@ function emptyActivePelada() {
     goalkeeperSides: { left: null, right: null }, // 'fixed' mode
     goalkeepersByTeam: {}, // 'multi' mode: teamId -> gkId
     departedGoalkeeperIds: [],
+    // "Controle da pelada": the one device allowed to change this pelada while it's in setup
+    // or live — { deviceId, uid, name, device, at } or null (first admin action claims it).
+    control: null,
   };
 }
 
@@ -125,6 +155,7 @@ function normalizeActivePelada(pelada) {
   pelada.goalkeeperSides.right = pelada.goalkeeperSides.right || null;
   if (!pelada.goalkeepersByTeam || typeof pelada.goalkeepersByTeam !== 'object') pelada.goalkeepersByTeam = {};
   if (!Array.isArray(pelada.departedGoalkeeperIds)) pelada.departedGoalkeeperIds = [];
+  if (!pelada.control || typeof pelada.control !== 'object' || !pelada.control.deviceId) pelada.control = null;
   return pelada;
 }
 
@@ -138,6 +169,16 @@ class Store {
     this.isAdmin = false;         // true only for the admin Firebase UID
     this.cloudUserType = null;    // 'admin' | 'anon' | null
     this.cloudStatus = 'connecting';
+    // True until this device has seen the server's current version (on open and on every
+    // return from the background) — admin actions wait for it so nobody edits a stale copy.
+    this.cloudSyncing = true;
+    this.adminIdentity = null;    // { uid, email } of the signed-in admin — set by cloudSync
+    this.deviceId = this.loadDeviceId();
+    this.onNotice = null;         // set by main.js → shows a toast with a message
+    this._opDepth = 0;            // >0 while an admin action runs (nested calls aren't recorded)
+    this._savedDuringOp = false;
+    this._replaying = false;      // cloudSync re-applying pending actions on fresh server data
+    this._suppressNotify = false;
     this.onBlocked = null;        // set by main.js → shows a toast
     this.onCloudStatus = null;    // set by main.js → UI status updates
     // Must be set before any load*() call below — every scoped key is derived from it.
@@ -167,7 +208,9 @@ class Store {
     this.applyTheme(this.theme);
     this.save();
 
-    // Guard every mutating method: non-admins get a blocked toast instead
+    // Guard every mutating method: non-admins get a blocked toast instead. Admin actions are
+    // also the unit of cloud sync: each top-level call that saved something is recorded and
+    // sent to the cloud (and replayed on top of newer data if another admin saved first).
     for (const name of ADMIN_ONLY_METHODS) {
       const original = this[name].bind(this);
       this[name] = (...args) => {
@@ -175,9 +218,101 @@ class Store {
           if (this.onBlocked) this.onBlocked(name);
           return undefined;
         }
-        return original(...args);
+        if (this._opDepth > 0) return original(...args); // nested call — part of the outer action
+
+        if (this.cloudSyncing && !this._replaying) {
+          const error = 'Sincronizando com a nuvem… tente de novo em instantes.';
+          if (this.onNotice) this.onNotice('⏳ ' + error);
+          return { success: false, error };
+        }
+        if (PELADA_CONTROL_METHODS.has(name)) {
+          const blocked = this.peladaControlBlock();
+          if (blocked) {
+            if (this.onNotice && !this._replaying) this.onNotice('🔒 ' + blocked);
+            return { success: false, error: blocked };
+          }
+          // Nobody holds the lock yet (pelada from before the lock existed) — this device takes it.
+          if (this.activePelada.status !== 'idle' && !this.activePelada.control) {
+            this.activePelada.control = this.makeControl();
+          }
+        }
+
+        this._opDepth += 1;
+        this._savedDuringOp = false;
+        let result;
+        try {
+          result = original(...args);
+        } finally {
+          this._opDepth -= 1;
+        }
+        if (this._savedDuringOp && result?.success !== false && !this._replaying) {
+          recordCloudOp(name, args);
+        }
+        return result;
       };
     }
+  }
+
+  loadDeviceId() {
+    try {
+      let id = localStorage.getItem(DEVICE_ID_KEY);
+      if (!id) {
+        id = 'd_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem(DEVICE_ID_KEY, id);
+      }
+      return id;
+    } catch (e) {
+      return 'd_' + Math.random().toString(36).slice(2, 10);
+    }
+  }
+
+  /** The "controle da pelada" record for this device and admin. */
+  makeControl() {
+    const email = this.adminIdentity?.email || '';
+    return {
+      deviceId: this.deviceId,
+      uid: this.adminIdentity?.uid || null,
+      name: email ? email.split('@')[0] : 'Admin',
+      device: deviceLabel(),
+      at: new Date().toISOString(),
+    };
+  }
+
+  /** Error message when another device holds the pelada's control lock, otherwise null. */
+  peladaControlBlock() {
+    const pelada = this.activePelada;
+    if (!pelada || pelada.status === 'idle') return null;
+    const control = pelada.control;
+    if (!control || control.deviceId === this.deviceId) return null;
+    return `O controle da pelada está com ${control.name} (${control.device}). Toque em "Assumir controle" para gerenciar daqui.`;
+  }
+
+  /** Admin that may change the active pelada from this device right now. */
+  canControlPelada() {
+    return this.isAdmin && !this.peladaControlBlock();
+  }
+
+  hasPeladaControl() {
+    return this.activePelada?.control?.deviceId === this.deviceId;
+  }
+
+  /** Moves the pelada's control lock to this device; the previous device becomes read-only. */
+  takePeladaControl() {
+    if (this.activePelada.status === 'idle') {
+      return { success: false, error: 'Nenhuma pelada em andamento.' };
+    }
+    this.activePelada.control = this.makeControl();
+    this.save();
+    return { success: true };
+  }
+
+  /** "Voltar" on the balancing screen: back to the attendance picker. */
+  backToPeladaConfig() {
+    if (this.activePelada.status !== 'setup') return { success: false, error: 'A pelada não está em montagem.' };
+    this.activePelada.status = 'idle';
+    this.activePelada.control = null;
+    this.save();
+    return { success: true };
   }
 
   /** Every tenant-scoped localStorage key is namespaced per pelada so switching peladas on the same device never mixes cached data. */
@@ -579,8 +714,8 @@ class Store {
   save() {
     this.persistLocal();
     this.notify();
-    // Admins mirror every change to the cloud (debounced)
-    scheduleCloudPush(this);
+    // Cloud sync happens per admin action (see the ADMIN_ONLY_METHODS wrapper), not per save.
+    if (this._opDepth > 0) this._savedDuringOp = true;
   }
 
   /**
@@ -594,7 +729,7 @@ class Store {
    */
   saveQuiet() {
     this.persistLocal();
-    scheduleCloudPush(this);
+    if (this._opDepth > 0) this._savedDuringOp = true;
   }
 
   /** Writes only to localStorage — used for offline cache & cloud snapshots. */
@@ -662,6 +797,7 @@ class Store {
   }
 
   notify() {
+    if (this._suppressNotify) return;
     for (const fn of this.listeners) {
       try {
         fn(this);
@@ -820,7 +956,8 @@ class Store {
       goalkeeperSides: mode === 'fixed'
         ? { left: keepers[0] || null, right: keepers[1] || null }
         : { left: null, right: null },
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      control: this.makeControl(),
     };
     this.save();
   }
@@ -2222,6 +2359,8 @@ class Store {
       goalkeeperMode: GOALKEEPER_MODES.includes(entry.goalkeeperMode) ? entry.goalkeeperMode : 'none',
       goalkeeperIds: Array.isArray(entry.goalkeeperIds) ? [...entry.goalkeeperIds] : [],
       diaristaPlayerIds: Array.isArray(entry.diaristaPlayerIds) ? [...entry.diaristaPlayerIds] : [],
+      // Players whose participation an admin took out of the ranking (Histórico editor).
+      noParticipationIds: Array.isArray(entry.noParticipationIds) ? [...entry.noParticipationIds] : [],
       awards: {
         craqueId: awards.craqueId || null,
         selecaoIds: Array.isArray(awards.selecaoIds) ? [...awards.selecaoIds] : [],
@@ -2330,9 +2469,29 @@ class Store {
 
     let changed = 0;
     let savesChanged = false;
+    const noParticipation = new Set(entry.noParticipationIds || []);
     Object.entries(statsByPlayer).forEach(([pid, next]) => {
       const isKeeper = keepers.has(pid);
       if (!rostered.has(pid) && !isKeeper) return;
+
+      // Participation toggle (outfield only): takes the pelada's "+1 Part." out of the
+      // ranking, or puts it back. Diaristas never count, so their month isn't touched.
+      if (!isKeeper && typeof next?.countsParticipation === 'boolean') {
+        const counted = !noParticipation.has(pid);
+        if (next.countsParticipation !== counted) {
+          if (next.countsParticipation) noParticipation.delete(pid);
+          else noParticipation.add(pid);
+          changed += 1;
+          if (!diaristas.has(pid)) {
+            const periodStats = this.getOrCreatePeriodPlayer(key, pid);
+            periodStats.participacao = Math.max(
+              0,
+              (Number(periodStats.participacao) || 0) + (next.countsParticipation ? 1 : -1),
+            );
+          }
+        }
+      }
+
       const current = entry.stats[pid] || { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
       // Goalkeepers only have saves; outfield players only goals/assists.
       (isKeeper ? ['saves'] : ['goals', 'assists']).forEach(field => {
@@ -2351,6 +2510,7 @@ class Store {
       });
       entry.stats[pid] = current;
     });
+    entry.noParticipationIds = [...noParticipation];
 
     if (!changed) return { success: true, changed: 0 };
     // Goalkeeper figures are rebuilt from history rather than patched.

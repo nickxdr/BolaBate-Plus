@@ -2593,6 +2593,57 @@ body {
   font-weight: 700;
 }
 
+.history-stats-edit-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  overflow: visible;
+}
+
+.history-stats-edit-name-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Participation toggle under the player's name in the Histórico stats editor. */
+.history-part-toggle {
+  appearance: none;
+  padding: 1px 7px;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10B981;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.history-part-toggle.off {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--accent-red);
+}
+
+.history-part-toggle.changed {
+  box-shadow: 0 0 0 1px var(--accent-gold);
+}
+
+.history-no-part-badge {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--accent-red);
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .history-stats-edit-field {
   display: inline-flex;
   align-items: center;
@@ -5825,5 +5876,53 @@ body {
 @media (max-width: 600px) {
   .gk-widget-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* "Controle da pelada" — only one device manages a pelada in setup/live at a time */
+.control-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.control-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.control-banner-text span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.control-banner .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.control-setup-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40vh;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .control-banner {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
