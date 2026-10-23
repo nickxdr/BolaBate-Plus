@@ -50,7 +50,7 @@ const isNativeApp = Capacitor.isNativePlatform();
 
 export const IS_DEV_ENVIRONMENT =
   !isNativeApp &&
-  (Boolean(import.meta.env.DEV) ||
+  (Boolean(import.meta.env?.DEV) ||
     (typeof window !== "undefined" && DEV_HOSTNAMES.includes(window.location.hostname)));
 
 const app = initializeApp(firebaseConfig);

@@ -1,5 +1,74 @@
 import { INITIAL_PLAYERS, calculatePoints } from './src/data/seedData.js';
-import { autoBalanceTeams, getSmartSuggestions, getSubstituteSuggestions } from './src/services/balancer.js';
+import {
+  autoBalanceTeams,
+  randomizeTeams,
+  getSmartSuggestions,
+  getSubstituteSuggestions,
+  clampTeamCount,
+  redistributePlayers,
+  minPeladaPlayers,
+  validateTeamsForLiveStart,
+  validateSetupForPelada,
+  MIN_TEAM_COUNT,
+  MAX_TEAM_COUNT,
+} from './src/services/balancer.js';
+
+// ---------------------------------------------------------------------------
+// 5. Integration: the store's live flow with uneven teams
+// ---------------------------------------------------------------------------
+// The store imports Firebase/Capacitor, which need a browser. We install the
+// bare minimum globals BEFORE the dynamic import so the module graph can load.
+console.log('\n--- 5. Testing Live Flow With Uneven Teams (store integration) ---');
+
+const storage = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+  setItem: (k, v) => storage.set(k, String(v)),
+  removeItem: (k) => storage.delete(k),
+  clear: () => storage.clear(),
+  key: (i) => [...storage.keys()][i] ?? null,
+  get length() { return storage.size; },
+};
+// `navigator` is a read-only getter on Node 22+, so it has to be redefined.
+if (!globalThis.navigator || !globalThis.navigator.userAgent) {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { onLine: true, userAgent: 'node' },
+    configurable: true,
+    writable: true,
+  });
+}
+globalThis.location = { hostname: 'localhost', href: 'http://localhost/', origin: 'http://localhost' };
+globalThis.window = globalThis.window || globalThis;
+globalThis.document = {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  visibilityState: 'visible',
+  documentElement: { setAttribute: () => {}, getAttribute: () => null, style: { setProperty: () => {} } },
+  head: { appendChild: () => {} },
+  getElementById: () => null,
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  createElement: () => ({ style: {}, setAttribute: () => {}, appendChild: () => {}, addEventListener: () => {} }),
+  body: { appendChild: () => {} },
+};
+globalThis.addEventListener = () => {};
+globalThis.removeEventListener = () => {};
+globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} });
+globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+globalThis.indexedDB = undefined;
+globalThis.fetch = globalThis.fetch || (() => Promise.reject(new Error('offline')));
+
+const { store } = await import('./src/state/store.js');
+// The store blocks every mutating method for non-admins; the tests below drive the
+// admin-only flow, so this device acts as the admin.
+store.isAdmin = true;
+// No cloud in the tests: the sync guard would otherwise reject every admin action.
+store.cloudSyncing = false;
+// The demo roster is only auto-seeded for the legacy pelada id; the integration tests
+// below call getPlayer() guards (fill/goalkeeper rules), so install the seed roster.
+store.players = INITIAL_PLAYERS.map((p) => ({ ...p }));
+void store; // imported here so the module graph (Firebase et al.) loads with the stubs above
 
 console.log('--- 1. Testing Official Stars Verification ---');
 const officialStars = {
@@ -58,3 +127,326 @@ for (let k = 2; k <= 5; k++) {
 }
 
 console.log('\n--- 3. Testing Build Verification ---');
+
+// ---------------------------------------------------------------------------
+// 4. Regression: peladas with 2-6 underfilled teams (every team needs >= 1 player)
+// ---------------------------------------------------------------------------
+console.log('\n--- 4. Testing Underfilled & Empty Teams (2-6 chosen slots) ---');
+
+let failures = 0;
+function check(label, condition, extra = '') {
+  if (condition) {
+    console.log(`  ✓ ${label}`);
+  } else {
+    failures++;
+    console.error(`  ✗ ${label}${extra ? ` — ${extra}` : ''}`);
+  }
+}
+
+// --- clampTeamCount ---
+check('MIN_TEAM_COUNT is 2', MIN_TEAM_COUNT === 2);
+check('MAX_TEAM_COUNT is 6', MAX_TEAM_COUNT === 6);
+check('clamps below the floor to 2', clampTeamCount(1) === 2);
+check('clamps above the ceiling to 6', clampTeamCount(9) === 6);
+check('keeps a valid count', clampTeamCount(4) === 4);
+check('keeps the chosen count regardless of attendance', clampTeamCount(6) === 6);
+check('ignores a legacy player-count argument', clampTeamCount(6, 2) === 6);
+check('handles a non-numeric count', clampTeamCount(NaN) === MIN_TEAM_COUNT);
+
+// --- minPeladaPlayers / chosen count is preserved ---
+check('minPeladaPlayers is 2', minPeladaPlayers() === 2);
+check('setup keeps 6 slots for 2 players', validateSetupForPelada(6, 2).teamCount === 6);
+check('setup keeps 6 slots for 4 players', validateSetupForPelada(6, 4).teamCount === 6);
+check('setup still clamps the chosen count to the supported range',
+  validateSetupForPelada(9, 12).teamCount === MAX_TEAM_COUNT);
+
+// --- redistributePlayers (the "Randomizar" redistribution) ---
+const ids12 = Array.from({ length: 12 }, (_, i) => `p${i}`);
+const split6 = redistributePlayers(ids12, 6);
+check('redistribute into 6 groups of 2', split6.every((g) => g.length === 2));
+check('redistribute keeps every player exactly once',
+  split6.flat().length === 12 && new Set(split6.flat()).size === 12);
+
+const split5 = redistributePlayers(ids12, 5);
+check('redistribute into 5 groups never leaves one empty', split5.every((g) => g.length >= 1));
+check('redistribute into 5 groups keeps every player', split5.flat().length === 12);
+check('redistribute into 5 groups balances the size', Math.max(...split5.map((g) => g.length)) - Math.min(...split5.map((g) => g.length)) <= 1);
+
+const split2 = redistributePlayers(ids12, 2);
+check('redistribute into 2 groups of 6', split2.every((g) => g.length === 6));
+
+// The old bug: slicing by a fixed teamSize left the tail teams empty.
+const fixedSlice = (players, teamCount, teamSize) =>
+  Array.from({ length: teamCount }, (_, i) => players.slice(i * teamSize, (i + 1) * teamSize));
+const oldWay = fixedSlice(ids12, 6, 5);
+check('old fixed-size slicing really did leave teams empty (bug repro)', oldWay[5].length === 0);
+check('new redistribution leaves no empty team', split6.every((g) => g.length >= 1));
+
+// --- autoBalanceTeams / randomizeTeams never create an empty team ---
+for (const k of [2, 3, 4, 5, 6]) {
+  for (const count of [k, k + 1, k + 2, k * 2, k * 5]) {
+    const pool = INITIAL_PLAYERS.slice(0, Math.min(count, INITIAL_PLAYERS.length));
+    const balanced = autoBalanceTeams(pool, k, 5);
+    const randomized = randomizeTeams(pool, k, 5);
+    check(`autoBalanceTeams(${pool.length} players, ${k} teams) fills every team`,
+      balanced.length === k && balanced.every((t) => t.playerIds.length >= 1),
+      `got ${balanced.map((t) => t.playerIds.length).join(',')}`);
+    check(`randomizeTeams(${pool.length} players, ${k} teams) fills every team`,
+      randomized.length === k && randomized.every((t) => t.playerIds.length >= 1),
+      `got ${randomized.map((t) => t.playerIds.length).join(',')}`);
+    const assigned = balanced.flatMap((t) => t.playerIds);
+    check(`autoBalanceTeams(${pool.length} players, ${k} teams) assigns each player once`,
+      new Set(assigned).size === assigned.length);
+  }
+}
+
+// A team count larger than the roster is preserved: the extra teams start empty
+// and are filled later during the pelada.
+const tiny = INITIAL_PLAYERS.slice(0, 2);
+const tinyBalanced = autoBalanceTeams(tiny, 6, 5);
+check('autoBalanceTeams keeps the chosen 6 team slots', tinyBalanced.length === 6);
+check('autoBalanceTeams only fills as many teams as there are players',
+  tinyBalanced.filter((t) => t.playerIds.length > 0).length === 2,
+  `got ${tinyBalanced.map((t) => t.playerIds.length).join(',')}`);
+check('autoBalanceTeams leaves the remaining slots empty',
+  tinyBalanced.filter((t) => t.playerIds.length === 0).length === 4);
+
+const tinyRandom = randomizeTeams(tiny, 4, 5);
+check('randomizeTeams keeps the chosen 4 team slots', tinyRandom.length === 4);
+check('randomizeTeams only fills as many teams as there are players',
+  tinyRandom.filter((t) => t.playerIds.length > 0).length === 2,
+  `got ${tinyRandom.map((t) => t.playerIds.length).join(',')}`);
+
+// --- Underfilled teams: fewer players than the full capacity ---
+const sevenPlayers = INITIAL_PLAYERS.slice(0, 7);
+const underfilled = autoBalanceTeams(sevenPlayers, 3, 5);
+check('7 players across 3 teams leaves nobody out',
+  underfilled.flatMap((t) => t.playerIds).length === 7);
+check('7 players across 3 teams: sizes are 3/2/2',
+  underfilled.map((t) => t.playerIds.length).sort().join('/') === '2/2/3');
+check('7 players across 3 teams: no empty team', underfilled.every((t) => t.playerIds.length >= 1));
+
+// The star goal follows the actual headcount, not the configured capacity.
+const threePlayers = INITIAL_PLAYERS.slice(0, 3);
+const oneEach = autoBalanceTeams(threePlayers, 3, 5);
+check('3 players across 3 teams gives 1 each', oneEach.every((t) => t.playerIds.length === 1));
+check('3 players across 3 teams: total stars preserved',
+  oneEach.reduce((sum, t) => sum + t.totalStars, 0).toFixed(1) ===
+  threePlayers.reduce((sum, p) => sum + p.stars, 0).toFixed(1));
+
+// The balancing target scales with the headcount, so an underfilled side isn't
+// measured against the goal of a full team (which it could never reach).
+const sevenByThree = autoBalanceTeams(sevenPlayers, 3, 5);
+const sevenTarget = (7 / 3) * 4.0;
+const sevenSpread = Math.max(...sevenByThree.map((t) => t.totalStars)) -
+  Math.min(...sevenByThree.map((t) => t.totalStars));
+check('7 players across 3 teams: the sides stay close to the ~9.3★ headcount goal',
+  sevenSpread <= 4.0, `spread was ${sevenSpread.toFixed(1)} (target ${sevenTarget.toFixed(1)}★)`);
+check('7 players across 3 teams: the goal follows the headcount, not the team size',
+  sevenTarget < 5 * 4.0);
+
+// --- validateTeamsForLiveStart: empty teams are allowed as long as 2 can play ---
+const mkTeam = (name, n) => ({
+  name,
+  playerIds: Array.from({ length: n }, (_, i) => `${name}-${i}`),
+});
+
+check('live start accepts 2 uneven teams (3 vs 1)',
+  validateTeamsForLiveStart([mkTeam('A', 3), mkTeam('B', 1)]).success === true);
+check('live start accepts 6 uneven teams',
+  validateTeamsForLiveStart([mkTeam('A', 5), mkTeam('B', 1), mkTeam('C', 1), mkTeam('D', 1), mkTeam('E', 1), mkTeam('F', 1)]).success === true);
+
+const withEmpty = validateTeamsForLiveStart([mkTeam('A', 3), mkTeam('B', 0), mkTeam('C', 1)]);
+check('live start accepts an empty team when 2 teams have players', withEmpty.success === true);
+check('live start still reports the empty team name',
+  Array.isArray(withEmpty.emptyTeamNames) && withEmpty.emptyTeamNames.includes('B'),
+  JSON.stringify(withEmpty.emptyTeamNames));
+
+const notEnoughPlayable = validateTeamsForLiveStart([mkTeam('A', 3), mkTeam('B', 0), mkTeam('C', 0)]);
+check('live start rejects fewer than 2 playable teams', notEnoughPlayable.success === false);
+check('live start error asks for 2 teams with players',
+  typeof notEnoughPlayable.error === 'string' && notEnoughPlayable.error.includes('2 times com jogadores'),
+  notEnoughPlayable.error);
+
+check('live start rejects a single team', validateTeamsForLiveStart([mkTeam('A', 3)]).success === false);
+check('live start rejects an empty roster', validateTeamsForLiveStart([]).success === false);
+check('live start treats a missing playerIds array as an empty team',
+  validateTeamsForLiveStart([{ name: 'A' }, { name: 'B', playerIds: ['x'] }]).success === false);
+
+// --- validateSetupForPelada ---
+check('setup rejects fewer than 2 players',
+  validateSetupForPelada(4, 1).success === false);
+check('setup error mentions the minimum', validateSetupForPelada(4, 0).error.includes('2 jogadores'));
+check('setup accepts exactly 2 players', validateSetupForPelada(2, 2).success === true);
+check('setup keeps the chosen team count even with fewer players',
+  validateSetupForPelada(6, 3).teamCount === 6);
+check('setup keeps the chosen team count when there is enough attendance',
+  validateSetupForPelada(4, 12).teamCount === 4);
+check('setup clamps the team count to the 6-team ceiling',
+  validateSetupForPelada(9, 30).teamCount === MAX_TEAM_COUNT);
+check('setup never returns fewer than 2 teams', validateSetupForPelada(1, 2).teamCount === MIN_TEAM_COUNT);
+
+// ---------------------------------------------------------------------------
+// 5. Integration: the store's live flow with uneven teams
+// ---------------------------------------------------------------------------
+console.log('\n--- 5. Testing Live Flow With Uneven Teams (store integration) ---');
+
+/** Puts the store in a live pelada with the given per-team headcounts (0 = empty team). */
+function buildLivePelada(headcounts) {
+  const total = headcounts.reduce((a, b) => a + b, 0);
+  const players = INITIAL_PLAYERS.slice(0, total);
+  const setup = store.startPeladaSetup(headcounts.length, players.map((p) => p.id));
+  if (!setup?.success) throw new Error(`setup failed: ${setup?.error}`);
+  let cursor = 0;
+  store.updatePeladaTeams(
+    store.activePelada.teams.map((team, i) => {
+      const ids = players.slice(cursor, cursor + headcounts[i]).map((p) => p.id);
+      cursor += headcounts[i];
+      return { ...team, playerIds: ids };
+    }),
+  );
+  return store.startLivePelada();
+}
+
+// --- Setup validation surfaces an error to the caller ---
+const tooFew = store.startPeladaSetup(4, [INITIAL_PLAYERS[0].id]);
+check('store.startPeladaSetup rejects a single player', tooFew?.success === false);
+check('store.startPeladaSetup returns the error message',
+  typeof tooFew?.error === 'string' && tooFew.error.length > 0);
+
+// --- A 2-team, 1-vs-1 pelada goes live ---
+const twoTeamLive = buildLivePelada([1, 1]);
+check('store starts a live pelada with 2 uneven teams', twoTeamLive?.success === true);
+check('the live pelada keeps both teams non-empty',
+  store.activePelada.teams.every((t) => t.playerIds.length >= 1));
+
+// --- A 6-team, 5/1/1/1/1/1 pelada goes live ---
+const sixTeamLive = buildLivePelada([5, 1, 1, 1, 1, 1]);
+check('store starts a live pelada with 6 uneven teams', sixTeamLive?.success === true);
+check('the 6-team pelada has no empty team',
+  store.activePelada.teams.every((t) => t.playerIds.length >= 1));
+
+// --- Empty teams no longer block the live start ---
+const sparseLive = buildLivePelada([1, 1, 0, 0]);
+check('store starts a live pelada with empty team slots', sparseLive?.success === true);
+check('the chosen 4 team slots are kept', store.activePelada.teams.length === 4);
+check('only playable teams join the waiting queue',
+  store.activePelada.rotation.waitingTeamIds.length === 2);
+check('the empty teams remain on the pelada',
+  store.activePelada.teams.filter((t) => t.playerIds.length === 0).length === 2);
+
+// --- Fewer than 2 playable teams still blocks the live start ---
+store.startPeladaSetup(3, INITIAL_PLAYERS.slice(0, 3).map((p) => p.id));
+store.updatePeladaTeams(
+  store.activePelada.teams.map((team, i) => ({
+    ...team,
+    playerIds: i === 0 ? [INITIAL_PLAYERS[0].id] : [],
+  })),
+);
+const onePlayableLive = store.startLivePelada();
+check('store.startLivePelada rejects fewer than 2 playable teams',
+  onePlayableLive?.success === false);
+check('store.startLivePelada asks for 2 teams with players',
+  typeof onePlayableLive?.error === 'string' && onePlayableLive.error.includes('2 times com jogadores'),
+  onePlayableLive?.error);
+
+// --- Rotation works with uneven teams ---
+const rotLive = buildLivePelada([4, 1, 2]);
+check('rotation is built when the pelada goes live', !!store.activePelada.rotation);
+const rot = store.activePelada.rotation;
+check('every team is in the waiting queue', rot.waitingTeamIds.length === 3);
+check('the most complete team is queued first',
+  rot.waitingTeamIds[0] === store.activePelada.teams
+    .slice()
+    .sort((a, b) => b.playerIds.length - a.playerIds.length)[0].id);
+
+const first = store.startMatchBetween(rot.waitingTeamIds[0], rot.waitingTeamIds[1]);
+check('the first match starts between two waiting teams', first?.success === true);
+check('the current match has both teams set',
+  !!store.activePelada.rotation.currentMatch?.teamAId &&
+  !!store.activePelada.rotation.currentMatch?.teamBId);
+
+// Score a goal for team A so the rotation has a winner to keep.
+const match = store.activePelada.rotation.currentMatch;
+const teamA = store.activePelada.teams.find((t) => t.id === match.teamAId);
+store.recordGoal(teamA.playerIds[0], teamA.id);
+check('the goal bumped the match score',
+  store.activePelada.rotation.currentMatch.scoreA === 1);
+
+// The match can only end when the clock runs out (no goal limit configured here).
+const tooEarly = store.endCurrentMatch();
+check('a match cannot end while the clock still runs',
+  tooEarly?.success === false || store.activePelada.rotation.currentMatch?.scoreA === 1);
+
+// Drain the clock so the match can be finalized.
+store.activePelada.rotation.currentMatch.timerRemainingMs = 0;
+store.activePelada.rotation.currentMatch.timerRunning = false;
+const ended = store.endCurrentMatch();
+check('the match ends once the clock runs out', ended?.success === true);
+check('the winner stays on the pitch',
+  store.activePelada.rotation.currentMatch?.teamAId === match.teamAId ||
+  store.activePelada.rotation.currentMatch?.teamBId === match.teamAId);
+check('the rotation log recorded the result', store.activePelada.rotation.log.length === 1);
+check('the logged result names the winner', store.activePelada.rotation.log[0].winnerId === match.teamAId);
+check('the logged rosters snapshot both teams',
+  Object.keys(store.activePelada.rotation.log[0].rosters).length === 2);
+
+// The incoming team is taken from the front of the queue, and every team keeps playing.
+const afterRotation = store.activePelada.rotation;
+check('the rotation kept every team in play',
+  afterRotation.currentMatch !== null &&
+  [afterRotation.currentMatch.teamAId, afterRotation.currentMatch.teamBId, ...afterRotation.waitingTeamIds].length === 3);
+
+// --- Filling teams during a live pelada ---
+const fillLive = buildLivePelada([1, 1, 0, 0]);
+check('a 4-slot pelada can start with only 2 playable teams', fillLive?.success === true);
+const emptyTeam = store.activePelada.teams.find((t) => t.playerIds.length === 0);
+const newcomer = INITIAL_PLAYERS[2];
+const fillNew = store.fillTeamWithPlayer(emptyTeam.id, newcomer.id);
+check('fillTeamWithPlayer adds a new arrival to the empty team', fillNew?.success === true);
+check('the newcomer is on the filled team',
+  store.activePelada.teams.find((t) => t.id === emptyTeam.id).playerIds.includes(newcomer.id));
+check('the newcomer joins the pelada attendance',
+  store.activePelada.presentPlayerIds.includes(newcomer.id));
+check('the newcomer gets match stats', !!store.activePelada.stats[newcomer.id]);
+check('the filled team rejoins the waiting queue',
+  store.activePelada.rotation.waitingTeamIds.includes(emptyTeam.id));
+
+// Moving a player from another waiting team fills a slot, but never empties the source.
+const moveLive = buildLivePelada([2, 1, 0]);
+const moveTeams = store.activePelada.teams;
+const sourceTeam = moveTeams.find((t) => t.playerIds.length === 2);
+const loneTeam = moveTeams.find((t) => t.playerIds.length === 1);
+const moveTarget = moveTeams.find((t) => t.playerIds.length === 0);
+const moveLastPlayer = store.fillTeamWithPlayer(moveTarget.id, loneTeam.playerIds[0]);
+check('moving the last player out of a team is refused', moveLastPlayer?.success === false);
+const movedPlayerId = sourceTeam.playerIds[0];
+const moveOk = store.fillTeamWithPlayer(moveTarget.id, movedPlayerId);
+check('moving a player from a waiting team fills the empty team', moveOk?.success === true);
+check('the source team keeps at least one player',
+  store.activePelada.teams.find((t) => t.id === sourceTeam.id).playerIds.length === 1);
+check('the destination team is now playable and queued',
+  store.activePelada.rotation.waitingTeamIds.includes(moveTarget.id));
+
+// Players on the pitch cannot be pulled into another team.
+const guardLive = buildLivePelada([2, 1, 0]);
+check('guard scenario goes live', guardLive?.success === true);
+const guardTeams = store.activePelada.teams;
+const onPitchTeam = guardTeams.find((t) => t.playerIds.length === 2);
+const benchTeam = guardTeams.find((t) => t.playerIds.length === 1);
+const guardTarget = guardTeams.find((t) => t.playerIds.length === 0);
+const guardStart = store.startMatchBetween(onPitchTeam.id, benchTeam.id);
+check('the guard scenario starts a match', guardStart?.success === true);
+const pullFromPitch = store.fillTeamWithPlayer(guardTarget.id, onPitchTeam.playerIds[0]);
+check('cannot pull a player from a team that is on the pitch',
+  pullFromPitch?.success === false);
+const pullFromBench = store.fillTeamWithPlayer(guardTarget.id, benchTeam.playerIds[0]);
+check('cannot pull the last player from a waiting team either',
+  pullFromBench?.success === false);
+
+if (failures === 0) {
+  console.log('✓ All underfilled-team regression checks passed!');
+} else {
+  console.error(`✗ ${failures} underfilled-team regression check(s) failed.`);
+  process.exitCode = 1;
+}

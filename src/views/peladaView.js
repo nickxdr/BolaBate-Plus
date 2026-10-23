@@ -4,12 +4,24 @@ import {
   randomizeTeams,
   getSmartSuggestions,
   getSubstituteSuggestions,
+  clampTeamCount,
+  redistributePlayers,
+  minPeladaPlayers,
+  MIN_TEAM_COUNT,
+  MAX_TEAM_COUNT,
 } from "../services/balancer.js";
 import { showToast } from "./rankingView.js";
 import { getAvatarDataUri } from "../services/avatar.js";
 import { computeCurrentOVRs } from "../services/ovr.js";
 import confetti from "canvas-confetti";
 import { playSound, vibrate } from "../services/soundManager.js";
+
+// Team counts offered in the setup screen. Two teams is allowed: a pelada needs
+// at least two sides, and teams may be underfilled down to a single player.
+const TEAM_COUNT_OPTIONS = Array.from(
+  { length: MAX_TEAM_COUNT - MIN_TEAM_COUNT + 1 },
+  (_, i) => MIN_TEAM_COUNT + i,
+);
 
 export function renderPeladaView(onNavigate) {
   const container = document.createElement("div");
@@ -127,29 +139,10 @@ function renderWaitingForAdmin(container) {
 // 1. Pelada Initial Configuration: Team count & Attendance
 // ----------------------------------------------------
 
-/** Below this many present players, no team count (not even the minimum, 3) can be fielded. */
-function minPeladaPlayers(teamSize) {
-  return 3 * teamSize;
-}
-
-/** Minimum headcount that justifies `n` teams — more than what `n - 1` teams could hold. */
-function minPlayersForTeamCount(n, teamSize) {
-  return n <= 3 ? minPeladaPlayers(teamSize) : teamSize * (n - 1) + 1;
-}
-
-/** Auto-downgrades (never upgrades) from the admin's chosen team count when attendance falls short — e.g. 5-a-side with 5 times needs 21-25 players; below that it steps down to 4, then 3 if needed. */
-function computeEffectiveTeamCount(selectedTeamCount, presentCount, teamSize) {
-  let n = selectedTeamCount;
-  while (n > 3 && presentCount < minPlayersForTeamCount(n, teamSize)) {
-    n -= 1;
-  }
-  return n;
-}
-
 function renderPeladaConfig(container, onNavigate) {
-  let teamCount = Math.max(3, Math.min(6, store.activePelada.teamCount || 4));
-  // No button starts pressed — only highlight the admin's own click until then (or once
-  // attendance is ready, the real computed outcome, handled in the highlight logic below).
+  let teamCount = clampTeamCount(store.activePelada.teamCount || 4);
+  // No button starts pressed — only highlight the admin's own click until then. The chosen
+  // count is never downgraded when attendance is short; empty slots are filled later.
   let hasPickedTeamCount = false;
   // Start with a completely clean list: NO pre-selected players
   let selectedIds = new Set();
@@ -169,7 +162,7 @@ function renderPeladaConfig(container, onNavigate) {
 
     const teamSize = store.teamSize;
     const gkMode = store.goalkeeperMode;
-    const minPlayers = minPeladaPlayers(teamSize);
+    const minPlayers = minPeladaPlayers();
     const maxPlayers = teamCount * teamSize; // admin's chosen ceiling — selection is still capped here
     // Same declutter rule as the roster management screen: a diarista with no
     // real data (never a mensalista, no ranking history) shouldn't linger here
@@ -181,18 +174,14 @@ function renderPeladaConfig(container, onNavigate) {
       .filter((p) => p.name.toLowerCase().includes(filterText.toLowerCase()));
 
     const count = selectedIds.size;
-    const effectiveTeamCount = computeEffectiveTeamCount(
-      teamCount,
-      count,
-      teamSize,
-    );
     const keeperCount = keeperIds.size;
-    const maxKeepers =
-      gkMode === "fixed" ? 2 : gkMode === "multi" ? effectiveTeamCount : 0;
+    const maxKeepers = gkMode === "fixed" ? 2 : gkMode === "multi" ? teamCount : 0;
     const tooManyKeepers = keeperCount > maxKeepers;
     const isReady =
       count >= minPlayers && count <= maxPlayers && !tooManyKeepers;
-    const wasAutoAdjusted = isReady && effectiveTeamCount !== teamCount;
+    // Any teams left without players stay in place as empty slots and can be filled
+    // during the pelada, once the remaining players arrive.
+    const emptyTeamSlots = Math.max(0, teamCount - count);
 
     container.innerHTML = `
       <div style="margin-bottom: 20px;">
@@ -200,28 +189,21 @@ function renderPeladaConfig(container, onNavigate) {
           ⚽ Organizar Nova Pelada
         </h1>
         <p style="color: var(--text-muted); font-size: 0.85rem;">
-          Escolha o número máximo de times (${teamSize} jogadores por time) e selecione os atletas presentes. Se faltar gente para esse número, o app reduz os times automaticamente.
+          Escolha o número de times (${teamSize} jogadores por time) e selecione os atletas presentes. Times sem jogadores ficam vazios e podem ser preenchidos durante a pelada.
         </p>
       </div>
 
-      <!-- Step 1: Number of Teams (Options: 3, 4, 5, 6 Teams) -->
+      <!-- Step 1: Number of Teams (Options: 2, 3, 4, 5, 6 Teams) -->
       <div class="card">
         <h2 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px;">
           1. Quantos times vão jogar hoje?
         </h2>
         <div class="team-count-grid">
-          ${[3, 4, 5, 6]
-            .map((num) => {
-              // Before there are enough players yet, every tier would cascade down to
-              // the same effective count (3), which would make clicking feel broken —
-              // so highlight the admin's own click until we're actually ready, then
-              // switch to showing the real (possibly auto-downgraded) outcome. Nothing
-              // is highlighted at all until the admin clicks a button or attendance is ready.
-              const highlightCount = isReady
-                ? effectiveTeamCount
-                : hasPickedTeamCount
-                  ? teamCount
-                  : null;
+          ${TEAM_COUNT_OPTIONS.map((num) => {
+              // The admin's own click is the chosen count — it never cascades down
+              // because attendance is short; empty team slots are filled later.
+              const highlightCount =
+                isReady || hasPickedTeamCount ? teamCount : null;
               return `
             <button class="btn ${highlightCount === num ? "btn-primary" : "btn-secondary"} btn-team-count" data-count="${num}">
               ${num} Times
@@ -246,14 +228,14 @@ function renderPeladaConfig(container, onNavigate) {
                   ? `(faltam ${minPlayers - count} para o mínimo de ${minPlayers})`
                   : count > maxPlayers
                     ? `(excesso de ${count - maxPlayers})`
-                    : `✓ Pronto para ${effectiveTeamCount} ${effectiveTeamCount === 1 ? "time" : "times"}!`
+                    : `✓ Pronto para ${teamCount} ${teamCount === 1 ? "time" : "times"}!`
               }
             </div>
             ${
-              wasAutoAdjusted
+              emptyTeamSlots > 0
                 ? `
               <div style="font-size: 0.76rem; color: var(--accent-gold); margin-top: 2px;">
-                🔄 Ajustado automaticamente de ${teamCount} para ${effectiveTeamCount} times (jogadores insuficientes para ${teamCount}).
+                ${emptyTeamSlots} ${emptyTeamSlots === 1 ? "time ficará vazio" : "times ficarão vazios"} — preencha durante a pelada quando os jogadores chegarem.
               </div>
             `
                 : ""
@@ -328,7 +310,7 @@ function renderPeladaConfig(container, onNavigate) {
 
         <div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
           <button id="btn-advance-setup" class="btn btn-primary btn-lg" ${!isReady || !store.canControlPelada() ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ""}>
-            ${store.canControlPelada() ? `Avançar para Montagem dos Times (${count} jogadores → ${effectiveTeamCount} times)` : "🔒 Apenas o admin pode iniciar a pelada"}
+            ${store.canControlPelada() ? `Avançar para Montagem dos Times (${count} jogadores → ${teamCount} times)` : "🔒 Apenas o admin pode iniciar a pelada"}
           </button>
           ${
             !isReady
@@ -417,7 +399,7 @@ function renderPeladaConfig(container, onNavigate) {
             showToast(
               gkMode === "fixed"
                 ? "No modo goleiros fixos são só 2 goleiros (um em cada gol)."
-                : `Com ${effectiveTeamCount} times, dá para escolher até ${effectiveTeamCount} goleiros.`,
+                : `Com ${teamCount} times, dá para escolher até ${teamCount} goleiros.`,
             );
             return;
           } else {
@@ -460,12 +442,16 @@ function renderPeladaConfig(container, onNavigate) {
     const advanceBtn = container.querySelector("#btn-advance-setup");
     if (isReady && store.canControlPelada() && advanceBtn) {
       advanceBtn.addEventListener("click", () => {
-        store.startPeladaSetup(
-          effectiveTeamCount,
+        const result = store.startPeladaSetup(
+          teamCount,
           Array.from(selectedIds),
           Array.from(diaristaIds),
           Array.from(keeperIds),
         );
+        if (result?.success === false) {
+          showToast("⚠️ " + result.error);
+          return;
+        }
         renderSetupTeams(container, onNavigate);
       });
     }
@@ -513,12 +499,25 @@ function renderSetupTeams(container, onNavigate) {
 
   function render() {
     const teamSize = store.teamSize;
-    const targetStars = teamSize * 4.0;
+    // Teams may be underfilled, so the star goal follows the headcount each team
+    // actually gets (a 2-player side targets ~8★, not the full team's 20★). The
+    // average is fractional so underfilled and full teams share the same midpoint.
+    const avgPerTeam = presentPlayers.length / Math.max(1, pelada.teams.length);
+    const targetStars = avgPerTeam * 4.0;
+    // Headcount a team is expected to hold: the teams with the extra players get
+    // one more, the others one less (e.g. 26 players over 6 teams → 5/5/4/4/4/4).
+    const maxHeadcount = Math.ceil(avgPerTeam);
+    const minHeadcount = Math.floor(avgPerTeam);
     const assignedIds = getAssignedPlayerIds();
     const unassignedPlayers = presentPlayers.filter(
       (p) => !assignedIds.has(p.id),
     );
     const diaristaIds = new Set(pelada.diaristaPlayerIds || []);
+    const playableTeamCount = pelada.teams.filter(
+      (t) => t.playerIds.length > 0,
+    ).length;
+    const emptyTeamCount = pelada.teams.length - playableTeamCount;
+    const canStartPelada = playableTeamCount >= MIN_TEAM_COUNT;
 
     container.innerHTML = `
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
@@ -527,11 +526,26 @@ function renderSetupTeams(container, onNavigate) {
             ⚖️ Equilíbrio dos Times
           </h1>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
-            Meta por time: ~${targetStars.toFixed(1)}★ total (${teamSize} jogadores).
+            Meta por time: ~${targetStars.toFixed(1)}★ total (${
+              minHeadcount === maxHeadcount
+                ? `${maxHeadcount}`
+                : `${minHeadcount}-${maxHeadcount}`
+            } ${
+              maxHeadcount === 1 ? "jogador" : "jogadores"
+            } por time).
           </p>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
             Arraste e solte para trocar ou equilibrar.
           </p>
+          ${
+            emptyTeamCount > 0
+              ? `
+            <p style="color: var(--accent-gold); font-size: 0.8rem; font-weight: 600;">
+              ${emptyTeamCount} ${emptyTeamCount === 1 ? "time está vazio" : "times estão vazios"} — você pode começar com ${playableTeamCount} times e preencher os demais durante a pelada.
+            </p>
+          `
+              : ""
+          }
         </div>
 
         <div class="team-balance-actions">
@@ -583,10 +597,12 @@ function renderSetupTeams(container, onNavigate) {
             const totalStars = teamPlayers.reduce((sum, p) => sum + p.stars, 0);
             const slotsRemaining = teamSize - teamPlayers.length;
 
-            // Meter styling: closer to the target is perfect
+            // Meter styling: closer to the target is perfect. A team is "full" when it
+            // reaches the headcount this pelada actually has to give out, which may be
+            // less than the configured teamSize when the attendance is short.
             const diffFromTarget = Math.abs(totalStars - targetStars);
             let pillClass = "good";
-            if (teamPlayers.length === teamSize) {
+            if (teamPlayers.length >= minHeadcount && minHeadcount > 0) {
               if (diffFromTarget <= 1.5) pillClass = "perfect";
               else if (diffFromTarget > 3.0) pillClass = "skewed";
             }
@@ -611,6 +627,14 @@ function renderSetupTeams(container, onNavigate) {
                   </span>
                 </div>
               </div>
+
+              ${
+                teamPlayers.length === 0
+                  ? `
+                <div class="empty-team-note">Time vazio — será preenchido durante a pelada.</div>
+              `
+                  : ""
+              }
 
               ${pelada.goalkeeperMode === "multi" ? renderSetupTeamGoalkeeperSlot(pelada, team) : ""}
 
@@ -680,10 +704,19 @@ function renderSetupTeams(container, onNavigate) {
       </div>
 
       <!-- Action Bottom Bar -->
-      <div style="margin-top: 24px;">
-        <button id="btn-start-match" class="btn btn-primary btn-lg" style="box-shadow: 0 4px 20px var(--pitch-green-glow);">
+      <div style="margin-top: 24px; display: flex; flex-direction: column; gap: 8px;">
+        <button id="btn-start-match" class="btn btn-primary btn-lg" ${canStartPelada ? "" : 'disabled style="opacity: 0.5; cursor: not-allowed; box-shadow: none;"'}>
           🚀 Confirmar Times & Começar Pelada!
         </button>
+        ${
+          canStartPelada
+            ? ""
+            : `
+          <p style="font-size: 0.8rem; text-align: center; color: var(--text-muted);">
+            Coloque pelo menos ${MIN_TEAM_COUNT} times com jogadores para começar. Os times vazios podem ser preenchidos depois.
+          </p>
+        `
+        }
       </div>
     `;
 
@@ -730,14 +763,16 @@ function renderSetupTeams(container, onNavigate) {
         ];
       }
 
-      // Redistribute the same players across the existing teams
-      const teamSize = store.teamSize;
+      // Redistribute the same players across the existing teams. Teams may be
+      // underfilled, so the split is by headcount (not by a fixed teamSize slice) —
+      // otherwise the tail teams would come out empty.
+      const groups = redistributePlayers(
+        currentPlayerIds,
+        pelada.teams.length,
+      );
       pelada.teams = pelada.teams.map((team, teamIndex) => ({
         ...team,
-        playerIds: currentPlayerIds.slice(
-          teamIndex * teamSize,
-          (teamIndex + 1) * teamSize,
-        ),
+        playerIds: groups[teamIndex] || [],
       }));
 
       store.updatePeladaTeams(pelada.teams);
@@ -817,6 +852,15 @@ function renderSetupTeams(container, onNavigate) {
       const sourceTeam = pelada.teams.find((t) => t.id === sourceTeamId);
       const targetTeam = pelada.teams.find((t) => t.id === targetTeamId);
       if (!sourceTeam || !targetTeam) return;
+
+      // A team can never play empty, so moving the last player out of a team is
+      // refused — the admin would otherwise end up with a side nobody can field.
+      if (sourceTeam.playerIds.length <= 1) {
+        showToast(
+          `O ${sourceTeam.name} precisa de pelo menos 1 jogador. Troque em vez de mover.`,
+        );
+        return;
+      }
 
       if (targetTeam.playerIds.length < store.teamSize) {
         // Direct move if vacancy
@@ -971,6 +1015,10 @@ function renderSetupTeams(container, onNavigate) {
     container
       .querySelector("#btn-start-match")
       .addEventListener("click", () => {
+        if (!canStartPelada) {
+          showToast("⚠️ Coloque pelo menos 2 times com jogadores para começar.");
+          return;
+        }
         const result = store.startLivePelada();
         if (result?.success === false) {
           showToast("⚠️ " + result.error);
@@ -1559,6 +1607,14 @@ function renderLivePelada(container, onNavigate) {
       });
     });
 
+    // Bind "fill team" action — add new arrivals or move a waiting-team player into an
+    // empty/underfilled team. Empty teams rejoin the queue automatically after the add.
+    container.querySelectorAll(".btn-fill-team").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        openFillTeamModal(e.currentTarget.getAttribute("data-team"), render);
+      });
+    });
+
     // Bind manual "first match" team selection (only rendered while there's no current match)
     container.querySelectorAll(".btn-toggle-match-selection").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -2103,6 +2159,155 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
 }
 
 /**
+ * Fill an empty/underfilled team during a live pelada. Candidates are outfield players
+ * who are not currently on the pitch: newcomers (not yet in the pelada) and players from
+ * other teams waiting in the queue. The store guards against emptying a team.
+ */
+function openFillTeamModal(teamId, onDone) {
+  const pelada = store.activePelada;
+  const team = pelada.teams.find((t) => t.id === teamId);
+  if (!team) {
+    onDone();
+    return;
+  }
+
+  const match = pelada.rotation?.currentMatch;
+  const onPitch = new Set(match ? [match.teamAId, match.teamBId] : []);
+  const waitingTeamIds = new Set(pelada.rotation?.waitingTeamIds || []);
+  const assigned = new Set(pelada.teams.flatMap((t) => t.playerIds));
+  const departed = new Set(pelada.departedPlayerIds || []);
+  const guesting = new Set(
+    (pelada.guestSlots || []).map((g) => g.guestPlayerId),
+  );
+  const goalkeeperIds = new Set(pelada.goalkeeperIds || []);
+  const currentPlayers = team.playerIds
+    .map((id) => store.getPlayer(id))
+    .filter(Boolean);
+
+  const candidates = [];
+  const addCandidate = (player, sourceTeam = null) => {
+    if (!player || sourceTeam?.id === team.id) return;
+    candidates.push({ player, sourceTeam });
+  };
+
+  // New arrivals / unassigned players.
+  store.getRankablePlayers().forEach((p) => {
+    if (assigned.has(p.id)) return;
+    if (departed.has(p.id) || guesting.has(p.id) || goalkeeperIds.has(p.id)) return;
+    addCandidate(p, null);
+  });
+
+  // Players from other waiting teams can be moved here too.
+  pelada.teams.forEach((sourceTeam) => {
+    if (sourceTeam.id === team.id) return;
+    if (!waitingTeamIds.has(sourceTeam.id) || onPitch.has(sourceTeam.id)) return;
+    sourceTeam.playerIds.forEach((pid) => {
+      if (departed.has(pid) || guesting.has(pid)) return;
+      const p = store.getPlayer(pid);
+      if (p) addCandidate(p, sourceTeam);
+    });
+  });
+
+  const sorted = [...candidates].sort((a, b) =>
+    a.player.name.localeCompare(b.player.name),
+  );
+  const candidatePlayers = sorted.map((entry) => entry.player);
+  const sourceByPlayerId = new Map(
+    sorted.map((entry) => [entry.player.id, entry.sourceTeam]),
+  );
+
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="fill-team-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">➕ Adicionar jogador ao ${escapeHtml(team.name)}</h2>
+          <button class="modal-close" id="fill-team-modal-close">&times;</button>
+        </div>
+
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
+          ${escapeHtml(team.name)} está com ${currentPlayers.length}/${store.teamSize} jogadores.
+          Escolha um jogador de fora da pelada ou de outro time que esteja na fila de espera.
+        </p>
+
+        ${renderQueueSearchHtml(candidatePlayers, "🔍 Buscar jogador para este time...")}
+
+        <div class="fill-team-list">
+          ${
+            sorted.length > 0
+              ? sorted
+                  .map(
+                    ({ player, sourceTeam }) => `
+              <div class="fill-team-row">
+                <div>
+                  <strong>${escapeHtml(player.name)}</strong>
+                  <span class="star-badge" style="font-size: 0.72rem; margin-left: 6px;">${player.stars}★</span>
+                  <div class="fill-team-source">
+                    ${
+                      sourceTeam
+                        ? `Vem de ${escapeHtml(sourceTeam.name)}`
+                        : "Novo na pelada / sem time"
+                    }
+                  </div>
+                </div>
+                <button class="btn btn-primary btn-sm btn-pick-fill-player" data-player-id="${player.id}">
+                  Adicionar
+                </button>
+              </div>
+            `,
+                  )
+                  .join("")
+              : `
+              <p style="font-size: 0.8rem; color: var(--text-dim); text-align: center; padding: 8px 0;">
+                Nenhum jogador disponível no momento. Marque jogadores como disponíveis ou aguarde novas chegadas.
+              </p>
+            `
+          }
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#fill-team-overlay");
+  modalContainer
+    .querySelector("#fill-team-modal-close")
+    .addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  const pickPlayer = (playerId) => {
+    const result = store.fillTeamWithPlayer(teamId, playerId);
+    const player = store.getPlayer(playerId);
+    close();
+    if (result?.success === false) {
+      showToast("⚠️ " + result.error);
+    } else {
+      const sourceTeamId = sourceByPlayerId.get(playerId);
+      const sourceTeam = sourceTeamId
+        ? pelada.teams.find((t) => t.id === sourceTeamId)
+        : null;
+      showToast(
+        sourceTeam
+          ? `${player?.name || "Jogador"} passou do ${sourceTeam.name} para o ${team.name}.`
+          : `${player?.name || "Jogador"} entrou no ${team.name}!`,
+      );
+    }
+    onDone();
+  };
+
+  modalContainer.querySelectorAll(".btn-pick-fill-player").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      pickPlayer(e.currentTarget.getAttribute("data-player-id"));
+    });
+  });
+  bindQueueSearch(modalContainer, candidatePlayers, pickPlayer);
+}
+
+/**
  * "Trocar" (only while the swap rule is on): the player swaps teams with any active,
  * rostered player of another team in this pelada. Both keep counting for the ranking —
  * see store.swapPlayers. Departed players and guests currently completing a team can't
@@ -2510,11 +2715,22 @@ function renderMatchPanel(
   if (!rotation || !match || !teamA || !teamB) {
     if (rotation && store.canControlPelada()) {
       const selectedCount = pendingMatchSelection.length;
+      const playableCount = rotation.waitingTeamIds.length;
+      if (playableCount < MIN_TEAM_COUNT) {
+        return `
+          <div class="card" style="text-align: center; padding: 24px 16px;">
+            <p style="font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;">⏳ Aguardando times com jogadores</p>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">
+              Adicione jogadores a pelo menos ${MIN_TEAM_COUNT} times em “Times em formação” para começar o próximo confronto.
+            </p>
+          </div>
+        `;
+      }
       return `
         <div class="card" style="text-align: center; padding: 24px 16px;">
-          <p style="font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;">⚽ Escolha o primeiro confronto</p>
+          <p style="font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;">⚽ Escolha o próximo confronto</p>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">
-            Selecione os 2 times que já estão completos na fila abaixo (${selectedCount}/2 selecionados).
+            Selecione os 2 times da fila abaixo (${selectedCount}/2 selecionados).
           </p>
           ${
             selectedCount === 2
@@ -3098,18 +3314,27 @@ function renderActiveTeamCard(pelada, team) {
  * Compact list of the teams waiting their turn. The order of `rotation.waitingTeamIds` IS the
  * priority queue (top = next up) — it starts sorted by availability but the admin can freely
  * drag/reorder it afterwards, and (while there's no current match) tap teams to pick the first confrontation.
+ *
+ * Empty teams are shown separately ("Times em formação"): they can't play yet, stay out of the
+ * queue, and rejoin it automatically as soon as the admin adds their first player.
  */
 function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
-  if (
-    !rotation ||
-    !Array.isArray(rotation.waitingTeamIds) ||
-    rotation.waitingTeamIds.length === 0
-  )
-    return "";
+  if (!rotation || !Array.isArray(rotation.waitingTeamIds)) return "";
 
-  const queue = rotation.waitingTeamIds;
+  const playableIds = new Set(
+    (pelada.teams || [])
+      .filter((team) => store.getTeamCompleteness(team.id) > 0)
+      .map((team) => team.id),
+  );
+  const queue = rotation.waitingTeamIds.filter((id) => playableIds.has(id));
+  const emptyTeams = (pelada.teams || []).filter(
+    (team) => !playableIds.has(team.id),
+  );
+  if (queue.length === 0 && emptyTeams.length === 0) return "";
+
   const departed = new Set(pelada.departedPlayerIds || []);
   const pickingFirstMatch = store.canControlPelada() && !rotation.currentMatch;
+  const canFill = store.canControlPelada();
 
   // Lets the admin swap out an automatically-assigned team before the match actually starts.
   const match = rotation.currentMatch;
@@ -3127,7 +3352,16 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
     ? pelada.teams.find((t) => t.id === match.teamBId)
     : null;
 
+  const renderFillButton = (team) => `
+    <button class="btn btn-secondary btn-sm btn-fill-team" data-team="${team.id}" style="margin-top: 8px; width: 100%;">
+      ➕ Adicionar jogador
+    </button>
+  `;
+
   return `
+    ${
+      queue.length > 0
+        ? `
     <div class="card" style="margin-top: 20px;">
       <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
         ⏳ Fila de Espera ${store.canControlPelada() ? '<span style="font-weight: 400; font-size: 0.78rem;">(arraste ou use ▲▼ para reordenar)</span>' : ""}
@@ -3183,6 +3417,11 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
                   .join("")}
               </div>
               ${
+                canFill && completeness < store.teamSize
+                  ? renderFillButton(team)
+                  : ""
+              }
+              ${
                 pickingFirstMatch
                   ? `
                 <button class="btn ${isSelected ? "btn-primary" : "btn-secondary"} btn-sm btn-toggle-match-selection" data-team="${team.id}" style="margin-top: 8px; width: 100%;">
@@ -3215,6 +3454,42 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
           .join("")}
       </div>
     </div>
+    `
+        : ""
+    }
+    ${
+      emptyTeams.length > 0
+        ? `
+    <div class="card waiting-empty-teams" style="margin-top: 20px; border: 1px dashed var(--accent-gold);">
+      <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; color: var(--accent-gold);">
+        🧩 Times em formação (${emptyTeams.length})
+      </h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+        Estes times ainda não têm jogadores e ficam fora da fila até serem preenchidos.
+      </p>
+      <div class="waiting-queue-list">
+        ${emptyTeams
+          .map(
+            (team) => `
+          <div class="waiting-team-card empty-team" data-team-id="${team.id}" style="border-left: 4px solid ${team.color};">
+            <div class="waiting-team-header">
+              <span style="font-weight: 800;">${escapeHtml(team.name)}</span>
+              <span class="waiting-team-completeness incomplete">0/${store.teamSize} disponíveis</span>
+            </div>
+            ${
+              canFill
+                ? renderFillButton(team)
+                : `<p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 6px;">Aguardando o administrador adicionar jogadores.</p>`
+            }
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+    </div>
+    `
+        : ""
+    }
   `;
 }
 

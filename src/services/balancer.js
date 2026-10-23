@@ -4,14 +4,105 @@
 
 const AVG_STAR_TARGET = 4.0; // assumed average player rating, used to derive the target team total
 
+// How many teams a pelada can have. Two is the floor: a pelada needs at least two sides
+// to produce a confrontation, but it no longer requires the classic three.
+export const MIN_TEAM_COUNT = 2;
+export const MAX_TEAM_COUNT = 6;
+
+/**
+ * Keeps a team count inside the supported range — the single source of truth for the clamp.
+ * The admin's chosen count is preserved even when attendance is short: empty team slots
+ * stay in place until they are filled, so the pelada can start with fewer playable teams.
+ */
+export function clampTeamCount(teamCount) {
+  const n = Number(teamCount);
+  return Number.isFinite(n)
+    ? Math.max(MIN_TEAM_COUNT, Math.min(MAX_TEAM_COUNT, Math.round(n)))
+    : MIN_TEAM_COUNT;
+}
+
+/**
+ * Smallest headcount that can field a pelada at all: one player per team, and the
+ * floor is MIN_TEAM_COUNT teams — so two players are enough for a two-team pelada.
+ */
+export function minPeladaPlayers() {
+  return MIN_TEAM_COUNT;
+}
+
+/**
+ * Splits a list of player ids into `teamCount` groups of nearly equal size — every
+ * group gets at least one player as long as there are enough players to go around.
+ * Used to redistribute players across existing (possibly underfilled) teams without
+ * leaving any team empty.
+ */
+export function redistributePlayers(playerIds, teamCount) {
+  const ids = playerIds || [];
+  const k = Math.max(1, Math.round(Number(teamCount) || 1));
+  const base = Math.floor(ids.length / k);
+  const remainder = ids.length % k;
+  let cursor = 0;
+  return Array.from({ length: k }, (_, i) => {
+    const size = base + (i < remainder ? 1 : 0);
+    const group = ids.slice(cursor, cursor + size);
+    cursor += size;
+    return group;
+  });
+}
+
+/**
+ * Validates that a pelada can go live. Teams may be empty (the admin fills them later,
+ * directly from the live screen), but at least MIN_TEAM_COUNT teams must already have a
+ * player so the first confrontation can happen.
+ *
+ * @param {Array} teams - The pelada's teams, each with a `playerIds` array
+ * @returns {{ success: boolean, error?: string, emptyTeamNames?: string[] }}
+ */
+export function validateTeamsForLiveStart(teams) {
+  const list = Array.isArray(teams) ? teams : [];
+  const emptyTeams = list.filter((t) => !(t.playerIds || []).length);
+  const playableCount = list.length - emptyTeams.length;
+  if (playableCount < MIN_TEAM_COUNT) {
+    return {
+      success: false,
+      error: `A pelada precisa de pelo menos ${MIN_TEAM_COUNT} times com jogadores para começar.`,
+      emptyTeamNames: emptyTeams.map((t) => t.name || 'Time'),
+    };
+  }
+  return {
+    success: true,
+    emptyTeamNames: emptyTeams.map((t) => t.name || 'Time'),
+  };
+}
+
+/**
+ * Validates that a pelada can be set up: at least MIN_TEAM_COUNT players are needed
+ * (one per side). The chosen team count is preserved even when there are fewer players
+ * than teams — the extra teams simply start empty.
+ *
+ * @param {number} teamCount - The admin's chosen team count
+ * @param {number} playerCount - How many players are present
+ * @returns {{ success: boolean, error?: string, teamCount?: number }}
+ */
+export function validateSetupForPelada(teamCount, playerCount) {
+  if (playerCount < MIN_TEAM_COUNT) {
+    return {
+      success: false,
+      error: `É preciso pelo menos ${MIN_TEAM_COUNT} jogadores para começar a pelada.`,
+    };
+  }
+  return {
+    success: true,
+    teamCount: clampTeamCount(teamCount),
+  };
+}
+
 /**
  * Auto-balances players into K teams of `teamSize` players targeting ~(teamSize * 4★) per team.
  * Uses a greedy snake draft followed by pairwise swap optimization.
  */
 export function autoBalanceTeams(players, teamCount = 4, teamSize = 5) {
-  const k = Math.max(3, Math.min(6, teamCount));
+  const k = clampTeamCount(teamCount);
   const totalSlotsNeeded = k * teamSize;
-  const targetStars = teamSize * AVG_STAR_TARGET;
 
     // Clone and shuffle players before sorting by stars.
   // This randomizes the order of players with equal star ratings.
@@ -28,6 +119,13 @@ export function autoBalanceTeams(players, teamCount = 4, teamSize = 5) {
 
   // Only keep enough players to fill all available team slots.
   pool.splice(totalSlotsNeeded);
+
+  // Teams may be underfilled (as few as one player each), so the star goal follows the
+  // headcount each team actually ends up with — not the full `teamSize`. The average
+  // is fractional on purpose: with 26 players over 6 teams the sides are 5/4/4/4/4/5,
+  // and ~17★ is the fair midpoint for all of them.
+  const playersPerTeam = pool.length / k;
+  const targetStars = playersPerTeam * AVG_STAR_TARGET;
  
   // Initialize K teams
   const teams = Array.from({ length: k }, (_, i) => ({
@@ -133,7 +231,9 @@ export function autoBalanceTeams(players, teamCount = 4, teamSize = 5) {
  * with the "Equilibrar Automaticamente" button.
  */
 export function randomizeTeams(players, teamCount = 4, teamSize = 5) {
-  const k = Math.max(3, Math.min(6, teamCount));
+  // Keep the admin's chosen number of teams — extra teams may start empty and are
+  // filled later from the live screen.
+  const k = clampTeamCount(teamCount);
   const totalSlotsNeeded = k * teamSize;
 
   // Clone the pool and shuffle with Fisher–Yates
