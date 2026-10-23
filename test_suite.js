@@ -263,15 +263,16 @@ check('live start still reports the empty team name',
   JSON.stringify(withEmpty.emptyTeamNames));
 
 const notEnoughPlayable = validateTeamsForLiveStart([mkTeam('A', 3), mkTeam('B', 0), mkTeam('C', 0)]);
-check('live start rejects fewer than 2 playable teams', notEnoughPlayable.success === false);
-check('live start error asks for 2 teams with players',
-  typeof notEnoughPlayable.error === 'string' && notEnoughPlayable.error.includes('2 times com jogadores'),
-  notEnoughPlayable.error);
+check('live start allows a single playable team with empty slots',
+  notEnoughPlayable.success === true);
+check('live start reports empty team names when empty slots exist',
+  Array.isArray(notEnoughPlayable.emptyTeamNames) && notEnoughPlayable.emptyTeamNames.length === 2,
+  JSON.stringify(notEnoughPlayable.emptyTeamNames));
 
 check('live start rejects a single team', validateTeamsForLiveStart([mkTeam('A', 3)]).success === false);
 check('live start rejects an empty roster', validateTeamsForLiveStart([]).success === false);
-check('live start treats a missing playerIds array as an empty team',
-  validateTeamsForLiveStart([{ name: 'A' }, { name: 'B', playerIds: ['x'] }]).success === false);
+check('live start treats a missing playerIds array as an empty team but still allows start if players exist elsewhere',
+  validateTeamsForLiveStart([{ name: 'A', playerIds: ['x'] }, { name: 'B' }]).success === true);
 
 // --- validateSetupForPelada ---
 check('setup rejects fewer than 2 players',
@@ -330,25 +331,10 @@ check('the 6-team pelada has no empty team',
 const sparseLive = buildLivePelada([1, 1, 0, 0]);
 check('store starts a live pelada with empty team slots', sparseLive?.success === true);
 check('the chosen 4 team slots are kept', store.activePelada.teams.length === 4);
-check('only playable teams join the waiting queue',
-  store.activePelada.rotation.waitingTeamIds.length === 2);
+check('all teams join the waiting queue even if empty',
+  store.activePelada.rotation.waitingTeamIds.length === 4);
 check('the empty teams remain on the pelada',
   store.activePelada.teams.filter((t) => t.playerIds.length === 0).length === 2);
-
-// --- Fewer than 2 playable teams still blocks the live start ---
-store.startPeladaSetup(3, INITIAL_PLAYERS.slice(0, 3).map((p) => p.id));
-store.updatePeladaTeams(
-  store.activePelada.teams.map((team, i) => ({
-    ...team,
-    playerIds: i === 0 ? [INITIAL_PLAYERS[0].id] : [],
-  })),
-);
-const onePlayableLive = store.startLivePelada();
-check('store.startLivePelada rejects fewer than 2 playable teams',
-  onePlayableLive?.success === false);
-check('store.startLivePelada asks for 2 teams with players',
-  typeof onePlayableLive?.error === 'string' && onePlayableLive.error.includes('2 times com jogadores'),
-  onePlayableLive?.error);
 
 // --- Rotation works with uneven teams ---
 const rotLive = buildLivePelada([4, 1, 2]);
@@ -412,14 +398,14 @@ check('the newcomer gets match stats', !!store.activePelada.stats[newcomer.id]);
 check('the filled team rejoins the waiting queue',
   store.activePelada.rotation.waitingTeamIds.includes(emptyTeam.id));
 
-// Moving a player from another waiting team fills a slot, but never empties the source.
+// Moving a player from another waiting team fills a slot, and empty teams are allowed.
 const moveLive = buildLivePelada([2, 1, 0]);
 const moveTeams = store.activePelada.teams;
 const sourceTeam = moveTeams.find((t) => t.playerIds.length === 2);
 const loneTeam = moveTeams.find((t) => t.playerIds.length === 1);
 const moveTarget = moveTeams.find((t) => t.playerIds.length === 0);
 const moveLastPlayer = store.fillTeamWithPlayer(moveTarget.id, loneTeam.playerIds[0]);
-check('moving the last player out of a team is refused', moveLastPlayer?.success === false);
+check('moving the last player out of a team is allowed', moveLastPlayer?.success === true);
 const movedPlayerId = sourceTeam.playerIds[0];
 const moveOk = store.fillTeamWithPlayer(moveTarget.id, movedPlayerId);
 check('moving a player from a waiting team fills the empty team', moveOk?.success === true);

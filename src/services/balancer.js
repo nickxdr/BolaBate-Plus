@@ -50,9 +50,9 @@ export function redistributePlayers(playerIds, teamCount) {
 }
 
 /**
- * Validates that a pelada can go live. Teams may be empty (the admin fills them later,
- * directly from the live screen), but at least MIN_TEAM_COUNT teams must already have a
- * player so the first confrontation can happen.
+ * Validates that a pelada can go live. Teams may be empty — even when they are about to
+ * play — so the only requirements are MIN_TEAM_COUNT configured teams and at least one
+ * player somewhere in the roster. Empty teams can be filled during the pelada.
  *
  * @param {Array} teams - The pelada's teams, each with a `playerIds` array
  * @returns {{ success: boolean, error?: string, emptyTeamNames?: string[] }}
@@ -60,11 +60,18 @@ export function redistributePlayers(playerIds, teamCount) {
 export function validateTeamsForLiveStart(teams) {
   const list = Array.isArray(teams) ? teams : [];
   const emptyTeams = list.filter((t) => !(t.playerIds || []).length);
-  const playableCount = list.length - emptyTeams.length;
-  if (playableCount < MIN_TEAM_COUNT) {
+  const playerCount = list.reduce((sum, t) => sum + (t.playerIds || []).length, 0);
+  if (list.length < MIN_TEAM_COUNT) {
     return {
       success: false,
-      error: `A pelada precisa de pelo menos ${MIN_TEAM_COUNT} times com jogadores para começar.`,
+      error: `A pelada precisa de pelo menos ${MIN_TEAM_COUNT} times para começar.`,
+      emptyTeamNames: emptyTeams.map((t) => t.name || 'Time'),
+    };
+  }
+  if (playerCount < 1) {
+    return {
+      success: false,
+      error: 'A pelada precisa de pelo menos 1 jogador para começar.',
       emptyTeamNames: emptyTeams.map((t) => t.name || 'Time'),
     };
   }

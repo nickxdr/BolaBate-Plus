@@ -996,8 +996,8 @@ class Store {
     const pelada = normalizeActivePelada(this.activePelada);
     const teamIds = new Set(pelada.teams.map(t => t.id));
 
-    // Empty teams are allowed — they just sit out of the rotation until the admin fills
-    // them. At least two teams must already have players so a confrontation can happen.
+    // Empty teams are allowed — they can take the pitch and be filled during the
+    // pelada. At least one player must exist somewhere so there is a lineup to play.
     const validation = validateTeamsForLiveStart(pelada.teams);
     if (!validation.success) {
       return { success: false, error: validation.error };
@@ -1412,34 +1412,38 @@ class Store {
   }
 
   /**
-   * Keeps the waiting queue aligned with team availability: teams that lost their last
-   * player leave the queue, and teams that just got their first player join it at the
-   * back. Safe to call whenever a roster/departure changes; the current match is never
-   * touched. `excludeTeamIds` lets rotation-end logic reserve a team that is about to be
-   * put back on the pitch before the next match exists.
+   * Keeps the waiting queue aligned with the configured teams: stale ids are dropped and
+   * any team missing from the queue joins it at the back. Empty teams stay in the queue —
+   * they are allowed to take the pitch, so the admin can pick them for a match before
+   * filling them. Safe to call whenever a roster/departure changes; the current match is
+   * never touched. `excludeTeamIds` lets rotation-end logic reserve a team that is about
+   * to be put back on the pitch before the next match exists.
    */
   syncRotationQueue(excludeTeamIds = []) {
     const rotation = this.activePelada?.rotation;
     if (!rotation) return;
-    const playable = new Set(this.getPlayableTeamIds());
+    const teamIds = this.activePelada.teams.map(team => team.id);
+    const valid = new Set(teamIds);
     const match = rotation.currentMatch;
     const excluded = new Set(excludeTeamIds);
     const inMatch = new Set(match ? [match.teamAId, match.teamBId] : []);
-    const isQueued = id => playable.has(id) && !inMatch.has(id) && !excluded.has(id);
+    const isQueued = id => valid.has(id) && !inMatch.has(id) && !excluded.has(id);
     const queue = (rotation.waitingTeamIds || []).filter(isQueued);
     const queued = new Set(queue);
-    this.activePelada.teams.forEach(team => {
-      if (isQueued(team.id) && !queued.has(team.id)) {
-        queue.push(team.id);
-        queued.add(team.id);
+    teamIds.forEach(id => {
+      if (isQueued(id) && !queued.has(id)) {
+        queue.push(id);
+        queued.add(id);
       }
     });
     rotation.waitingTeamIds = queue;
   }
 
-  /** Playable teams start in the waiting queue (ordered "most complete" first as a default suggestion) — empty teams join automatically once filled. The admin picks the actual first match manually via startMatchBetween(). */
+  /** Every configured team starts in the waiting queue (ordered "most complete" first as a default suggestion) — the admin picks the actual first match manually via startMatchBetween(). Empty teams are queued too and may play as-is. */
   buildInitialRotation() {
-    const ranked = this.rankTeamsByAvailability(this.getPlayableTeamIds());
+    const ranked = this.rankTeamsByAvailability(
+      this.activePelada.teams.map(t => t.id),
+    );
     return {
       currentMatch: null,
       waitingTeamIds: ranked,
@@ -1457,9 +1461,6 @@ class Store {
     if (!teamAId || !teamBId || teamAId === teamBId) return { success: false, error: 'Selecione dois times diferentes.' };
     if (!rotation.waitingTeamIds.includes(teamAId) || !rotation.waitingTeamIds.includes(teamBId)) {
       return { success: false, error: 'Os times selecionados precisam estar na fila de espera.' };
-    }
-    if (this.getTeamCompleteness(teamAId) === 0 || this.getTeamCompleteness(teamBId) === 0) {
-      return { success: false, error: 'Um time vazio não pode entrar em campo. Adicione pelo menos 1 jogador.' };
     }
 
     rotation.waitingTeamIds = rotation.waitingTeamIds.filter(id => id !== teamAId && id !== teamBId);
@@ -1492,9 +1493,6 @@ class Store {
     const queueIdx = rotation.waitingTeamIds.indexOf(queuedTeamId);
     if (queueIdx === -1) {
       return { success: false, error: 'Time não está na fila de espera.' };
-    }
-    if (this.getTeamCompleteness(queuedTeamId) === 0) {
-      return { success: false, error: 'Um time vazio não pode entrar em campo. Adicione pelo menos 1 jogador.' };
     }
 
     rotation.waitingTeamIds.splice(queueIdx, 1, replaceTeamId);
@@ -1655,11 +1653,9 @@ class Store {
 
     // The previous match is over — clear it before reconciling the queue so its teams
     // aren't mistaken for "still on the pitch". The staying team is reserved for the
-    // next match, so it must not be pulled into the incoming queue.
+    // next match, so it must not be pulled into the incoming queue. Empty teams are
+    // allowed to keep playing, so the staying team is never discarded for being empty.
     rotation.currentMatch = null;
-    if (stayingId && this.getTeamCompleteness(stayingId) === 0) {
-      stayingId = null;
-    }
     this.syncRotationQueue(stayingId ? [stayingId] : []);
 
     // Incoming team(s) come from the FRONT of the queue — its order is the admin's manual priority list.
@@ -1982,7 +1978,8 @@ class Store {
   /**
    * Adds an outfield player to a team during a live pelada. The player may be a new
    * arrival (not in the pelada yet) or come from another team that is waiting its turn.
-   * Empty teams become playable and automatically rejoin the rotation queue once filled.
+   * A team is allowed to be left empty — no minimum headcount is enforced — and empty
+   * teams can take the pitch and rejoin the rotation queue at any time.
    */
   fillTeamWithPlayer(teamId, playerId) {
     const pelada = this.activePelada;
@@ -2017,9 +2014,6 @@ class Store {
       const match = pelada.rotation?.currentMatch;
       if (match && (match.teamAId === sourceTeam.id || match.teamBId === sourceTeam.id)) {
         return { success: false, error: 'Não é possível tirar um jogador de um time que está em campo.' };
-      }
-      if (this.getTeamCompleteness(sourceTeam.id) <= 1) {
-        return { success: false, error: `O ${sourceTeam.name} precisa de pelo menos 1 jogador.` };
       }
       sourceTeam.playerIds = sourceTeam.playerIds.filter(pid => pid !== playerId);
     } else if (!pelada.presentPlayerIds.includes(playerId)) {

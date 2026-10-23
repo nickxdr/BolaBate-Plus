@@ -517,7 +517,8 @@ function renderSetupTeams(container, onNavigate) {
       (t) => t.playerIds.length > 0,
     ).length;
     const emptyTeamCount = pelada.teams.length - playableTeamCount;
-    const canStartPelada = playableTeamCount >= MIN_TEAM_COUNT;
+    const canStartPelada =
+      pelada.teams.length >= MIN_TEAM_COUNT && presentPlayers.length >= 1;
 
     container.innerHTML = `
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
@@ -541,7 +542,7 @@ function renderSetupTeams(container, onNavigate) {
             emptyTeamCount > 0
               ? `
             <p style="color: var(--accent-gold); font-size: 0.8rem; font-weight: 600;">
-              ${emptyTeamCount} ${emptyTeamCount === 1 ? "time está vazio" : "times estão vazios"} — você pode começar com ${playableTeamCount} times e preencher os demais durante a pelada.
+              ${emptyTeamCount} ${emptyTeamCount === 1 ? "time está vazio" : "times estão vazios"} — ${emptyTeamCount === 1 ? "ele também pode entrar em campo" : "eles também podem entrar em campo"} e ${emptyTeamCount === 1 ? "ser preenchido" : "serem preenchidos"} durante a pelada.
             </p>
           `
               : ""
@@ -706,14 +707,14 @@ function renderSetupTeams(container, onNavigate) {
       <!-- Action Bottom Bar -->
       <div style="margin-top: 24px; display: flex; flex-direction: column; gap: 8px;">
         <button id="btn-start-match" class="btn btn-primary btn-lg" ${canStartPelada ? "" : 'disabled style="opacity: 0.5; cursor: not-allowed; box-shadow: none;"'}>
-          🚀 Confirmar Times & Começar Pelada!
+        🚀 Confirmar Times & Começar Pelada!
         </button>
         ${
           canStartPelada
             ? ""
             : `
           <p style="font-size: 0.8rem; text-align: center; color: var(--text-muted);">
-            Coloque pelo menos ${MIN_TEAM_COUNT} times com jogadores para começar. Os times vazios podem ser preenchidos depois.
+            Selecione pelo menos 1 jogador para começar. Times vazios podem entrar em campo e ser preenchidos depois.
           </p>
         `
         }
@@ -853,14 +854,8 @@ function renderSetupTeams(container, onNavigate) {
       const targetTeam = pelada.teams.find((t) => t.id === targetTeamId);
       if (!sourceTeam || !targetTeam) return;
 
-      // A team can never play empty, so moving the last player out of a team is
-      // refused — the admin would otherwise end up with a side nobody can field.
-      if (sourceTeam.playerIds.length <= 1) {
-        showToast(
-          `O ${sourceTeam.name} precisa de pelo menos 1 jogador. Troque em vez de mover.`,
-        );
-        return;
-      }
+    // A team may be left empty — players can be moved freely between teams.
+    // No guard against emptying a team.
 
       if (targetTeam.playerIds.length < store.teamSize) {
         // Direct move if vacancy
@@ -1016,7 +1011,7 @@ function renderSetupTeams(container, onNavigate) {
       .querySelector("#btn-start-match")
       .addEventListener("click", () => {
         if (!canStartPelada) {
-          showToast("⚠️ Coloque pelo menos 2 times com jogadores para começar.");
+          showToast("⚠️ Selecione pelo menos 1 jogador para começar.");
           return;
         }
         const result = store.startLivePelada();
@@ -2746,7 +2741,7 @@ function renderMatchPanel(
     }
     return `
       <div class="card" style="text-align: center; padding: 32px 16px;">
-        <p style="font-size: 0.95rem; color: var(--text-muted);">Não há confronto em andamento — não há times suficientes disponíveis.</p>
+        <p style="font-size: 0.95rem; color: var(--text-muted);">Não há confronto em andamento. Selecione dois times na fila para iniciar a partida.</p>
       </div>
     `;
   }
@@ -3321,16 +3316,9 @@ function renderActiveTeamCard(pelada, team) {
 function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
   if (!rotation || !Array.isArray(rotation.waitingTeamIds)) return "";
 
-  const playableIds = new Set(
-    (pelada.teams || [])
-      .filter((team) => store.getTeamCompleteness(team.id) > 0)
-      .map((team) => team.id),
-  );
-  const queue = rotation.waitingTeamIds.filter((id) => playableIds.has(id));
-  const emptyTeams = (pelada.teams || []).filter(
-    (team) => !playableIds.has(team.id),
-  );
-  if (queue.length === 0 && emptyTeams.length === 0) return "";
+  const teamIdSet = new Set((pelada.teams || []).map((team) => team.id));
+  const queue = (rotation.waitingTeamIds || []).filter((id) => teamIdSet.has(id));
+  if (queue.length === 0 && !store.canControlPelada()) return "";
 
   const departed = new Set(pelada.departedPlayerIds || []);
   const pickingFirstMatch = store.canControlPelada() && !rotation.currentMatch;
@@ -3451,39 +3439,6 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
             </div>
           `;
           })
-          .join("")}
-      </div>
-    </div>
-    `
-        : ""
-    }
-    ${
-      emptyTeams.length > 0
-        ? `
-    <div class="card waiting-empty-teams" style="margin-top: 20px; border: 1px dashed var(--accent-gold);">
-      <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; color: var(--accent-gold);">
-        🧩 Times em formação (${emptyTeams.length})
-      </h3>
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-        Estes times ainda não têm jogadores e ficam fora da fila até serem preenchidos.
-      </p>
-      <div class="waiting-queue-list">
-        ${emptyTeams
-          .map(
-            (team) => `
-          <div class="waiting-team-card empty-team" data-team-id="${team.id}" style="border-left: 4px solid ${team.color};">
-            <div class="waiting-team-header">
-              <span style="font-weight: 800;">${escapeHtml(team.name)}</span>
-              <span class="waiting-team-completeness incomplete">0/${store.teamSize} disponíveis</span>
-            </div>
-            ${
-              canFill
-                ? renderFillButton(team)
-                : `<p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 6px;">Aguardando o administrador adicionar jogadores.</p>`
-            }
-          </div>
-        `,
-          )
           .join("")}
       </div>
     </div>
