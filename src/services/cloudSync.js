@@ -898,6 +898,7 @@ function createEmptyActivePelada() {
     status: "idle",
     teamCount: 4,
     presentPlayerIds: [],
+    attendancePlayerIds: [],
     diaristaPlayerIds: [],
     teams: [],
     stats: {},
