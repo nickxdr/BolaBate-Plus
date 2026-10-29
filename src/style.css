@@ -1187,6 +1187,73 @@ body {
   color: var(--text-dim);
 }
 
+/* Separate the day's original selection from players who arrived after the pelada started. */
+.fill-team-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fill-team-group + .fill-team-group {
+  margin-top: 6px;
+}
+
+.fill-team-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.fill-team-group.late .fill-team-group-title {
+  color: var(--accent-gold);
+}
+
+.fill-team-group-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.fill-team-group-note {
+  margin: -2px 0 2px;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.fill-team-row.late-arrival {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.late-arrival-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--accent-gold);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.late-arrival-marker {
+  margin-left: 4px;
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
 .waiting-team-drag-handle {
   color: var(--text-dim);
   font-size: 1rem;

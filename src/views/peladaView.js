@@ -1306,14 +1306,23 @@ function renderLivePelada(container, onNavigate) {
 
     container.innerHTML = `
       ${renderControlBanner()}
-      <div style="margin-bottom: 16px;">
+      <div class="live-pelada-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;">
         <h1 style="font-size: 1.6rem; font-weight: 800;">
           Controle de Gols & Assistências
         </h1>
+        ${
+          store.canControlPelada()
+            ? `
+          <button id="btn-add-pelada-player" class="btn btn-secondary btn-sm">
+            ➕ Adicionar jogador
+          </button>
+        `
+            : ""
+        }
       </div>
 
       <!-- Match Pitch: current confrontation, score & timer -->
-      ${renderMatchPanel(rotation, match, teamA, teamB, pendingMatchSelection)}
+      ${renderMatchPanel(pelada, rotation, match, teamA, teamB, pendingMatchSelection)}
 
       <!-- Active Teams (in the same left/right order as the pitch) -->
       ${
@@ -1610,6 +1619,15 @@ function renderLivePelada(container, onNavigate) {
       });
     });
 
+    // Global entry point: pick a destination team (including the two currently on the
+    // pitch) and then a player. When every team is full, this is also where the admin
+    // can grow the pelada with one more team so late arrivals are not left out.
+    container
+      .querySelector("#btn-add-pelada-player")
+      ?.addEventListener("click", () => {
+        openAddPlayerTeamPicker(render);
+      });
+
     // Bind manual "first match" team selection (only rendered while there's no current match)
     container.querySelectorAll(".btn-toggle-match-selection").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -1812,7 +1830,7 @@ function renderQueueSearchHtml(
   `;
 }
 
-function bindQueueSearch(root, candidatePlayers, onPick) {
+function bindQueueSearch(root, candidatePlayers, onPick, { isLate = null } = {}) {
   const input = root.querySelector(".queue-search-input");
   const results = root.querySelector(".queue-search-results");
   if (!input || !results) return;
@@ -1833,6 +1851,7 @@ function bindQueueSearch(root, candidatePlayers, onPick) {
           <button type="button" class="queue-search-option" data-guest-id="${p.id}">
             <span class="queue-search-name">${escapeHtml(p.name)}</span>
             <span class="star-badge" style="font-size: 0.72rem;">${p.stars}★</span>
+            ${isLate?.(p) ? '<span class="late-arrival-badge">fora da lista</span>' : ""}
           </button>
         `,
           )
@@ -2154,6 +2173,122 @@ function openCompletionModal(teamId, onDone, { isReclaim = false } = {}) {
 }
 
 /**
+ * Global "Adicionar jogador" flow: first choose the destination team, then pick the
+ * player in openFillTeamModal(). Teams currently on the pitch are valid destinations as
+ * long as they still have an open active slot. When every team is full, the admin can
+ * add one more team (up to MAX_TEAM_COUNT) instead of leaving the newcomer out.
+ */
+function openAddPlayerTeamPicker(onDone) {
+  const pelada = store.activePelada;
+  const match = pelada.rotation?.currentMatch;
+  const onPitch = new Set(match ? [match.teamAId, match.teamBId] : []);
+  const teams = (pelada.teams || []).map((team) => {
+    const completeness = store.getTeamCompleteness(team.id);
+    return {
+      team,
+      completeness,
+      slots: Math.max(0, store.teamSize - completeness),
+      onPitch: onPitch.has(team.id),
+    };
+  });
+  const hasRoom = teams.some((entry) => entry.slots > 0);
+  const canAddTeam = (pelada.teams || []).length < MAX_TEAM_COUNT;
+
+  const modalContainer = document.getElementById("modal-container");
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="add-player-team-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title">➕ Adicionar jogador</h2>
+          <button class="modal-close" id="add-player-team-close" title="Fechar">✕</button>
+        </div>
+
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
+          Escolha para qual time o jogador entra. Times em campo recebem o jogador na partida atual;
+          times na fila entram na próxima.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          ${
+            teams.length > 0
+              ? teams
+                  .map(
+                    ({ team, completeness, slots, onPitch }) => `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg-card-subtle); padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                <span style="width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: ${team.color};"></span>
+                <div style="min-width: 0;">
+                  <strong style="display: block;">${escapeHtml(team.name)}</strong>
+                  <span style="font-size: 0.75rem; color: var(--text-dim);">
+                    ${onPitch ? "Em campo" : "Na fila"} · ${completeness}/${store.teamSize} jogadores
+                  </span>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm btn-pick-add-team" data-team="${team.id}" ${slots > 0 ? "" : "disabled"}>
+                ${slots > 0 ? `Adicionar (${slots} vaga${slots === 1 ? "" : "s"})` : "Time cheio"}
+              </button>
+            </div>
+          `,
+                  )
+                  .join("")
+              : '<p style="font-size: 0.85rem; color: var(--text-dim); text-align: center; padding: 8px 0;">Nenhum time na pelada.</p>'
+          }
+        </div>
+
+        ${
+          canAddTeam
+            ? `
+          <button id="btn-add-player-new-team" class="btn btn-secondary" style="margin-top: 14px; width: 100%;">
+            ➕ Criar novo time${hasRoom ? "" : " para receber quem chegou"}
+          </button>
+        `
+            : !hasRoom
+              ? `
+          <p style="font-size: 0.8rem; color: var(--accent-gold); margin-top: 14px; text-align: center;">
+            Todos os ${MAX_TEAM_COUNT} times estão cheios. Para encaixar alguém agora, use “Trocar” ou marque um jogador como saído.
+          </p>
+        `
+              : ""
+        }
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    modalContainer.innerHTML = "";
+  };
+  const overlay = modalContainer.querySelector("#add-player-team-overlay");
+  modalContainer
+    .querySelector("#add-player-team-close")
+    .addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  modalContainer.querySelectorAll(".btn-pick-add-team").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const teamId = e.currentTarget.getAttribute("data-team");
+      close();
+      openFillTeamModal(teamId, onDone);
+    });
+  });
+
+  modalContainer
+    .querySelector("#btn-add-player-new-team")
+    ?.addEventListener("click", () => {
+      const result = store.addPeladaTeam();
+      if (!result?.success) {
+        if (result?.error) showToast("⚠️ " + result.error);
+        onDone();
+        return;
+      }
+      close();
+      showToast("➕ Novo time criado! Escolha quem entra nele.");
+      openFillTeamModal(result.teamId, onDone);
+    });
+}
+
+/**
  * Fill an empty/underfilled team during a live pelada. Candidates are outfield players
  * who are not currently on the pitch: newcomers (not yet in the pelada) and players from
  * other teams waiting in the queue. The store guards against emptying a team.
@@ -2211,6 +2346,51 @@ function openFillTeamModal(teamId, onDone) {
     sorted.map((entry) => [entry.player.id, entry.sourceTeam]),
   );
 
+  // Split candidates by the day's attendance snapshot: everyone who was selected during
+  // setup vs. players added after the pelada went live. Legacy peladas without the snapshot
+  // fall back to a single list instead of guessing.
+  const attendance = new Set(pelada.attendancePlayerIds || []);
+  const hasAttendanceSnapshot = attendance.size > 0;
+  const isLateArrival = (player) =>
+    hasAttendanceSnapshot && !attendance.has(player.id);
+  const onListCandidates = sorted.filter((entry) => !isLateArrival(entry.player));
+  const lateCandidates = sorted.filter((entry) => isLateArrival(entry.player));
+
+  const renderCandidateRow = ({ player, sourceTeam }) => {
+    const late = isLateArrival(player);
+    const origin = sourceTeam
+      ? `Vem de ${escapeHtml(sourceTeam.name)}`
+      : late
+        ? "Novo na pelada — não estava na lista de hoje"
+        : "Na lista de hoje — ainda sem time";
+    return `
+      <div class="fill-team-row ${late ? "late-arrival" : ""}">
+        <div>
+          <strong>${escapeHtml(player.name)}</strong>
+          <span class="star-badge" style="font-size: 0.72rem; margin-left: 6px;">${player.stars}★</span>
+          ${late ? '<span class="late-arrival-badge" title="Não estava na lista de selecionados de hoje">fora da lista</span>' : ""}
+          <div class="fill-team-source">${origin}</div>
+        </div>
+        <button class="btn btn-primary btn-sm btn-pick-fill-player" data-player-id="${player.id}">
+          Adicionar
+        </button>
+      </div>
+    `;
+  };
+
+  const renderCandidateGroup = (title, note, entries, extraClass = "") =>
+    entries.length
+      ? `
+      <div class="fill-team-group ${extraClass}">
+        <div class="fill-team-group-title">${title} <span class="fill-team-group-count">${entries.length}</span></div>
+        <p class="fill-team-group-note">${note}</p>
+        ${entries.map(renderCandidateRow).join("")}
+      </div>
+    `
+      : "";
+
+  const showLateGroup = hasAttendanceSnapshot && lateCandidates.length > 0;
+
   const modalContainer = document.getElementById("modal-container");
   modalContainer.innerHTML = `
     <div class="modal-overlay" id="fill-team-overlay">
@@ -2222,7 +2402,8 @@ function openFillTeamModal(teamId, onDone) {
 
         <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
           ${escapeHtml(team.name)} está com ${currentPlayers.length}/${store.teamSize} jogadores.
-          Escolha um jogador de fora da pelada ou de outro time que esteja na fila de espera.
+          Jogadores que não estavam na lista de hoje aparecem em uma seção separada — ao adicionar,
+          eles entram na pelada e pontuam normalmente.
         </p>
 
         ${renderQueueSearchHtml(candidatePlayers, "🔍 Buscar jogador para este time...")}
@@ -2230,28 +2411,21 @@ function openFillTeamModal(teamId, onDone) {
         <div class="fill-team-list">
           ${
             sorted.length > 0
-              ? sorted
-                  .map(
-                    ({ player, sourceTeam }) => `
-              <div class="fill-team-row">
-                <div>
-                  <strong>${escapeHtml(player.name)}</strong>
-                  <span class="star-badge" style="font-size: 0.72rem; margin-left: 6px;">${player.stars}★</span>
-                  <div class="fill-team-source">
-                    ${
-                      sourceTeam
-                        ? `Vem de ${escapeHtml(sourceTeam.name)}`
-                        : "Novo na pelada / sem time"
-                    }
-                  </div>
-                </div>
-                <button class="btn btn-primary btn-sm btn-pick-fill-player" data-player-id="${player.id}">
-                  Adicionar
-                </button>
-              </div>
-            `,
-                  )
-                  .join("")
+              ? showLateGroup
+                ? `
+            ${renderCandidateGroup(
+              "✅ Na lista de hoje",
+              "Selecionados na organização da pelada.",
+              onListCandidates,
+            )}
+            ${renderCandidateGroup(
+              "🕒 Fora da lista de hoje",
+              "Chegaram depois do início — ao adicionar, entram na pelada de hoje.",
+              lateCandidates,
+              "late",
+            )}
+          `
+                : sorted.map(renderCandidateRow).join("")
               : `
               <p style="font-size: 0.8rem; color: var(--text-dim); text-align: center; padding: 8px 0;">
                 Nenhum jogador disponível no momento. Marque jogadores como disponíveis ou aguarde novas chegadas.
@@ -2285,10 +2459,11 @@ function openFillTeamModal(teamId, onDone) {
       const sourceTeam = sourceTeamId
         ? pelada.teams.find((t) => t.id === sourceTeamId)
         : null;
+      const base = sourceTeam
+        ? `${player?.name || "Jogador"} passou do ${sourceTeam.name} para o ${team.name}.`
+        : `${player?.name || "Jogador"} entrou no ${team.name}!`;
       showToast(
-        sourceTeam
-          ? `${player?.name || "Jogador"} passou do ${sourceTeam.name} para o ${team.name}.`
-          : `${player?.name || "Jogador"} entrou no ${team.name}!`,
+        store.isLateArrival(playerId) ? `${base} 🕒 Fora da lista de hoje.` : base,
       );
     }
     onDone();
@@ -2299,7 +2474,9 @@ function openFillTeamModal(teamId, onDone) {
       pickPlayer(e.currentTarget.getAttribute("data-player-id"));
     });
   });
-  bindQueueSearch(modalContainer, candidatePlayers, pickPlayer);
+  bindQueueSearch(modalContainer, candidatePlayers, pickPlayer, {
+    isLate: isLateArrival,
+  });
 }
 
 /**
@@ -2701,6 +2878,7 @@ function getFormationCoords(slot, isLeft, teamSize) {
 }
 
 function renderMatchPanel(
+  pelada,
   rotation,
   match,
   teamA,
@@ -2747,6 +2925,10 @@ function renderMatchPanel(
   }
 
   const ovrMap = computeCurrentOVRs(store);
+  // Departed players keep their roster slot for history/participation, but must not keep
+  // occupying a formation spot — otherwise a replacement added to the same team would be
+  // pushed out of the five/six-slot mini-pitch.
+  const departedPlayerIds = new Set(pelada.departedPlayerIds || []);
 
   const remainingMs = match.timerRunning
     ? Math.max(0, match.timerEndsAt - Date.now())
@@ -2774,6 +2956,7 @@ function renderMatchPanel(
         ${[leftTeam, rightTeam]
           .map((team, teamIndex) => {
             const teamPlayers = team.playerIds
+              .filter((id) => !departedPlayerIds.has(id))
               .map((id) => store.getPlayer(id))
               .filter(Boolean);
             const hasStreak =
@@ -3148,6 +3331,7 @@ function renderActiveTeamCard(pelada, team) {
           .map((p) => {
             const isDeparted = (pelada.departedPlayerIds || []).includes(p.id);
             const isDiarista = diaristaIds.has(p.id);
+            const isLate = store.isLateArrival(p.id);
             const pStat = pelada.stats[p.id] || { goals: 0, assists: 0 };
 
             return `
@@ -3161,6 +3345,7 @@ function renderActiveTeamCard(pelada, team) {
                     ${p.stars.toFixed(1)}★
                   </span>
                   ${isDiarista ? '<span class="diarista-badge">💰</span>' : ""}
+                  ${isLate ? '<span class="late-arrival-badge" title="Não estava na lista de selecionados de hoje">🕒 chegou depois</span>' : ""}
                 </div>
 
                 ${
@@ -3286,6 +3471,18 @@ function renderActiveTeamCard(pelada, team) {
           })
           .join("")}
 
+        <!-- Add a regular player (new arrival or someone from a waiting team) directly to
+             a team that is already on the pitch but still has an open active slot. -->
+        ${
+          shortfall > 0 && store.canControlPelada()
+            ? `
+          <button class="btn btn-secondary btn-sm btn-fill-team" data-team="${team.id}" style="margin-top: 8px; width: 100%;">
+            ➕ Adicionar jogador ao time
+          </button>
+        `
+            : ""
+        }
+
         <!-- Team needs completion: fewer than 5 active players (started under-strength or a completer got reclaimed) -->
         ${
           shortfall > 0
@@ -3390,6 +3587,11 @@ function renderWaitingQueue(pelada, rotation, pendingMatchSelection = []) {
                     return `
                     <span class="waiting-player-chip ${isDeparted ? "departed" : ""}">
                       ${escapeHtml(p.name)}
+                      ${
+                        store.isLateArrival(p.id)
+                          ? '<span class="late-arrival-marker" title="Não estava na lista de hoje">🕒</span>'
+                          : ""
+                      }
                       ${
                         store.canControlPelada()
                           ? `
@@ -3569,6 +3771,25 @@ function renderTimelineEntries(pelada) {
             <span>
               🔄 Troca: <strong>${escapeHtml(nameOf(ev.playerId))}</strong> → ${escapeHtml(teamNameOf(ev.toTeamId))},
               <strong>${escapeHtml(nameOf(ev.targetPlayerId))}</strong> → ${escapeHtml(teamNameOf(ev.fromTeamId))}
+            </span>
+            <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
+          </div>
+        `;
+      }
+      if (ev.type === "player-joined") {
+        const nameOf = (id) => store.getPlayer(id)?.name || "Atleta";
+        const teamNameOf = (id) =>
+          pelada.teams.find((t) => t.id === id)?.name || "Time";
+        return `
+          <div style="font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 6px;">
+            <span>
+              ➕ <strong>${escapeHtml(nameOf(ev.playerId))}</strong> entrou no ${escapeHtml(teamNameOf(ev.teamId))}${
+                ev.fromTeamId ? ` (veio do ${escapeHtml(teamNameOf(ev.fromTeamId))})` : ""
+              }${
+                store.isLateArrival(ev.playerId)
+                  ? ' <span class="late-arrival-badge">fora da lista</span>'
+                  : ""
+              }
             </span>
             <span style="color: var(--text-dim); font-size: 0.75rem;">${ev.time}</span>
           </div>

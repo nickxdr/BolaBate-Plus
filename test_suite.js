@@ -409,10 +409,32 @@ check('moving the last player out of a team is allowed', moveLastPlayer?.success
 const movedPlayerId = sourceTeam.playerIds[0];
 const moveOk = store.fillTeamWithPlayer(moveTarget.id, movedPlayerId);
 check('moving a player from a waiting team fills the empty team', moveOk?.success === true);
+check('moving a player between teams does not flag them as a late arrival',
+  store.isLateArrival(movedPlayerId) === false);
 check('the source team keeps at least one player',
   store.activePelada.teams.find((t) => t.id === sourceTeam.id).playerIds.length === 1);
 check('the destination team is now playable and queued',
   store.activePelada.rotation.waitingTeamIds.includes(moveTarget.id));
+
+// --- Late arrivals stay separate from the day's original selection ---
+const lateLive = buildLivePelada([2, 2]);
+check('the late-arrival scenario goes live', lateLive?.success === true);
+const lateSnapshot = [...store.activePelada.attendancePlayerIds];
+check('the setup selection is snapshotted when the pelada goes live',
+  lateSnapshot.length === 4);
+check('players from the setup list are not late arrivals',
+  lateSnapshot.every((id) => store.isLateArrival(id) === false));
+const lateTarget = store.activePelada.teams[0];
+const lateNewcomer = INITIAL_PLAYERS[5];
+const addLate = store.fillTeamWithPlayer(lateTarget.id, lateNewcomer.id);
+check('a player outside the setup list can be added', addLate?.success === true);
+check('the newcomer is flagged as a late arrival',
+  store.isLateArrival(lateNewcomer.id) === true);
+check('the late arrival joins the attendance list',
+  store.activePelada.presentPlayerIds.includes(lateNewcomer.id));
+check('the original attendance snapshot is unchanged',
+  store.activePelada.attendancePlayerIds.length === 4 &&
+  !store.activePelada.attendancePlayerIds.includes(lateNewcomer.id));
 
 // Players on the pitch cannot be pulled into another team.
 const guardLive = buildLivePelada([2, 1, 0]);
@@ -429,6 +451,83 @@ check('cannot pull a player from a team that is on the pitch',
 const pullFromBench = store.fillTeamWithPlayer(guardTarget.id, benchTeam.playerIds[0]);
 check('cannot pull the last player from a waiting team either',
   pullFromBench?.success === false);
+
+// --- Adding a late arrival to a team that is already on the pitch ---
+const onPitchLive = buildLivePelada([2, 2, 0]);
+check('the on-pitch add scenario goes live', onPitchLive?.success === true);
+const onPitchStart = store.startMatchBetween(
+  store.activePelada.teams[0].id,
+  store.activePelada.teams[1].id,
+);
+check('the on-pitch add scenario starts a match', onPitchStart?.success === true);
+const onPitchMatch = store.activePelada.rotation.currentMatch;
+const onPitchTarget = store.activePelada.teams.find(
+  (t) => t.id === onPitchMatch.teamAId,
+);
+const onPitchNewcomer = INITIAL_PLAYERS[4];
+const onPitchTargetBefore = onPitchTarget.playerIds.length;
+const addOnPitch = store.fillTeamWithPlayer(onPitchTarget.id, onPitchNewcomer.id);
+check('a new arrival can join a team already on the pitch', addOnPitch?.success === true);
+check('the on-pitch team received the newcomer',
+  store.activePelada.teams.find((t) => t.id === onPitchTarget.id).playerIds.includes(onPitchNewcomer.id));
+check('the newcomer grows the active lineup',
+  store.activePelada.teams.find((t) => t.id === onPitchTarget.id).playerIds.length === onPitchTargetBefore + 1);
+check('the current match is unchanged by the addition',
+  store.activePelada.rotation.currentMatch.teamAId === onPitchMatch.teamAId &&
+  store.activePelada.rotation.currentMatch.teamBId === onPitchMatch.teamBId);
+check('the addition is recorded in the timeline',
+  store.activePelada.events[0]?.type === 'player-joined' &&
+  store.activePelada.events[0]?.playerId === onPitchNewcomer.id);
+
+// --- A full team still rejects extra players ---
+const fullTeamLive = buildLivePelada([5, 1]);
+check('the full-team scenario goes live', fullTeamLive?.success === true);
+const fullTeam = store.activePelada.teams.find((t) => t.playerIds.length === 5);
+const fullTeamExtra = INITIAL_PLAYERS[6];
+const addToFull = store.fillTeamWithPlayer(fullTeam.id, fullTeamExtra.id);
+check('a full team cannot receive another player', addToFull?.success === false);
+check('the full team stays at the team size',
+  store.activePelada.teams.find((t) => t.id === fullTeam.id).playerIds.length === 5);
+
+// --- Growing the pelada with one more team when everyone is full ---
+const growLive = buildLivePelada([5, 5]);
+check('the grow-pelada scenario goes live', growLive?.success === true);
+const growStart = store.startMatchBetween(
+  store.activePelada.teams[0].id,
+  store.activePelada.teams[1].id,
+);
+check('the grow-pelada scenario starts a match', growStart?.success === true);
+const growBefore = store.activePelada.teams.length;
+const addedTeam = store.addPeladaTeam();
+check('a live pelada can grow with one more team', addedTeam?.success === true);
+check('the team count follows the new team',
+  store.activePelada.teams.length === growBefore + 1 &&
+  store.activePelada.teamCount === growBefore + 1);
+check('the new team is waiting for its turn',
+  store.activePelada.rotation.waitingTeamIds.includes(addedTeam.teamId));
+const growNewcomer = INITIAL_PLAYERS[10];
+const fillNewTeam = store.fillTeamWithPlayer(addedTeam.teamId, growNewcomer.id);
+check('the new team can receive the late arrival', fillNewTeam?.success === true);
+check('the new team is now playable',
+  store.getTeamCompleteness(addedTeam.teamId) === 1);
+
+// --- The six-team ceiling still applies to live growth ---
+const maxTeamsLive = buildLivePelada([1, 1, 1, 1, 1, 1]);
+check('the six-team scenario goes live', maxTeamsLive?.success === true);
+const tooManyTeams = store.addPeladaTeam();
+check('a pelada cannot grow past the six-team ceiling', tooManyTeams?.success === false);
+
+// --- Adding players is admin-gated like every other pelada action ---
+const gateLive = buildLivePelada([1, 1]);
+check('the gate scenario goes live', gateLive?.success === true);
+const gateTeam = store.activePelada.teams[0];
+const gateNewcomer = INITIAL_PLAYERS[2];
+store.isAdmin = false;
+const blockedFill = store.fillTeamWithPlayer(gateTeam.id, gateNewcomer.id);
+store.isAdmin = true;
+check('fillTeamWithPlayer is blocked for non-admins', blockedFill === undefined);
+check('the blocked action did not change the team',
+  !store.activePelada.teams.find((t) => t.id === gateTeam.id).playerIds.includes(gateNewcomer.id));
 
 if (failures === 0) {
   console.log('✓ All underfilled-team regression checks passed!');

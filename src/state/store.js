@@ -18,6 +18,7 @@ import { initCloudSync, recordCloudOp, pushAvatarConfig, initAvatarSync } from '
 import {
   validateTeamsForLiveStart,
   validateSetupForPelada,
+  MAX_TEAM_COUNT,
 } from '../services/balancer.js';
 
 const STORAGE_KEY = 'bolabate_store_v2';
@@ -55,6 +56,7 @@ const ADMIN_ONLY_METHODS = [
   'addPlayer', 'updatePlayer', 'deletePlayer',
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion',
+  'fillTeamWithPlayer', 'addPeladaTeam',
   'setTeamSize', 'setMatchDuration', 'setGoalsToFinish', 'setGoalLimitEnabled', 'setWinLimitEnabled', 'setWinStreakToRest',
   'setSwapEnabled', 'swapPlayers', 'setRankingZones',
   'setGoalkeeperMode', 'assignGoalkeeperToTeam', 'swapGoalkeeperSides', 'moveGoalkeeper',
@@ -71,6 +73,7 @@ const ADMIN_ONLY_METHODS = [
 const PELADA_CONTROL_METHODS = new Set([
   'startPeladaSetup', 'updatePeladaTeams', 'startLivePelada', 'backToPeladaConfig',
   'recordGoal', 'recordAssist', 'removeGoal', 'removeAssist', 'assignTeamCompletion', 'swapPlayers',
+  'fillTeamWithPlayer', 'addPeladaTeam',
   'assignGoalkeeperToTeam', 'swapGoalkeeperSides', 'moveGoalkeeper',
   'markGoalkeeperDeparted', 'revertGoalkeeperDeparture', 'recordSave', 'removeSave',
   'markPlayerDeparted', 'revertPlayerDeparture', 'assignGuestSubstitute',
@@ -127,7 +130,10 @@ function emptyActivePelada() {
   return {
     status: 'idle', // 'idle' | 'setup' | 'live'
     teamCount: 4,
-    presentPlayerIds: [],
+    presentPlayerIds: [], // everyone taking part today, including late arrivals
+    // Frozen copy of presentPlayerIds when the pelada went live: players added afterwards are
+    // "late arrivals" (not on the day's original list) and the live view flags them.
+    attendancePlayerIds: [],
     diaristaPlayerIds: [], // day-rate "Diarista" players (outfield or GK) — stats don't count
     teams: [], // [ { id: 'team-1', name: 'Time 1', playerIds: [], color: '#...' } ] — outfield only
     stats: {}, // playerId -> { goals, assists, guestGoals, guestAssists, saves? }
@@ -150,6 +156,11 @@ function emptyActivePelada() {
 /** Fills goalkeeper fields missing on peladas saved before goalkeepers existed (never undefined — Firestore). */
 function normalizeActivePelada(pelada) {
   if (!pelada || typeof pelada !== 'object') return emptyActivePelada();
+  // Peladas saved before the attendance snapshot existed fall back to the current list, so
+  // nobody is wrongly flagged as a late arrival. New peladas freeze the list on live start.
+  if (!Array.isArray(pelada.attendancePlayerIds)) {
+    pelada.attendancePlayerIds = [...(pelada.presentPlayerIds || [])];
+  }
   if (!GOALKEEPER_MODES.includes(pelada.goalkeeperMode)) pelada.goalkeeperMode = DEFAULT_GOALKEEPER_MODE;
   if (!Array.isArray(pelada.goalkeeperIds)) pelada.goalkeeperIds = [];
   if (!pelada.goalkeeperSides || typeof pelada.goalkeeperSides !== 'object') {
@@ -904,12 +915,29 @@ class Store {
     return (pelada.presentPlayerIds || []).includes(playerId) || (pelada.goalkeeperIds || []).includes(playerId);
   }
 
+  /**
+   * True when the player joined after the pelada was live — they are part of today's pelada
+   * but were not on the attendance list chosen during setup. Unknown (legacy) snapshots
+   * return false so we never label everyone as a late arrival.
+   */
+  isLateArrival(playerId) {
+    const pelada = this.activePelada;
+    if (!pelada || pelada.status === 'idle') return false;
+    const snapshot = pelada.attendancePlayerIds;
+    if (!Array.isArray(snapshot) || snapshot.length === 0) return false;
+    if (!(pelada.presentPlayerIds || []).includes(playerId)) return false;
+    return !snapshot.includes(playerId);
+  }
+
   deletePlayer(id) {
     this.players = this.players.filter(p => p.id !== id);
     // Also remove from active pelada if present
     const pelada = this.activePelada;
     if (pelada.presentPlayerIds) {
       pelada.presentPlayerIds = pelada.presentPlayerIds.filter(pid => pid !== id);
+    }
+    if (pelada.attendancePlayerIds) {
+      pelada.attendancePlayerIds = pelada.attendancePlayerIds.filter(pid => pid !== id);
     }
     if (pelada.teams) {
       pelada.teams.forEach(t => {
@@ -992,6 +1020,43 @@ class Store {
     this.save();
   }
 
+  /**
+   * Adds one more team to a live pelada so late arrivals still have somewhere to play.
+   * The new team starts empty and joins the waiting queue; the admin can fill it from
+   * the live screen. Capped by MAX_TEAM_COUNT, the same ceiling used during setup.
+   */
+  addPeladaTeam() {
+    const pelada = this.activePelada;
+    if (pelada.status !== 'live') {
+      return { success: false, error: 'Só é possível adicionar um time com a pelada em andamento.' };
+    }
+    if (!Array.isArray(pelada.teams) || pelada.teams.length >= MAX_TEAM_COUNT) {
+      return {
+        success: false,
+        error: `A pelada já tem o máximo de ${MAX_TEAM_COUNT} times.`,
+      };
+    }
+
+    // Team ids are "team-N"; find the first free number so ids stay unique even if
+    // the roster was edited between releases.
+    const usedIds = new Set(pelada.teams.map(team => team.id));
+    let number = 1;
+    while (usedIds.has(`team-${number}`)) number += 1;
+
+    const team = {
+      id: `team-${number}`,
+      name: `Time ${number}`,
+      color: this.getTeamColor(pelada.teams.length),
+      playerIds: [],
+    };
+    pelada.teams.push(team);
+    pelada.teamCount = pelada.teams.length;
+    if (!pelada.rotation) pelada.rotation = this.buildInitialRotation();
+    this.syncRotationQueue();
+    this.save();
+    return { success: true, teamId: team.id };
+  }
+
   startLivePelada() {
     const pelada = normalizeActivePelada(this.activePelada);
     const teamIds = new Set(pelada.teams.map(t => t.id));
@@ -1026,6 +1091,12 @@ class Store {
     });
 
     pelada.status = 'live';
+    // Freeze the day's attendance list before any late arrival can join, so the live view
+    // can tell "selected during setup" apart from "arrived after the pelada started".
+    pelada.attendancePlayerIds = Array.from(new Set([
+      ...(pelada.presentPlayerIds || []),
+      ...pelada.teams.flatMap(t => t.playerIds),
+    ]));
     pelada.stats = stats;
     pelada.departedPlayerIds = [];
     pelada.departedGoalkeeperIds = [];
@@ -2025,6 +2096,14 @@ class Store {
     if (!pelada.stats[playerId]) {
       pelada.stats[playerId] = { goals: 0, assists: 0, guestGoals: 0, guestAssists: 0 };
     }
+    (pelada.events ||= []).unshift({
+      id: 'ev_' + Date.now(),
+      type: 'player-joined',
+      playerId,
+      teamId,
+      fromTeamId: sourceTeam?.id || null,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
     this.syncRotationQueue();
     this.save();
     return { success: true, movedFromTeamId: sourceTeam?.id || null };
