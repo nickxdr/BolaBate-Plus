@@ -1370,10 +1370,29 @@ class Store {
       const goals = (Number(after.goals) || 0) - (Number(before.goals) || 0);
       const assists = (Number(after.assists) || 0) - (Number(before.assists) || 0);
       const saves = (Number(after.saves) || 0) - (Number(before.saves) || 0);
-      if (saves) delta[pid] = { goals, assists, saves };
-      else if (goals || assists) delta[pid] = { goals, assists };
+      // Goals/assists of a guest completing another team (shown in the Súmula; they
+      // never count toward the ranking).
+      const guestGoals = (Number(after.guestGoals) || 0) - (Number(before.guestGoals) || 0);
+      const guestAssists = (Number(after.guestAssists) || 0) - (Number(before.guestAssists) || 0);
+      if (!goals && !assists && !saves && !guestGoals && !guestAssists) return;
+      const entry = { goals, assists };
+      if (saves) entry.saves = saves;
+      if (guestGoals) entry.guestGoals = guestGoals;
+      if (guestAssists) entry.guestAssists = guestAssists;
+      delta[pid] = entry;
     });
     return delta;
+  }
+
+  /** Guests completing either team of a match → the team they played for (for the Súmula). */
+  matchGuestTeams(teamAId, teamBId) {
+    const guestTeams = {};
+    (this.activePelada.guestSlots || []).forEach(slot => {
+      if (slot.guestPlayerId && (slot.teamId === teamAId || slot.teamId === teamBId)) {
+        guestTeams[slot.guestPlayerId] = slot.teamId;
+      }
+    });
+    return guestTeams;
   }
 
   /** Lazily builds rotation state for peladas started before this feature existed. */
@@ -1556,6 +1575,7 @@ class Store {
       teamAId, teamBId, scoreA, scoreB, winnerId,
       statsDelta: this.computeMatchStatsDelta(match.statsSnapshot, this.activePelada.stats),
       rosters: this.snapshotMatchRosters(teamAId, teamBId),
+      guestTeams: this.matchGuestTeams(teamAId, teamBId),
       goalkeepers: match.goalkeepers || this.currentGoalkeeperMap(match),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
@@ -1937,6 +1957,7 @@ class Store {
           winnerId,
           statsDelta: this.computeMatchStatsDelta(currentMatch.statsSnapshot, this.activePelada.stats),
           rosters: this.snapshotMatchRosters(currentMatch.teamAId, currentMatch.teamBId),
+          guestTeams: this.matchGuestTeams(currentMatch.teamAId, currentMatch.teamBId),
           goalkeepers: currentMatch.goalkeepers || this.currentGoalkeeperMap(currentMatch),
         });
       }

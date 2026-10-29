@@ -1,6 +1,6 @@
 import { store } from '../state/store.js';
 import { showToast } from './rankingView.js';
-import { computeGoalkeeperRecords } from '../services/periodStats.js';
+import { computeGoalkeeperRecords, getPlayerTeamInMatch } from '../services/periodStats.js';
 
 export function renderHistoryView() {
   const container = document.createElement('div');
@@ -76,9 +76,10 @@ export function renderHistoryView() {
       </button>
 
       <div class="history-card-body"${isExpanded ? '' : ' hidden'}>
-        ${store.isAdmin ? `
+        ${store.isAdmin || (entry.matches || []).length ? `
         <div class="history-stats-edit-bar">
-          <button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ Editar estatísticas</button>
+          ${(entry.matches || []).length ? `<button type="button" class="btn btn-secondary btn-sm history-summary-btn">📋 Súmula (${entry.matches.length} ${entry.matches.length === 1 ? 'jogo' : 'jogos'})</button>` : ''}
+          ${store.isAdmin ? '<button type="button" class="btn btn-secondary btn-sm history-edit-stats-btn">✏️ Editar estatísticas</button>' : ''}
         </div>
         ` : ''}
         <div class="history-teams-grid">
@@ -189,6 +190,9 @@ export function renderHistoryView() {
     });
     card.querySelector('.history-edit-stats-btn')?.addEventListener('click', () => {
       openEditHistoryStatsModal(entry);
+    });
+    card.querySelector('.history-summary-btn')?.addEventListener('click', () => {
+      openMatchSummaryModal(entry);
     });
     card.querySelector('.history-delete-btn')?.addEventListener('click', () => {
       openDeleteHistoryModal(entry);
@@ -469,6 +473,115 @@ function openEditHistoryStatsModal(entry) {
     } else if (result?.error) {
       showToast(result.error);
     }
+  });
+}
+
+/**
+ * Súmula: every game of a finished pelada in the order it was played — score, and who
+ * scored / assisted (and goalkeeper saves) for each side. Built from entry.matches, where
+ * each game keeps its own per-player statsDelta.
+ */
+function openMatchSummaryModal(entry) {
+  const modalContainer = document.getElementById('modal-container');
+  const teamById = Object.fromEntries((entry.teams || []).map(team => [team.id, team]));
+  // Stored newest-first (the rotation log), shown first-game-first.
+  const games = [...(entry.matches || [])].reverse();
+
+  const playerName = (pid) => escapeHtml(store.getPlayer(pid)?.name || 'Jogador');
+
+  /** The side a player played for in this game: rosters (swap-aware), then guest slots, then the pelada's teams. */
+  const sideOf = (match, pid) =>
+    getPlayerTeamInMatch(match, pid, entry.teams) ||
+    match.guestTeams?.[pid] ||
+    (entry.teams || []).find(team => (team.playerIds || []).includes(pid))?.id ||
+    null;
+
+  const statLine = (icon, items) => items.length
+    ? `<div class="summary-stat-line"><span class="summary-stat-icon">${icon}</span><span>${items
+        .map(({ pid, count, guest }) => `${playerName(pid)}${count > 1 ? ` <strong>×${count}</strong>` : ''}${guest ? ' <span class="summary-guest" title="Completando o time">(comp.)</span>' : ''}`)
+        .join(', ')}</span></div>`
+    : '';
+
+  const sideHtml = (match, teamId, score) => {
+    const delta = match.statsDelta || {};
+    const scorers = [];
+    const assisters = [];
+    Object.entries(delta).forEach(([pid, stats]) => {
+      if (sideOf(match, pid) !== teamId) return;
+      const goals = (Number(stats.goals) || 0) + (Number(stats.guestGoals) || 0);
+      const assists = (Number(stats.assists) || 0) + (Number(stats.guestAssists) || 0);
+      const guest = !!(stats.guestGoals || stats.guestAssists);
+      if (goals > 0) scorers.push({ pid, count: goals, guest });
+      if (assists > 0) assisters.push({ pid, count: assists, guest });
+    });
+    scorers.sort((a, b) => b.count - a.count);
+    assisters.sort((a, b) => b.count - a.count);
+
+    // Score not explained by a recorded scorer: own goal / score correction (or a
+    // pelada finished before per-game stats were kept).
+    const unattributed = Math.max(0, (Number(score) || 0) - scorers.reduce((sum, s) => sum + s.count, 0));
+
+    const keeperId = match.goalkeepers?.[teamId];
+    const saves = keeperId ? Number(delta[keeperId]?.saves) || 0 : 0;
+
+    const lines = [
+      statLine('⚽', scorers),
+      unattributed ? `<div class="summary-stat-line muted"><span class="summary-stat-icon">⚽</span><span>${unattributed} sem autor registrado (gol contra / ajuste)</span></div>` : '',
+      statLine('👟', assisters),
+      keeperId && store.getPlayer(keeperId)
+        ? `<div class="summary-stat-line"><span class="summary-stat-icon">🧤</span><span>${playerName(keeperId)} — ${saves} defesa(s)</span></div>`
+        : '',
+    ].join('');
+    return lines || '<div class="summary-stat-line muted">Sem gols</div>';
+  };
+
+  const gamesHtml = games.map((match, index) => {
+    const teamA = teamById[match.teamAId] || { name: 'Time A', color: 'var(--text-dim)' };
+    const teamB = teamById[match.teamBId] || { name: 'Time B', color: 'var(--text-dim)' };
+    const scoreA = Number(match.scoreA) || 0;
+    const scoreB = Number(match.scoreB) || 0;
+    const result = !match.winnerId ? 'Empate' : `Vitória do ${escapeHtml((match.winnerId === match.teamAId ? teamA : teamB).name)}`;
+    return `
+      <section class="summary-game">
+        <header class="summary-game-header">
+          <span class="summary-game-number">Jogo ${index + 1}</span>
+          <span class="summary-game-result">${result}${match.time ? ` · ${escapeHtml(match.time)}` : ''}</span>
+        </header>
+        <div class="summary-scoreline">
+          <span class="summary-team ${match.winnerId === match.teamAId ? 'winner' : ''}" style="--team-color: ${teamA.color}">
+            <span class="history-team-dot"></span>${escapeHtml(teamA.name)}
+          </span>
+          <span class="summary-score">${scoreA} <span>×</span> ${scoreB}</span>
+          <span class="summary-team right ${match.winnerId === match.teamBId ? 'winner' : ''}" style="--team-color: ${teamB.color}">
+            ${escapeHtml(teamB.name)}<span class="history-team-dot"></span>
+          </span>
+        </div>
+        <div class="summary-sides">
+          <div class="summary-side" style="--team-color: ${teamA.color}">${sideHtml(match, match.teamAId, scoreA)}</div>
+          <div class="summary-side" style="--team-color: ${teamB.color}">${sideHtml(match, match.teamBId, scoreB)}</div>
+        </div>
+      </section>
+    `;
+  }).join('');
+
+  modalContainer.innerHTML = `
+    <div class="modal-overlay" id="match-summary-overlay">
+      <div class="modal-content summary-modal" style="max-width: 620px;">
+        <div class="modal-header">
+          <h2 class="modal-title">📋 Súmula — ${escapeHtml(entry.date || '')}</h2>
+          <button class="modal-close" id="match-summary-close" title="Fechar">✕</button>
+        </div>
+        <p class="summary-intro">${games.length} ${games.length === 1 ? 'jogo' : 'jogos'}, na ordem em que aconteceram.</p>
+        <div class="summary-games">${gamesHtml}</div>
+      </div>
+    </div>
+  `;
+
+  const close = () => { modalContainer.innerHTML = ''; };
+  const overlay = modalContainer.querySelector('#match-summary-overlay');
+  modalContainer.querySelector('#match-summary-close').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
   });
 }
 

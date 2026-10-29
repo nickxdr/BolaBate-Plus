@@ -2548,8 +2548,144 @@ body {
 /* History: goals/assists editor (admin) */
 .history-stats-edit-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
   margin-bottom: 10px;
+}
+
+/* Súmula (history): every game of a pelada with its score, scorers and assisters */
+.summary-intro {
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.summary-games {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.summary-game {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card-subtle);
+}
+
+.summary-game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+}
+
+.summary-game-number {
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.summary-game-result {
+  color: var(--text-dim);
+}
+
+.summary-scoreline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.summary-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.summary-team.right {
+  justify-content: flex-end;
+}
+
+.summary-team.winner {
+  font-weight: 800;
+}
+
+.summary-team .history-team-dot {
+  flex-shrink: 0;
+}
+
+.summary-score {
+  font-size: 1.25rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.summary-score span {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.summary-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.summary-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--team-color, var(--border-color));
+}
+
+.summary-side:last-child {
+  padding-left: 0;
+  padding-right: 8px;
+  border-left: 0;
+  border-right: 3px solid var(--team-color, var(--border-color));
+  text-align: right;
+}
+
+.summary-stat-line {
+  display: flex;
+  gap: 5px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.summary-side:last-child .summary-stat-line {
+  flex-direction: row-reverse;
+}
+
+.summary-stat-line.muted {
+  color: var(--text-dim);
+}
+
+.summary-stat-icon {
+  flex-shrink: 0;
+}
+
+.summary-guest {
+  color: var(--text-dim);
+  font-size: 0.72rem;
 }
 
 .history-stats-edit-list {

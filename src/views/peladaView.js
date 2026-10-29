@@ -178,7 +178,9 @@ function renderPeladaConfig(container, onNavigate) {
     const players = store
       .getActivePlayers()
       .filter((p) => gkMode !== "none" || !isGoalkeeper(p))
-      .filter((p) => p.name.toLowerCase().includes(filterText.toLowerCase()));
+      .filter((p) => p.name.toLowerCase().includes(filterText.toLowerCase()))
+      // Alphabetical (accent/case-insensitive, numbers in natural order: "2" before "10").
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base", numeric: true }));
 
     const count = selectedIds.size;
     const effectiveTeamCount = computeEffectiveTeamCount(
