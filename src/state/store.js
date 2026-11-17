@@ -130,6 +130,7 @@ function emptyActivePelada() {
   return {
     status: 'idle', // 'idle' | 'setup' | 'live'
     teamCount: 4,
+    hasPickedTeamCount: false,
     presentPlayerIds: [], // everyone taking part today, including late arrivals
     // Frozen copy of presentPlayerIds when the pelada went live: players added afterwards are
     // "late arrivals" (not on the day's original list) and the live view flags them.
@@ -156,6 +157,9 @@ function emptyActivePelada() {
 /** Fills goalkeeper fields missing on peladas saved before goalkeepers existed (never undefined — Firestore). */
 function normalizeActivePelada(pelada) {
   if (!pelada || typeof pelada !== 'object') return emptyActivePelada();
+  if (!Array.isArray(pelada.presentPlayerIds)) pelada.presentPlayerIds = [];
+  if (!Array.isArray(pelada.diaristaPlayerIds)) pelada.diaristaPlayerIds = [];
+  pelada.hasPickedTeamCount = Boolean(pelada.hasPickedTeamCount);
   // Peladas saved before the attendance snapshot existed fall back to the current list, so
   // nobody is wrongly flagged as a late arrival. New peladas freeze the list on live start.
   if (!Array.isArray(pelada.attendancePlayerIds)) {
@@ -699,11 +703,14 @@ class Store {
       const data = localStorage.getItem(this.scopedKey('_pelada'));
       if (data) {
         const parsed = JSON.parse(data);
-        if (parsed.status === 'idle') {
+        if (!Array.isArray(parsed.presentPlayerIds)) {
           parsed.presentPlayerIds = [];
         }
         if (!Array.isArray(parsed.diaristaPlayerIds)) {
           parsed.diaristaPlayerIds = [];
+        }
+        if (!Array.isArray(parsed.goalkeeperIds)) {
+          parsed.goalkeeperIds = [];
         }
         if (parsed.rotation === undefined) {
           parsed.rotation = null;
@@ -2199,7 +2206,7 @@ class Store {
       },
     });
 
-    const key = parseDateToPeriod(historyEntry.dateISO) || this.currentPeriodKey();
+    const key = parseDateToPeriod(historyEntry.date || historyEntry.dateISO) || this.currentPeriodKey();
     this.ensurePeriodByKey(key);
 
     participatingPlayerIds.forEach(pid => {
@@ -2237,6 +2244,25 @@ class Store {
     return periodKey(now.getFullYear(), now.getMonth() + 1);
   }
 
+  healMisplacedHistoryEntries() {
+    let changed = false;
+    (this.history || []).forEach(entry => {
+      const correctKey = parseDateToPeriod(entry.date || entry.dateISO);
+      if (!correctKey || !entry.id) return;
+
+      Object.keys(this.monthlyStats || {}).forEach(periodKey => {
+        if (periodKey !== correctKey) {
+          const wrongPeriod = this.monthlyStats[periodKey];
+          if (wrongPeriod?.matchIds?.includes(entry.id)) {
+            removeHistoryEntryFromPeriod(wrongPeriod, entry);
+            changed = true;
+          }
+        }
+      });
+    });
+    return changed;
+  }
+
   hydrateMonthlyStats() {
     if (!this.monthlyStats || typeof this.monthlyStats !== 'object') {
       this.monthlyStats = {};
@@ -2255,13 +2281,17 @@ class Store {
       });
     }
 
+    const healed = this.healMisplacedHistoryEntries();
     this.mergeHistoryIntoMonthly();
     this.syncWinLossStatsFromHistory();
+    if (healed) {
+      this.syncCareerStatsFromMonthly({ silent: true });
+    }
   }
 
   mergeHistoryIntoMonthly() {
     (this.history || []).forEach(entry => {
-      const key = parseDateToPeriod(entry.dateISO || entry.date);
+      const key = parseDateToPeriod(entry.date || entry.dateISO);
       if (!key) return;
       this.ensurePeriodByKey(key);
       if (entry.id && this.monthlyStats[key].matchIds.includes(entry.id)) return;
@@ -2646,7 +2676,7 @@ class Store {
     const oldBagreId = entry.awardsSynced.bagre ? entry.awards.bagreId : null;
     const oldSelecaoIds = entry.awardsSynced.selecao ? [...entry.awards.selecaoIds] : [];
 
-    const key = parseDateToPeriod(entry.dateISO || entry.date) || this.currentPeriodKey();
+    const key = parseDateToPeriod(entry.date || entry.dateISO) || this.currentPeriodKey();
     this.ensurePeriodByKey(key);
 
     const adjustAward = (oldId, nextId, field) => {
@@ -2707,7 +2737,7 @@ class Store {
     const rostered = new Set((entry.teams || []).flatMap(t => t.playerIds || []));
     const keepers = new Set(entry.goalkeeperIds || []);
     const diaristas = new Set(entry.diaristaPlayerIds || []);
-    const key = parseDateToPeriod(entry.dateISO || entry.date) || this.currentPeriodKey();
+    const key = parseDateToPeriod(entry.date || entry.dateISO) || this.currentPeriodKey();
     if (!entry.stats || typeof entry.stats !== 'object') entry.stats = {};
 
     let changed = 0;
@@ -2768,7 +2798,7 @@ class Store {
     const entry = this.getHistoryEntry(historyId);
     if (!entry) return { success: false, error: 'Pelada não encontrada no histórico.' };
 
-    const key = parseDateToPeriod(entry.dateISO || entry.date);
+    const key = parseDateToPeriod(entry.date || entry.dateISO);
     if (key && this.monthlyStats && this.monthlyStats[key]) {
       removeHistoryEntryFromPeriod(this.monthlyStats[key], entry);
     }

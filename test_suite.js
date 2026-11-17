@@ -529,6 +529,100 @@ check('fillTeamWithPlayer is blocked for non-admins', blockedFill === undefined)
 check('the blocked action did not change the team',
   !store.activePelada.teams.find((t) => t.id === gateTeam.id).playerIds.includes(gateNewcomer.id));
 
+// ---------------------------------------------------------------------------
+// 6. Testing Date/Timezone Handling & Healing for October 31st Pelada
+// ---------------------------------------------------------------------------
+console.log('\n--- 6. Testing Date/Timezone Handling & Healing ---');
+const { parseDateToPeriod, createEmptyPeriod, applyHistoryEntryToPeriod } = await import('./src/services/periodStats.js');
+
+check('parseDateToPeriod correctly parses Brazilian format 31/10/2026 as October',
+  parseDateToPeriod('31/10/2026') === '2026-10');
+
+check('parseDateToPeriod correctly parses history entry object with local date 31/10/2026',
+  parseDateToPeriod({ date: '31/10/2026', dateISO: '2026-11-01T01:30:00.000Z' }) === '2026-10');
+
+check('parseDateToPeriod parses ISO date-only format',
+  parseDateToPeriod('2026-10-31') === '2026-10');
+
+// Test healing of history entry misplaced in November table
+const mockHistoryEntry = {
+  id: 'pelada_oct31_test',
+  date: '31/10/2026',
+  dateISO: '2026-11-01T01:00:00.000Z',
+  teamCount: 2,
+  teams: [
+    { id: 'team-1', playerIds: ['p1', 'p2'], wins: 1, draws: 0, losses: 0 },
+    { id: 'team-2', playerIds: ['p3', 'p4'], wins: 0, draws: 0, losses: 1 },
+  ],
+  stats: {
+    p1: { goals: 2, assists: 1 },
+    p2: { goals: 0, assists: 2 },
+  },
+  awards: { craqueId: null, selecaoIds: [], puskasId: null, bagreId: null },
+  awardsSynced: { craque: false, selecao: false, puskas: false, bagre: false },
+};
+
+// Intentionally place this entry wrongly into 2026-11
+if (!store.monthlyStats['2026-11']) store.monthlyStats['2026-11'] = createEmptyPeriod();
+applyHistoryEntryToPeriod(store.monthlyStats['2026-11'], mockHistoryEntry);
+store.history.unshift(mockHistoryEntry);
+
+check('misplaced entry is initially in 2026-11 matchIds',
+  store.monthlyStats['2026-11'].matchIds.includes('pelada_oct31_test'));
+check('player p1 initially has goals in 2026-11',
+  store.monthlyStats['2026-11'].players['p1'].goals === 2);
+
+// Run healing and merge
+store.hydrateMonthlyStats();
+
+check('healing removed the entry from 2026-11 matchIds',
+  !store.monthlyStats['2026-11'].matchIds.includes('pelada_oct31_test'));
+check('healing subtracted p1 goals from 2026-11',
+  store.monthlyStats['2026-11'].players['p1'].goals === 0);
+check('healing moved entry to 2026-10 matchIds',
+  store.monthlyStats['2026-10']?.matchIds.includes('pelada_oct31_test'));
+check('p1 now has 2 goals in 2026-10',
+  store.monthlyStats['2026-10'].players['p1'].goals === 2);
+
+// Clean up mock history entry
+store.history = store.history.filter(e => e.id !== 'pelada_oct31_test');
+store.hydrateMonthlyStats();
+
+// ---------------------------------------------------------------------------
+// 7. Testing Pelada Idle Selection Persistence Across Tabs and Player Edits
+// ---------------------------------------------------------------------------
+console.log('\n--- 7. Testing Pelada Selection Persistence ---');
+
+// Simulate picking players in idle setup
+store.activePelada = {
+  ...store.activePelada,
+  status: 'idle',
+  teamCount: 4,
+  hasPickedTeamCount: true,
+  presentPlayerIds: ['p1', 'p2', 'p3'],
+  diaristaPlayerIds: ['p2'],
+  goalkeeperIds: [],
+};
+store.saveQuiet();
+
+check('selections are persisted in store while idle',
+  store.activePelada.presentPlayerIds.length === 3 &&
+  store.activePelada.diaristaPlayerIds.includes('p2'));
+
+// Edit a selected player (e.g. while visiting the Jogadores tab)
+const p1Before = store.getPlayer('p1');
+const originalStars = p1Before.stars;
+store.updatePlayer('p1', { stars: 4.5, name: p1Before.name });
+
+check('player stars updated', store.getPlayer('p1').stars === 4.5);
+check('selected players remain selected after player edit',
+  store.activePelada.presentPlayerIds.includes('p1') &&
+  store.activePelada.presentPlayerIds.includes('p2') &&
+  store.activePelada.presentPlayerIds.includes('p3'));
+
+// Reset player stars
+store.updatePlayer('p1', { stars: originalStars });
+
 if (failures === 0) {
   console.log('✓ All underfilled-team regression checks passed!');
 } else {

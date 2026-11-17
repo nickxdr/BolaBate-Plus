@@ -16,14 +16,27 @@ export function periodKey(year, month) {
 export function parseDateToPeriod(dateValue) {
   if (!dateValue) return null;
 
-  if (typeof dateValue === 'string') {
-    const br = dateValue.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (br) return periodKey(Number(br[3]), Number(br[2]));
-
-    const iso = dateValue.trim().match(/^(\d{4})-(\d{2})/);
-    if (iso) return periodKey(Number(iso[1]), Number(iso[2]));
+  if (typeof dateValue === 'object' && !(dateValue instanceof Date)) {
+    return parseDateToPeriod(dateValue.date || dateValue.dateISO);
   }
 
+  if (typeof dateValue === 'string') {
+    const trimmed = dateValue.trim();
+    // 1. Brazilian format: DD/MM/YYYY or D/M/YYYY
+    const br = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (br) return periodKey(Number(br[3]), Number(br[2]));
+
+    // 2. Exact period key format: YYYY-MM
+    const ym = trimmed.match(/^(\d{4})-(\d{2})$/);
+    if (ym) return periodKey(Number(ym[1]), Number(ym[2]));
+
+    // 3. Date-only format: YYYY-MM-DD
+    const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (ymd) return periodKey(Number(ymd[1]), Number(ymd[2]));
+  }
+
+  // 4. Timestamps (ISO string with time/timezone or Date object)
+  // Use local timezone (getFullYear(), getMonth()) to respect the user's local day/month
   try {
     const d = new Date(dateValue);
     if (isNaN(d.getTime())) return null;
@@ -324,7 +337,7 @@ export function aggregateHistoryToMonthly(history = []) {
   const monthly = {};
 
   history.forEach(entry => {
-    const key = parseDateToPeriod(entry.dateISO || entry.date);
+    const key = parseDateToPeriod(entry.date || entry.dateISO);
     if (!key) return;
     if (!monthly[key]) monthly[key] = createEmptyPeriod();
     applyHistoryEntryToPeriod(monthly[key], entry);

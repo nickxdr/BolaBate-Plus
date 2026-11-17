@@ -141,16 +141,54 @@ function renderWaitingForAdmin(container) {
 
 function renderPeladaConfig(container, onNavigate) {
   let teamCount = clampTeamCount(store.activePelada.teamCount || 4);
-  // No button starts pressed — only highlight the admin's own click until then. The chosen
-  // count is never downgraded when attendance is short; empty slots are filled later.
-  let hasPickedTeamCount = false;
-  // Start with a completely clean list: NO pre-selected players
+  let hasPickedTeamCount = Boolean(store.activePelada.hasPickedTeamCount);
+
+  // Restore any existing selections (persisting across tab switches and player edits)
+  const existingPresent = (store.activePelada.presentPlayerIds || []).filter((id) => !!store.getPlayer(id));
+  const existingKeepers = (store.activePelada.goalkeeperIds || []).filter((id) => !!store.getPlayer(id));
+  const existingDiaristas = (store.activePelada.diaristaPlayerIds || []).filter((id) => !!store.getPlayer(id));
+
+  // Reconcile roles in case a player was edited into/out of goalkeeper in the Jogadores tab
   let selectedIds = new Set();
-  let diaristaIds = new Set();
-  // Goalkeepers are picked separately: they never count toward the outfield headcount.
   let keeperIds = new Set();
-  store.activePelada.presentPlayerIds = [];
+
+  existingPresent.forEach((id) => {
+    const p = store.getPlayer(id);
+    if (p && isGoalkeeper(p)) {
+      keeperIds.add(id);
+    } else if (p) {
+      selectedIds.add(id);
+    }
+  });
+
+  existingKeepers.forEach((id) => {
+    const p = store.getPlayer(id);
+    if (p && !isGoalkeeper(p)) {
+      selectedIds.add(id);
+    } else if (p) {
+      keeperIds.add(id);
+    }
+  });
+
+  let diaristaIds = new Set(
+    existingDiaristas.filter((id) => selectedIds.has(id) || keeperIds.has(id))
+  );
+
   let filterText = "";
+
+  function syncSelectionToStore() {
+    if (store.activePelada.status === "idle") {
+      store.activePelada.presentPlayerIds = Array.from(selectedIds);
+      store.activePelada.diaristaPlayerIds = Array.from(diaristaIds);
+      store.activePelada.goalkeeperIds = Array.from(keeperIds);
+      store.activePelada.teamCount = teamCount;
+      store.activePelada.hasPickedTeamCount = hasPickedTeamCount;
+      store.saveQuiet();
+    }
+  }
+
+  // Ensure store reflects current sanitized lists
+  syncSelectionToStore();
 
   function update() {
     // .player-chips-grid scrolls internally (long rosters); update() rebuilds
@@ -344,6 +382,8 @@ function renderPeladaConfig(container, onNavigate) {
         teamCount = parseInt(e.currentTarget.getAttribute("data-count"), 10);
         hasPickedTeamCount = true;
         store.activePelada.teamCount = teamCount;
+        store.activePelada.hasPickedTeamCount = true;
+        syncSelectionToStore();
         update();
       });
     });
@@ -376,6 +416,7 @@ function renderPeladaConfig(container, onNavigate) {
         if (selectedIds.has(p.id)) continue;
         selectedIds.add(p.id);
       }
+      syncSelectionToStore();
       update();
     });
 
@@ -386,6 +427,9 @@ function renderPeladaConfig(container, onNavigate) {
         selectedIds.clear();
         diaristaIds.clear();
         keeperIds.clear();
+        hasPickedTeamCount = false;
+        store.activePelada.hasPickedTeamCount = false;
+        syncSelectionToStore();
         update();
       });
 
@@ -407,6 +451,7 @@ function renderPeladaConfig(container, onNavigate) {
           } else {
             keeperIds.add(pid);
           }
+          syncSelectionToStore();
           update();
           return;
         }
@@ -422,6 +467,7 @@ function renderPeladaConfig(container, onNavigate) {
           }
           selectedIds.add(pid);
         }
+        syncSelectionToStore();
         update();
       });
     });
@@ -436,6 +482,7 @@ function renderPeladaConfig(container, onNavigate) {
         } else {
           diaristaIds.add(pid);
         }
+        syncSelectionToStore();
         update();
       });
     });
