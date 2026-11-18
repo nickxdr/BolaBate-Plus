@@ -1482,7 +1482,7 @@ body {
   text-align: center;
 }
 
-/* Settings: Match Format (5x5 / 6x6) selector cards */
+/* Settings: Match Format (4x4 / 5x5 / 6x6) selector cards */
 .format-option-card {
   cursor: pointer;
   border: 2px solid var(--border-color);

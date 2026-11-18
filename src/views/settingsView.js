@@ -167,10 +167,15 @@ export function renderSettingsView(navigateTo) {
           ⚽ Formato da Pelada
         </h2>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
-          Escolha entre o tradicional 5x5 (padrão do app) e o 6x6. Times, sugestões de equilíbrio e o campinho ao vivo se ajustam automaticamente ao número de jogadores por time.
+          Escolha entre 4x4, o tradicional 5x5 (padrão do app) e o 6x6. Times, sugestões de equilíbrio e o campinho ao vivo se ajustam automaticamente ao número de jogadores por time.
         </p>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 12px;">
+          <div id="team-size-4-btn" class="card format-option-card ${store.teamSize === 4 ? "active" : ""} ${!canChangeTeamSize ? "disabled" : ""}" style="padding: 14px; text-align: center; margin-bottom: 0;">
+            <div style="font-size: 1.5rem; margin-bottom: 6px;">4️⃣</div>
+            <strong style="font-size: 0.95rem;">4x4</strong>
+          </div>
+
           <div id="team-size-5-btn" class="card format-option-card ${store.teamSize === 5 ? "active" : ""} ${!canChangeTeamSize ? "disabled" : ""}" style="padding: 14px; text-align: center; margin-bottom: 0;">
             <div style="font-size: 1.5rem; margin-bottom: 6px;">5️⃣</div>
             <strong style="font-size: 0.95rem;">5x5</strong>
@@ -416,7 +421,7 @@ export function renderSettingsView(navigateTo) {
       playSound("whistleEnd");
     });
 
-    // Bind Match Format (5x5 / 6x6)
+    // Bind Match Format (4x4 / 5x5 / 6x6)
     function handleTeamSizeClick(size) {
       if (!canChangeTeamSize) {
         if (!store.isAdmin) {
@@ -470,6 +475,9 @@ export function renderSettingsView(navigateTo) {
     });
 
     // Team-size buttons only exist in the DOM for admins (the whole card is hidden otherwise).
+    container
+      .querySelector("#team-size-4-btn")
+      ?.addEventListener("click", () => handleTeamSizeClick(4));
     container
       .querySelector("#team-size-5-btn")
       ?.addEventListener("click", () => handleTeamSizeClick(5));

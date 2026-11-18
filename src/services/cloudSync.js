@@ -283,7 +283,7 @@ function applyRemoteData(data, { notify = true } = {}) {
     if (data.monthlyStats && typeof data.monthlyStats === "object") {
       store.monthlyStats = data.monthlyStats;
     }
-    if (data.teamSize === 5 || data.teamSize === 6) {
+    if (data.teamSize === 4 || data.teamSize === 5 || data.teamSize === 6) {
       store.teamSize = data.teamSize;
     }
     if (Number.isFinite(data.matchDurationMs) && data.matchDurationMs > 0) {

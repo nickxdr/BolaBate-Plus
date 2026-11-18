@@ -275,7 +275,7 @@ export function randomizeTeams(players, teamCount = 4, teamSize = 5) {
  *
  * @param {Array} currentTeamPlayers - Players currently in the team (1 to teamSize-1 players)
  * @param {Array} availablePlayers - Unassigned players who are present
- * @param {number} teamSize - Players per team (5 or 6)
+ * @param {number} teamSize - Players per team (4, 5 or 6)
  * @returns {Array} List of suggestions ranked by how close they bring the team to the star goal
  */
 export function getSmartSuggestions(currentTeamPlayers, availablePlayers, teamSize = 5) {

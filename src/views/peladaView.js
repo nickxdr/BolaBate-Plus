@@ -2828,6 +2828,19 @@ function openConfirmFinishMatchModal(match, teamA, teamB, onConfirm) {
 // ----------------------------------------------------
 // Match Pitch — the two teams currently facing off, score & timer
 // ----------------------------------------------------
+// 4-a-side formation: 2 back, 2 front (no middle slot)
+const FORMATION_SLOTS_4 = ["BACK1", "BACK2", "FRONT1", "FRONT2"];
+const FORMATION_COORDS_4 = {
+  BACK1: { x: 28, y: 25 },
+  BACK2: { x: 28, y: 75 },
+  FRONT1: { x: 75, y: 25 },
+  FRONT2: { x: 75, y: 75 },
+};
+const POSITION_PREFERENCE_SLOTS_4 = {
+  Fixo: ["BACK1", "BACK2"],
+  Pivô: ["FRONT1", "FRONT2"],
+};
+
 // 5-a-side formation (default), goalkeeper not shown here: 2 back, 1 middle, 2 front
 const FORMATION_SLOTS_5 = ["BACK1", "BACK2", "MID", "FRONT1", "FRONT2"];
 const FORMATION_COORDS_5 = {
@@ -2869,18 +2882,21 @@ const POSITION_PREFERENCE_SLOTS_6 = {
 };
 
 function getFormationSlots(teamSize) {
+  if (teamSize === 4) return FORMATION_SLOTS_4;
   return teamSize === 6 ? FORMATION_SLOTS_6 : FORMATION_SLOTS_5;
 }
 function getFormationCoordsMap(teamSize) {
+  if (teamSize === 4) return FORMATION_COORDS_4;
   return teamSize === 6 ? FORMATION_COORDS_6 : FORMATION_COORDS_5;
 }
 function getPositionPreferenceSlots(teamSize) {
+  if (teamSize === 4) return POSITION_PREFERENCE_SLOTS_4;
   return teamSize === 6
     ? POSITION_PREFERENCE_SLOTS_6
     : POSITION_PREFERENCE_SLOTS_5;
 }
 
-/** Places teammates onto formation slots (5 or 6, per teamSize), honoring favoritePosition where possible; the rest fill in (deterministically, so the layout doesn't jitter on every re-render). */
+/** Places teammates onto formation slots (4, 5 or 6, per teamSize), honoring favoritePosition where possible; the rest fill in (deterministically, so the layout doesn't jitter on every re-render). */
 function assignFormationSlots(players, teamSize) {
   const slots = getFormationSlots(teamSize);
   const preferenceSlots = getPositionPreferenceSlots(teamSize);

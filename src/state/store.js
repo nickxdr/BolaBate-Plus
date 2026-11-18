@@ -204,7 +204,7 @@ class Store {
     this.peladaId = localStorage.getItem(PELADA_ID_KEY) || null;
     this.peladaName = localStorage.getItem(PELADA_NAME_KEY) || this.peladaId || '';
     this.players = this.loadPlayers();
-    this.teamSize = this.loadTeamSize(); // 5 (default) or 6 — league-wide match format, synced via cloud
+    this.teamSize = this.loadTeamSize(); // 4, 5 (default) or 6 — league-wide match format, synced via cloud
     this.matchDurationMs = this.loadMatchDuration(); // how long each match lasts — league-wide, synced via cloud
     this.goalsToFinish = this.loadGoalsToFinish(); // remaining league-wide match rules (Regras da Partida)
     this.goalLimitEnabled = this.loadGoalLimitEnabled();
@@ -392,19 +392,19 @@ class Store {
   loadTeamSize() {
     try {
       const raw = Number(localStorage.getItem(this.scopedKey('_team_size')));
-      return raw === 6 ? 6 : 5;
+      return raw === 4 || raw === 6 ? raw : 5;
     } catch (e) {
       return 5;
     }
   }
 
   /**
-   * League-wide match format — 5v5 (default) or 6v6. Reshapes team assembly, the mini-pitch
+   * League-wide match format — 4v4, 5v5 (default) or 6v6. Reshapes team assembly, the mini-pitch
    * formation and the completeness checks everywhere else in the pelada flow, so it's blocked
    * while a pelada is being set up or is live to avoid corrupting an in-progress roster.
    */
   setTeamSize(size) {
-    const next = Number(size) === 6 ? 6 : 5;
+    const next = Number(size) === 4 || Number(size) === 6 ? Number(size) : 5;
     if (next === this.teamSize) return { success: true };
     if (this.activePelada.status !== 'idle') {
       return { success: false, error: 'Termine ou cancele a pelada atual antes de trocar o formato.' };
